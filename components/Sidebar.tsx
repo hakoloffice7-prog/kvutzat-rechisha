@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils'
 const navItems = [
   { href: '/dashboard', label: 'דשבורד', icon: LayoutDashboard },
   { href: '/cities', label: 'ערים ופרויקטים', icon: Building2 },
+  { href: '/residents', label: 'דיירים', icon: Users },
   { href: '/suppliers', label: 'ספקים', icon: Truck },
   { href: '/categories', label: 'קטגוריות', icon: Package },
   { href: '/reports', label: 'דוחות Excel', icon: FileSpreadsheet },
