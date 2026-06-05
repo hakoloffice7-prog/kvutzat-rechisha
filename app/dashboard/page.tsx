@@ -73,94 +73,106 @@ export default async function DashboardPage() {
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">ערים</p>
-                <p className="text-3xl font-bold text-gray-900 mt-1">{citiesCount || 0}</p>
+        <Link href="/cities">
+          <Card className="cursor-pointer hover:shadow-md transition-shadow">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500">ערים</p>
+                  <p className="text-3xl font-bold text-gray-900 mt-1">{citiesCount || 0}</p>
+                </div>
+                <div className="bg-blue-100 p-3 rounded-full">
+                  <Building2 className="h-6 w-6 text-blue-600" />
+                </div>
               </div>
-              <div className="bg-blue-100 p-3 rounded-full">
-                <Building2 className="h-6 w-6 text-blue-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </Link>
 
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">פרויקטים</p>
-                <p className="text-3xl font-bold text-gray-900 mt-1">{projectsCount || 0}</p>
+        <Link href="/projects">
+          <Card className="cursor-pointer hover:shadow-md transition-shadow">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500">פרויקטים</p>
+                  <p className="text-3xl font-bold text-gray-900 mt-1">{projectsCount || 0}</p>
+                </div>
+                <div className="bg-purple-100 p-3 rounded-full">
+                  <Building2 className="h-6 w-6 text-purple-600" />
+                </div>
               </div>
-              <div className="bg-purple-100 p-3 rounded-full">
-                <Building2 className="h-6 w-6 text-purple-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </Link>
 
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">דיירים</p>
-                <p className="text-3xl font-bold text-gray-900 mt-1">{residentsCount || 0}</p>
+        <Link href="/residents">
+          <Card className="cursor-pointer hover:shadow-md transition-shadow">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500">דיירים</p>
+                  <p className="text-3xl font-bold text-gray-900 mt-1">{residentsCount || 0}</p>
+                </div>
+                <div className="bg-green-100 p-3 rounded-full">
+                  <Users className="h-6 w-6 text-green-600" />
+                </div>
               </div>
-              <div className="bg-green-100 p-3 rounded-full">
-                <Users className="h-6 w-6 text-green-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </Link>
 
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">הזמנות שהושלמו</p>
-                <p className="text-3xl font-bold text-gray-900 mt-1">{ordersCount || 0}</p>
+        <Link href="/orders">
+          <Card className="cursor-pointer hover:shadow-md transition-shadow">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500">הזמנות שהושלמו</p>
+                  <p className="text-3xl font-bold text-gray-900 mt-1">{ordersCount || 0}</p>
+                </div>
+                <div className="bg-orange-100 p-3 rounded-full">
+                  <ShoppingCart className="h-6 w-6 text-orange-600" />
+                </div>
               </div>
-              <div className="bg-orange-100 p-3 rounded-full">
-                <ShoppingCart className="h-6 w-6 text-orange-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </Link>
       </div>
 
       {/* Financial Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">סך הכנסות</p>
-                <p className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(totalRevenue)}</p>
+        <Link href="/orders">
+          <Card className="cursor-pointer hover:shadow-md transition-shadow">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500">סך הכנסות</p>
+                  <p className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(totalRevenue)}</p>
+                </div>
+                <div className="bg-indigo-100 p-3 rounded-full">
+                  <TrendingUp className="h-6 w-6 text-indigo-600" />
+                </div>
               </div>
-              <div className="bg-indigo-100 p-3 rounded-full">
-                <TrendingUp className="h-6 w-6 text-indigo-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </Link>
 
-        <Card className={totalProfit >= 0 ? 'border-green-200' : 'border-red-200'}>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">סך רווח</p>
-                <p className={`text-2xl font-bold mt-1 ${totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {formatCurrency(totalProfit)}
-                </p>
+        <Link href="/orders">
+          <Card className={`cursor-pointer hover:shadow-md transition-shadow ${totalProfit >= 0 ? 'border-green-200' : 'border-red-200'}`}>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500">סך רווח</p>
+                  <p className={`text-2xl font-bold mt-1 ${totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {formatCurrency(totalProfit)}
+                  </p>
+                </div>
+                <div className={`p-3 rounded-full ${totalProfit >= 0 ? 'bg-green-100' : 'bg-red-100'}`}>
+                  <TrendingUp className={`h-6 w-6 ${totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}`} />
+                </div>
               </div>
-              <div className={`p-3 rounded-full ${totalProfit >= 0 ? 'bg-green-100' : 'bg-red-100'}`}>
-                <TrendingUp className={`h-6 w-6 ${totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}`} />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </Link>
       </div>
 
       {/* Notifications alert */}

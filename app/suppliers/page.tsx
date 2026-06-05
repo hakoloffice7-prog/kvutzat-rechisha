@@ -41,6 +41,8 @@ export default function SuppliersPage() {
     category_id: '',
   })
   const [saving, setSaving] = useState(false)
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null)
   const supabase = createClient()
 
   useEffect(() => {
@@ -76,6 +78,26 @@ export default function SuppliersPage() {
     if (!error) {
       setNewSupplier({ name: '', phone: '', email: '', category_id: '' })
       setDialogOpen(false)
+      fetchData()
+    }
+    setSaving(false)
+  }
+
+  async function saveEditSupplier() {
+    if (!editingSupplier || !editingSupplier.name.trim()) return
+    setSaving(true)
+    const { error } = await supabase
+      .from('suppliers')
+      .update({
+        name: editingSupplier.name.trim(),
+        phone: editingSupplier.phone.trim(),
+        email: editingSupplier.email.trim(),
+        category_id: editingSupplier.category_id || null,
+      })
+      .eq('id', editingSupplier.id)
+    if (!error) {
+      setEditDialogOpen(false)
+      setEditingSupplier(null)
       fetchData()
     }
     setSaving(false)
@@ -210,6 +232,17 @@ export default function SuppliersPage() {
                   <Button
                     variant="ghost"
                     size="sm"
+                    onClick={() => {
+                      setEditingSupplier({ ...supplier })
+                      setEditDialogOpen(true)
+                    }}
+                    className="text-blue-400 hover:text-blue-600"
+                  >
+                    <Edit2 className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => deleteSupplier(supplier.id)}
                     className="text-red-400 hover:text-red-600"
                   >
@@ -242,6 +275,64 @@ export default function SuppliersPage() {
           ))}
         </div>
       )}
+
+      {/* Edit Supplier Dialog */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>עריכת ספק</DialogTitle>
+          </DialogHeader>
+          {editingSupplier && (
+            <div className="space-y-4" dir="rtl">
+              <div className="space-y-2">
+                <Label>שם הספק *</Label>
+                <Input
+                  value={editingSupplier.name}
+                  onChange={(e) => setEditingSupplier({ ...editingSupplier, name: e.target.value })}
+                  placeholder="שם החברה / ספק"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>קטגוריה</Label>
+                <Select
+                  value={editingSupplier.category_id || ''}
+                  onChange={(e) => setEditingSupplier({ ...editingSupplier, category_id: e.target.value })}
+                >
+                  <option value="">בחר קטגוריה</option>
+                  {categories.map(cat => (
+                    <option key={cat.id} value={cat.id}>{cat.name}</option>
+                  ))}
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>טלפון</Label>
+                <Input
+                  value={editingSupplier.phone || ''}
+                  onChange={(e) => setEditingSupplier({ ...editingSupplier, phone: e.target.value })}
+                  placeholder="050-0000000"
+                  dir="ltr"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>אימייל</Label>
+                <Input
+                  type="email"
+                  value={editingSupplier.email || ''}
+                  onChange={(e) => setEditingSupplier({ ...editingSupplier, email: e.target.value })}
+                  placeholder="supplier@example.com"
+                  dir="ltr"
+                />
+              </div>
+              <div className="flex gap-2 justify-end">
+                <Button variant="outline" onClick={() => setEditDialogOpen(false)}>ביטול</Button>
+                <Button onClick={saveEditSupplier} disabled={saving || !editingSupplier.name.trim()}>
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'שמור'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
