@@ -55,6 +55,7 @@ export default function ReportsPage() {
         order_items(description, model, customer_price, supplier_price)
       `)
       .eq('residents.project_id', selectedProject)
+      .eq('status', 'ordered')
 
     if (data) setPreviewData(data)
     setPreviewLoading(false)
@@ -75,6 +76,7 @@ export default function ReportsPage() {
           order_items(description, model, customer_price, supplier_price)
         `)
         .eq('residents.project_id', selectedProject)
+        .eq('status', 'ordered')
 
       if (!orders) {
         setExporting(false)
@@ -91,6 +93,7 @@ export default function ReportsPage() {
       orders.forEach(order => {
         const resident = order.residents as any
         const items = order.order_items as any[]
+        const paymentStatus = PAYMENT_STATUS_LABELS[order.payment_status] || order.payment_status
 
         if (!items || items.length === 0) {
           rows.push({
@@ -98,10 +101,10 @@ export default function ReportsPage() {
             'כתובת': resident?.address || '',
             'טלפון': resident?.phone || '',
             'קטגוריה': (order.categories as any)?.name || '',
-            'סטטוס': STATUS_LABELS[order.status] || order.status,
+            'סטטוס תשלום': paymentStatus,
             'תיאור פריט': '',
             'דגם': '',
-            'מחיר לקוח': '',
+            'מחיר לתשלום': '',
           })
         } else {
           items.forEach(item => {
@@ -110,10 +113,10 @@ export default function ReportsPage() {
               'כתובת': resident?.address || '',
               'טלפון': resident?.phone || '',
               'קטגוריה': (order.categories as any)?.name || '',
-              'סטטוס': STATUS_LABELS[order.status] || order.status,
+              'סטטוס תשלום': paymentStatus,
               'תיאור פריט': item.description,
               'דגם': item.model || '',
-              'מחיר לקוח': item.customer_price || 0,
+              'מחיר לתשלום': item.customer_price || 0,
             })
           })
         }
@@ -231,7 +234,7 @@ export default function ReportsPage() {
                       <th className="text-right py-2 px-3 font-semibold">כתובת</th>
                       <th className="text-right py-2 px-3 font-semibold">טלפון</th>
                       <th className="text-right py-2 px-3 font-semibold">קטגוריה</th>
-                      <th className="text-right py-2 px-3 font-semibold">סטטוס</th>
+                      <th className="text-right py-2 px-3 font-semibold">סטטוס תשלום</th>
                       <th className="text-right py-2 px-3 font-semibold">תיאור פריט</th>
                       <th className="text-right py-2 px-3 font-semibold">דגם</th>
                       <th className="text-right py-2 px-3 font-semibold">מחיר לתשלום</th>
@@ -248,7 +251,7 @@ export default function ReportsPage() {
                             <td className="py-2 px-3">{resident?.address}</td>
                             <td className="py-2 px-3">{resident?.phone}</td>
                             <td className="py-2 px-3">{order.categories?.name || '-'}</td>
-                            <td className="py-2 px-3">{STATUS_LABELS[order.status]}</td>
+                            <td className="py-2 px-3">{PAYMENT_STATUS_LABELS[order.payment_status]}</td>
                             <td className="py-2 px-3 text-gray-400" colSpan={3}>אין פריטים</td>
                           </tr>
                         )
@@ -261,7 +264,7 @@ export default function ReportsPage() {
                               <td className="py-2 px-3" rowSpan={items.length}>{resident?.address}</td>
                               <td className="py-2 px-3" rowSpan={items.length}>{resident?.phone}</td>
                               <td className="py-2 px-3" rowSpan={items.length}>{order.categories?.name || '-'}</td>
-                              <td className="py-2 px-3" rowSpan={items.length}>{STATUS_LABELS[order.status]}</td>
+                              <td className="py-2 px-3" rowSpan={items.length}>{PAYMENT_STATUS_LABELS[order.payment_status]}</td>
                             </>
                           ) : null}
                           <td className="py-2 px-3">{item.description}</td>
