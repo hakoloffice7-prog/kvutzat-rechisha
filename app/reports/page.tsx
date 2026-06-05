@@ -228,33 +228,47 @@ export default function ReportsPage() {
                   <thead>
                     <tr className="bg-gray-50 border-b">
                       <th className="text-right py-2 px-3 font-semibold">דייר</th>
+                      <th className="text-right py-2 px-3 font-semibold">כתובת</th>
+                      <th className="text-right py-2 px-3 font-semibold">טלפון</th>
                       <th className="text-right py-2 px-3 font-semibold">קטגוריה</th>
-                      <th className="text-right py-2 px-3 font-semibold">ספק</th>
                       <th className="text-right py-2 px-3 font-semibold">סטטוס</th>
-                      <th className="text-right py-2 px-3 font-semibold">תשלום</th>
-                      <th className="text-right py-2 px-3 font-semibold">פריטים</th>
-                      <th className="text-right py-2 px-3 font-semibold">הכנסה</th>
-                      <th className="text-right py-2 px-3 font-semibold">רווח</th>
+                      <th className="text-right py-2 px-3 font-semibold">תיאור פריט</th>
+                      <th className="text-right py-2 px-3 font-semibold">דגם</th>
+                      <th className="text-right py-2 px-3 font-semibold">מחיר לתשלום</th>
                     </tr>
                   </thead>
                   <tbody>
                     {previewData.map((order: any) => {
-                      const revenue = order.order_items?.reduce((s: number, i: any) => s + (i.customer_price || 0), 0) || 0
-                      const cost = order.order_items?.reduce((s: number, i: any) => s + (i.supplier_price || 0), 0) || 0
-                      return (
-                        <tr key={order.id} className="border-b hover:bg-gray-50">
-                          <td className="py-2 px-3">{order.residents?.name}</td>
-                          <td className="py-2 px-3">{order.categories?.name || '-'}</td>
-                          <td className="py-2 px-3">{order.suppliers?.name || '-'}</td>
-                          <td className="py-2 px-3">{STATUS_LABELS[order.status]}</td>
-                          <td className="py-2 px-3">{PAYMENT_STATUS_LABELS[order.payment_status]}</td>
-                          <td className="py-2 px-3">{order.order_items?.length || 0}</td>
-                          <td className="py-2 px-3">{formatCurrency(revenue)}</td>
-                          <td className={`py-2 px-3 font-medium ${revenue - cost >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            {formatCurrency(revenue - cost)}
-                          </td>
+                      const resident = order.residents as any
+                      const items = order.order_items as any[]
+                      if (!items || items.length === 0) {
+                        return (
+                          <tr key={order.id} className="border-b hover:bg-gray-50">
+                            <td className="py-2 px-3 font-medium">{resident?.name}</td>
+                            <td className="py-2 px-3">{resident?.address}</td>
+                            <td className="py-2 px-3">{resident?.phone}</td>
+                            <td className="py-2 px-3">{order.categories?.name || '-'}</td>
+                            <td className="py-2 px-3">{STATUS_LABELS[order.status]}</td>
+                            <td className="py-2 px-3 text-gray-400" colSpan={3}>אין פריטים</td>
+                          </tr>
+                        )
+                      }
+                      return items.map((item: any, idx: number) => (
+                        <tr key={`${order.id}-${idx}`} className="border-b hover:bg-gray-50">
+                          {idx === 0 ? (
+                            <>
+                              <td className="py-2 px-3 font-medium" rowSpan={items.length}>{resident?.name}</td>
+                              <td className="py-2 px-3" rowSpan={items.length}>{resident?.address}</td>
+                              <td className="py-2 px-3" rowSpan={items.length}>{resident?.phone}</td>
+                              <td className="py-2 px-3" rowSpan={items.length}>{order.categories?.name || '-'}</td>
+                              <td className="py-2 px-3" rowSpan={items.length}>{STATUS_LABELS[order.status]}</td>
+                            </>
+                          ) : null}
+                          <td className="py-2 px-3">{item.description}</td>
+                          <td className="py-2 px-3">{item.model || '-'}</td>
+                          <td className="py-2 px-3 font-medium">{formatCurrency(item.customer_price || 0)}</td>
                         </tr>
-                      )
+                      ))
                     })}
                   </tbody>
                 </table>
