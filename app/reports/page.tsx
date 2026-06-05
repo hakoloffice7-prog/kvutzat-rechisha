@@ -95,34 +95,25 @@ export default function ReportsPage() {
         if (!items || items.length === 0) {
           rows.push({
             'שם דייר': resident?.name || '',
-            'כתובת דייר': resident?.address || '',
+            'כתובת': resident?.address || '',
             'טלפון': resident?.phone || '',
             'קטגוריה': (order.categories as any)?.name || '',
-            'ספק': (order.suppliers as any)?.name || '',
             'סטטוס': STATUS_LABELS[order.status] || order.status,
-            'סטטוס תשלום': PAYMENT_STATUS_LABELS[order.payment_status] || order.payment_status,
             'תיאור פריט': '',
             'דגם': '',
-            'מחיר לקוח': 0,
-            'מחיר ספק': 0,
-            'רווח': 0,
+            'מחיר לקוח': '',
           })
         } else {
           items.forEach(item => {
-            const profit = (item.customer_price || 0) - (item.supplier_price || 0)
             rows.push({
               'שם דייר': resident?.name || '',
-              'כתובת דייר': resident?.address || '',
+              'כתובת': resident?.address || '',
               'טלפון': resident?.phone || '',
               'קטגוריה': (order.categories as any)?.name || '',
-              'ספק': (order.suppliers as any)?.name || '',
               'סטטוס': STATUS_LABELS[order.status] || order.status,
-              'סטטוס תשלום': PAYMENT_STATUS_LABELS[order.payment_status] || order.payment_status,
               'תיאור פריט': item.description,
               'דגם': item.model || '',
               'מחיר לקוח': item.customer_price || 0,
-              'מחיר ספק': item.supplier_price || 0,
-              'רווח': profit,
             })
           })
         }
@@ -210,10 +201,9 @@ export default function ReportsPage() {
             <p className="font-medium mb-2">הקובץ יכלול את הנתונים הבאים:</p>
             <ul className="space-y-1 list-disc list-inside">
               <li>שם דייר, כתובת וטלפון</li>
-              <li>קטגוריה וספק</li>
-              <li>סטטוס הזמנה וסטטוס תשלום</li>
+              <li>קטגוריה וסטטוס הזמנה</li>
               <li>תיאור ודגם לכל פריט</li>
-              <li>מחיר לקוח, מחיר ספק ורווח</li>
+              <li>מחיר לקוח</li>
             </ul>
           </div>
         </CardContent>

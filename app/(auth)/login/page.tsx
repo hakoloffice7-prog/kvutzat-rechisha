@@ -48,7 +48,7 @@ export default function LoginPage() {
           </div>
           <div>
             <CardTitle className="text-2xl">קבוצות רכישה</CardTitle>
-            <CardDescription className="mt-1">דודי וייס - מערכת ניהול</CardDescription>
+            <CardDescription className="mt-1">מערכת ניהול קבוצות רכישה</CardDescription>
           </div>
         </CardHeader>
 

@@ -4,7 +4,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import Sidebar from '@/components/Sidebar'
 
 export const metadata: Metadata = {
-  title: 'קבוצות רכישה - דודי וייס',
+  title: 'קבוצות רכישה',
   description: 'מערכת לניהול קבוצות רכישה בפרויקטי דיור',
 }
 
