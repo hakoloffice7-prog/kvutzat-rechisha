@@ -26,7 +26,7 @@ export default async function DashboardPage() {
     supabase.from('cities').select('*', { count: 'exact', head: true }),
     supabase.from('projects').select('*', { count: 'exact', head: true }),
     supabase.from('residents').select('*', { count: 'exact', head: true }),
-    supabase.from('orders').select('*', { count: 'exact', head: true }).eq('status', 'ordered'),
+    supabase.from('orders').select('*', { count: 'exact', head: true }),
     supabase.from('order_items').select('customer_price, supplier_price'),
     supabase.from('notifications').select('*', { count: 'exact', head: true }).eq('is_read', false),
     supabase.from('orders')
@@ -113,7 +113,7 @@ export default async function DashboardPage() {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-500">הזמנות שהושלמו</p>
+                  <p className="text-sm text-gray-500">הזמנות</p>
                   <p className="text-3xl font-bold text-gray-900 mt-1">{ordersCount || 0}</p>
                 </div>
                 <div className="bg-orange-100 p-3 rounded-full">
