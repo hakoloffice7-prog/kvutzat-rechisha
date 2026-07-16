@@ -35,7 +35,11 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# data files with personal info - never commit
+# IDE
+.claude/
+.idea/
+
+# data files - never commit
 *.xlsx
-import_data.sql
-import_data.py
+*.py
+*.sql
