@@ -2,7 +2,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Building2, Users, ShoppingCart, Bell, TrendingUp } from 'lucide-react'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, STATUS_LABELS, PAYMENT_STATUS_LABELS } from '@/lib/utils'
 import Link from 'next/link'
 
 export default async function DashboardPage() {
@@ -44,19 +44,6 @@ export default async function DashboardPage() {
   }, 0) || 0
 
   const totalRevenue = orderItems?.reduce((sum, item) => sum + (item.customer_price || 0), 0) || 0
-
-  const statusLabels: Record<string, string> = {
-    contact: 'ליצור קשר',
-    considering: 'מתלבט',
-    interested: 'מעוניין',
-    ordered: 'הזמין',
-  }
-
-  const paymentLabels: Record<string, string> = {
-    not_paid: 'לא שילם',
-    advance: 'מקדמה',
-    paid_full: 'שילם הכל',
-  }
 
   const paymentColors: Record<string, string> = {
     not_paid: 'text-red-600',
@@ -212,10 +199,10 @@ export default async function DashboardPage() {
                     </div>
                     <div className="text-left">
                       <span className="text-sm font-medium">
-                        {statusLabels[order.status] || order.status}
+                        {STATUS_LABELS[order.status] || order.status}
                       </span>
                       <p className={`text-xs mt-1 ${paymentColors[order.payment_status]}`}>
-                        {paymentLabels[order.payment_status] || order.payment_status}
+                        {PAYMENT_STATUS_LABELS[order.payment_status] || order.payment_status}
                       </p>
                     </div>
                   </div>

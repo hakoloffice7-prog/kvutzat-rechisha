@@ -14,14 +14,25 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Plus, Users, Loader2, Pencil, Trash2, ShoppingCart, X, ChevronDown, ChevronUp } from 'lucide-react'
+import { STATUS_LABELS, STATUS_ORDER } from '@/lib/utils'
+import Link from 'next/link'
 
 type City = { id: string; name: string }
 type Project = { id: string; city_id: string; name: string; address: string }
-type Resident = { id: string; project_id: string; name: string; address: string; phone: string }
+type Resident = {
+  id: string
+  project_id: string
+  name: string
+  address: string
+  phone: string
+  phone2: string
+  email: string
+  key_location: string
+}
 type Category = { id: string; name: string }
 type Supplier = { id: string; name: string; category_id: string }
 
-type OrderStatus = 'contact' | 'considering' | 'interested' | 'ordered'
+type OrderStatus = typeof STATUS_ORDER[number]
 type PaymentStatus = 'not_paid' | 'advance' | 'paid_full'
 
 type OrderItem = {
@@ -41,14 +52,12 @@ type OrderRow = {
   status: OrderStatus
   payment_status: PaymentStatus
   supplier_id: string | null
+  total_price: number
+  deposit: number
 }
 
-const STATUS_OPTIONS: { value: OrderStatus; label: string }[] = [
-  { value: 'contact', label: 'ליצור קשר' },
-  { value: 'considering', label: 'מתלבט' },
-  { value: 'interested', label: 'מעוניין' },
-  { value: 'ordered', label: 'הזמין' },
-]
+const STATUS_OPTIONS: { value: OrderStatus; label: string }[] =
+  STATUS_ORDER.map((value) => ({ value, label: STATUS_LABELS[value] }))
 
 const PAYMENT_OPTIONS: { value: PaymentStatus; label: string }[] = [
   { value: 'not_paid', label: 'לא שילם' },
@@ -71,7 +80,7 @@ export default function ResidentsPage() {
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [newResident, setNewResident] = useState({ name: '', address: '', phone: '' })
+  const [newResident, setNewResident] = useState({ name: '', address: '', phone: '', phone2: '', email: '', key_location: '' })
   const [editingResident, setEditingResident] = useState<Resident | null>(null)
 
   // Orders dialog state
@@ -128,7 +137,7 @@ export default function ResidentsPage() {
     setLoadingResidents(true)
     const { data } = await supabase
       .from('residents')
-      .select('id, project_id, name, address, phone')
+      .select('id, project_id, name, address, phone, phone2, email, key_location')
       .eq('project_id', projectId)
       .order('name')
     setResidents(data || [])
@@ -143,9 +152,12 @@ export default function ResidentsPage() {
       name: newResident.name.trim(),
       address: newResident.address.trim(),
       phone: newResident.phone.trim(),
+      phone2: newResident.phone2.trim(),
+      email: newResident.email.trim(),
+      key_location: newResident.key_location.trim(),
     })
     if (!error) {
-      setNewResident({ name: '', address: '', phone: '' })
+      setNewResident({ name: '', address: '', phone: '', phone2: '', email: '', key_location: '' })
       setAddDialogOpen(false)
       fetchResidents(selectedProjectId)
     }
@@ -161,6 +173,9 @@ export default function ResidentsPage() {
         name: editingResident.name.trim(),
         address: editingResident.address.trim(),
         phone: editingResident.phone.trim(),
+        phone2: editingResident.phone2.trim(),
+        email: editingResident.email.trim(),
+        key_location: editingResident.key_location.trim(),
       })
       .eq('id', editingResident.id)
     if (!error) {
@@ -193,7 +208,7 @@ export default function ResidentsPage() {
       supabase.from('categories').select('id, name').order('name'),
       supabase.from('suppliers').select('id, name, category_id').order('name'),
       supabase.from('orders')
-        .select('id, category_id, status, payment_status, supplier_id')
+        .select('id, category_id, status, payment_status, supplier_id, total_price, deposit')
         .eq('resident_id', resident.id),
     ])
 
@@ -209,9 +224,11 @@ export default function ResidentsPage() {
       return {
         id: existing?.id || null,
         category_id: cat.id,
-        status: (existing?.status as OrderStatus) || 'contact',
+        status: (existing?.status as OrderStatus) || 'lead',
         payment_status: (existing?.payment_status as PaymentStatus) || 'not_paid',
         supplier_id: existing?.supplier_id || null,
+        total_price: existing?.total_price || 0,
+        deposit: existing?.deposit || 0,
       }
     })
     setOrderRows(rows)
@@ -231,6 +248,8 @@ export default function ResidentsPage() {
         status: row.status,
         payment_status: row.payment_status,
         supplier_id: row.supplier_id || null,
+        total_price: row.total_price || 0,
+        deposit: row.deposit || 0,
       }).eq('id', row.id)
     } else {
       // INSERT
@@ -240,6 +259,8 @@ export default function ResidentsPage() {
         status: row.status,
         payment_status: row.payment_status,
         supplier_id: row.supplier_id || null,
+        total_price: row.total_price || 0,
+        deposit: row.deposit || 0,
       }).select('id').single()
 
       if (data?.id) {
@@ -536,6 +557,36 @@ export default function ResidentsPage() {
                 value={newResident.phone}
                 onChange={(e) => setNewResident({ ...newResident, phone: e.target.value })}
                 placeholder="לדוגמה: 050-1234567"
+                dir="ltr"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="residentPhone2">נייד נוסף</Label>
+              <Input
+                id="residentPhone2"
+                value={newResident.phone2}
+                onChange={(e) => setNewResident({ ...newResident, phone2: e.target.value })}
+                placeholder="לדוגמה: 050-1234567"
+                dir="ltr"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="residentEmail">מייל</Label>
+              <Input
+                id="residentEmail"
+                value={newResident.email}
+                onChange={(e) => setNewResident({ ...newResident, email: e.target.value })}
+                placeholder="example@gmail.com"
+                dir="ltr"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="residentKeyLocation">מיקום מפתח</Label>
+              <Input
+                id="residentKeyLocation"
+                value={newResident.key_location}
+                onChange={(e) => setNewResident({ ...newResident, key_location: e.target.value })}
+                placeholder="לדוגמה: לברר מול לקוח / גר שם"
               />
             </div>
             <div className="flex gap-2 justify-end">
@@ -578,6 +629,33 @@ export default function ResidentsPage() {
                   id="editPhone"
                   value={editingResident.phone}
                   onChange={(e) => setEditingResident({ ...editingResident, phone: e.target.value })}
+                  dir="ltr"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="editPhone2">נייד נוסף</Label>
+                <Input
+                  id="editPhone2"
+                  value={editingResident.phone2 || ''}
+                  onChange={(e) => setEditingResident({ ...editingResident, phone2: e.target.value })}
+                  dir="ltr"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="editEmail">מייל</Label>
+                <Input
+                  id="editEmail"
+                  value={editingResident.email || ''}
+                  onChange={(e) => setEditingResident({ ...editingResident, email: e.target.value })}
+                  dir="ltr"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="editKeyLocation">מיקום מפתח</Label>
+                <Input
+                  id="editKeyLocation"
+                  value={editingResident.key_location || ''}
+                  onChange={(e) => setEditingResident({ ...editingResident, key_location: e.target.value })}
                 />
               </div>
               <div className="flex gap-2 justify-end">
@@ -622,6 +700,8 @@ export default function ResidentsPage() {
                       <th className="text-right py-3 px-4 font-medium">סטטוס</th>
                       <th className="text-right py-3 px-4 font-medium">תשלום</th>
                       <th className="text-right py-3 px-4 font-medium">ספק</th>
+                      <th className="text-right py-3 px-4 font-medium">מחיר ₪</th>
+                      <th className="text-right py-3 px-4 font-medium">מקדמה ₪</th>
                       <th className="py-3 px-4"></th>
                     </tr>
                   </thead>
@@ -674,6 +754,24 @@ export default function ResidentsPage() {
                             </select>
                           </td>
                           <td className="py-3 px-4">
+                            <Input
+                              type="number"
+                              value={row.total_price || ''}
+                              onChange={(e) => updateOrderRow(cat.id, { total_price: Number(e.target.value) })}
+                              className="h-8 text-sm w-24"
+                              dir="ltr"
+                            />
+                          </td>
+                          <td className="py-3 px-4">
+                            <Input
+                              type="number"
+                              value={row.deposit || ''}
+                              onChange={(e) => updateOrderRow(cat.id, { deposit: Number(e.target.value) })}
+                              className="h-8 text-sm w-24"
+                              dir="ltr"
+                            />
+                          </td>
+                          <td className="py-3 px-4">
                             <div className="flex gap-1 justify-end items-center">
                               <Button
                                 size="sm"
@@ -689,11 +787,18 @@ export default function ResidentsPage() {
                                 variant="ghost"
                                 onClick={() => openItemsPanel(cat)}
                                 className={`text-xs ${isExpanded ? 'text-blue-600' : 'text-gray-500'}`}
-                                title="פרטי הזמנה"
+                                title="פריטים"
                               >
-                                פרטים
+                                פריטים
                                 {isExpanded ? <ChevronUp className="h-3 w-3 mr-1" /> : <ChevronDown className="h-3 w-3 mr-1" />}
                               </Button>
+                              {row.id && (
+                                <Link href={`/orders/${row.id}`}>
+                                  <Button size="sm" variant="ghost" className="text-xs text-gray-500" title="פרטים מלאים (מדידות, אישור, התקנה)">
+                                    פרטים מלאים
+                                  </Button>
+                                </Link>
+                              )}
                             </div>
                           </td>
                         </tr>

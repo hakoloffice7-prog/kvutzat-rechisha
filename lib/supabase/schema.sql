@@ -1,3 +1,8 @@
+-- =============================================================
+--  קבוצות רכישה - סכמה מלאה (להתקנה נקייה)
+--  מבוסס על ניתוח קובץ הלקוח האמיתי "שמות והזמנות הלקוחות.xlsx"
+-- =============================================================
+
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
@@ -17,17 +22,20 @@ CREATE TABLE projects (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Residents table
+-- Residents (customers) table
 CREATE TABLE residents (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   address TEXT,
   phone TEXT,
+  phone2 TEXT,                 -- נייד נוסף
+  email TEXT,                  -- מייל
+  key_location TEXT,           -- מיקום מפתח
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Categories table
+-- Categories (products/services) table
 CREATE TABLE categories (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   name TEXT NOT NULL,
@@ -44,20 +52,29 @@ CREATE TABLE suppliers (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Orders table
+-- Orders table (a resident's interest/order in a specific product)
 CREATE TABLE orders (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   resident_id UUID REFERENCES residents(id) ON DELETE CASCADE,
   category_id UUID REFERENCES categories(id) ON DELETE SET NULL,
   supplier_id UUID REFERENCES suppliers(id) ON DELETE SET NULL,
-  status TEXT DEFAULT 'contact' CHECK (status IN ('contact', 'considering', 'interested', 'ordered')),
-  payment_status TEXT DEFAULT 'not_paid' CHECK (payment_status IN ('not_paid', 'advance', 'paid_full')),
+  -- Pipeline: לברר -> מעוניין / מתלבט -> נמדד -> הצעת מחיר -> הזמין -> בוטל
+  status TEXT DEFAULT 'lead' CHECK (status IN
+    ('lead', 'interested', 'considering', 'measured', 'quoted', 'ordered', 'cancelled')),
+  payment_status TEXT DEFAULT 'not_paid' CHECK (payment_status IN
+    ('not_paid', 'advance', 'paid_full')),
+  measurements TEXT,           -- מדידות (טקסט חופשי, למשל "2 דלת 5 חלון")
+  total_price DECIMAL(10,2) DEFAULT 0,   -- מחיר לתשלום / סיכום
+  deposit DECIMAL(10,2) DEFAULT 0,       -- מקדמה
+  approved BOOLEAN DEFAULT FALSE,        -- מאשר / אישור
+  installed BOOLEAN DEFAULT FALSE,       -- התקנה
+  details JSONB DEFAULT '{}'::jsonb,     -- שדות ספציפיים למוצר (הגבהה/נפתח/צורה/דגם וכו')
   notes TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Order items table
+-- Order items table (פירוט פריטים - אופציונלי, כשמפרטים כל פריט בנפרד)
 CREATE TABLE order_items (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   order_id UUID REFERENCES orders(id) ON DELETE CASCADE,
@@ -78,7 +95,9 @@ CREATE TABLE notifications (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Enable Row Level Security
+-- =============================================================
+--  Row Level Security
+-- =============================================================
 ALTER TABLE cities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE residents ENABLE ROW LEVEL SECURITY;
@@ -129,7 +148,9 @@ CREATE POLICY "Authenticated users can insert notifications" ON notifications FO
 CREATE POLICY "Authenticated users can update notifications" ON notifications FOR UPDATE TO authenticated USING (true);
 CREATE POLICY "Authenticated users can delete notifications" ON notifications FOR DELETE TO authenticated USING (true);
 
--- Function to auto-generate notifications for considering orders older than 7 days
+-- =============================================================
+--  Notifications helper function
+-- =============================================================
 CREATE OR REPLACE FUNCTION check_considering_orders()
 RETURNS void AS $$
 BEGIN
@@ -156,10 +177,31 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Indexes for performance
+-- =============================================================
+--  Indexes
+-- =============================================================
 CREATE INDEX idx_projects_city_id ON projects(city_id);
 CREATE INDEX idx_residents_project_id ON residents(project_id);
 CREATE INDEX idx_orders_resident_id ON orders(resident_id);
+CREATE INDEX idx_orders_category_id ON orders(category_id);
 CREATE INDEX idx_orders_status ON orders(status);
 CREATE INDEX idx_order_items_order_id ON order_items(order_id);
 CREATE INDEX idx_notifications_is_read ON notifications(is_read);
+
+-- =============================================================
+--  Seed: products/services offered by the purchase group
+--  (מתוך טאב "לקוחות" בקובץ הלקוח)
+-- =============================================================
+INSERT INTO categories (name) VALUES
+  ('מזגנים'),
+  ('סורגים'),
+  ('רשתות'),
+  ('ווילונות'),
+  ('מטבחים / השלמת מטבח'),
+  ('שיש'),
+  ('בדק בית'),
+  ('הדברה'),
+  ('ניקיון'),
+  ('ריהוט'),
+  ('מוצרי חשמל')
+ON CONFLICT DO NOTHING;

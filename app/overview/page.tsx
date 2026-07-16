@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
 import { Loader2, BarChart2 } from 'lucide-react'
-import { STATUS_LABELS, PAYMENT_STATUS_LABELS } from '@/lib/utils'
+import { STATUS_LABELS, STATUS_ORDER, STATUS_COLORS, PAYMENT_STATUS_LABELS } from '@/lib/utils'
 
 type City = { id: string; name: string }
 type Project = { id: string; city_id: string; name: string }
@@ -27,14 +27,7 @@ type ResidentRow = {
   order: Order | null
 }
 
-type StatusFilter = 'all' | 'contact' | 'considering' | 'interested' | 'ordered'
-
-const STATUS_BADGE_VARIANT: Record<string, 'outline' | 'warning' | 'info' | 'success' | 'secondary' | 'destructive'> = {
-  contact: 'outline',
-  considering: 'warning',
-  interested: 'info',
-  ordered: 'success',
-}
+type StatusFilter = 'all' | typeof STATUS_ORDER[number]
 
 const PAYMENT_BADGE_VARIANT: Record<string, 'destructive' | 'warning' | 'success'> = {
   not_paid: 'destructive',
@@ -44,10 +37,7 @@ const PAYMENT_BADGE_VARIANT: Record<string, 'destructive' | 'warning' | 'success
 
 const STATUS_FILTER_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: 'all', label: 'הכל' },
-  { value: 'contact', label: 'ליצור קשר' },
-  { value: 'considering', label: 'מתלבט' },
-  { value: 'interested', label: 'מעוניין' },
-  { value: 'ordered', label: 'הזמין' },
+  ...STATUS_ORDER.map((value) => ({ value, label: STATUS_LABELS[value] })),
 ]
 
 export default function OverviewPage() {
@@ -150,7 +140,7 @@ export default function OverviewPage() {
   const filteredRows = useMemo(() => {
     if (statusFilter === 'all') return rows
     return rows.filter((row) => {
-      const effectiveStatus = row.order?.status || 'contact'
+      const effectiveStatus = row.order?.status || 'lead'
       return effectiveStatus === statusFilter
     })
   }, [rows, statusFilter])
@@ -159,10 +149,11 @@ export default function OverviewPage() {
   const summary = useMemo(() => {
     const total = rows.length
     const ordered = rows.filter((r) => r.order?.status === 'ordered').length
+    const quoted = rows.filter((r) => r.order?.status === 'quoted').length
     const interested = rows.filter((r) => r.order?.status === 'interested').length
     const considering = rows.filter((r) => r.order?.status === 'considering').length
-    const noContact = rows.filter((r) => !r.order || r.order.status === 'contact').length
-    return { total, ordered, interested, considering, noContact }
+    const noContact = rows.filter((r) => !r.order || r.order.status === 'lead').length
+    return { total, ordered, quoted, interested, considering, noContact }
   }, [rows])
 
   const filteredProjects = projects.filter((p) => p.city_id === selectedCityId)
@@ -297,9 +288,9 @@ export default function OverviewPage() {
                   </thead>
                   <tbody>
                     {filteredRows.map(({ resident, order }, idx) => {
-                      const effectiveStatus = order?.status || 'contact'
+                      const effectiveStatus = order?.status || 'lead'
                       const statusLabel = STATUS_LABELS[effectiveStatus] || effectiveStatus
-                      const statusVariant = STATUS_BADGE_VARIANT[effectiveStatus] || 'outline'
+                      const statusVariant = STATUS_COLORS[effectiveStatus] || 'outline'
 
                       return (
                         <tr key={resident.id} className="border-b hover:bg-gray-50 transition-colors">
@@ -307,7 +298,7 @@ export default function OverviewPage() {
                           <td className="py-3 px-4 font-medium text-gray-900">{resident.name}</td>
                           <td className="py-3 px-4 text-gray-600 dir-ltr text-left">{resident.phone || '—'}</td>
                           <td className="py-3 px-4">
-                            <Badge variant={statusVariant}>{statusLabel}</Badge>
+                            <Badge variant={statusVariant as any}>{statusLabel}</Badge>
                           </td>
                           <td className="py-3 px-4">
                             {order ? (
@@ -333,12 +324,13 @@ export default function OverviewPage() {
               <CardTitle className="text-base text-gray-700">סיכום</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
                 <SummaryTile label="סה״כ דיירים" value={summary.total} color="text-gray-800" />
                 <SummaryTile label="הזמינו" value={summary.ordered} color="text-green-600" />
+                <SummaryTile label="הצעת מחיר" value={summary.quoted} color="text-yellow-600" />
                 <SummaryTile label="מעוניינים" value={summary.interested} color="text-blue-600" />
                 <SummaryTile label="מתלבטים" value={summary.considering} color="text-yellow-600" />
-                <SummaryTile label="לא פנו" value={summary.noContact} color="text-gray-500" />
+                <SummaryTile label="לברר" value={summary.noContact} color="text-gray-500" />
               </div>
             </CardContent>
           </Card>

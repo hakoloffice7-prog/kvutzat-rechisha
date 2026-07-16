@@ -21,18 +21,30 @@ export function formatDate(dateString: string): string {
   }).format(new Date(dateString))
 }
 
+// פייפליין ההזמנה: לברר -> מעוניין / מתלבט -> נמדד -> הצעת מחיר -> הזמין -> בוטל
 export const STATUS_LABELS: Record<string, string> = {
-  contact: 'ליצור קשר',
-  considering: 'מתלבט',
+  lead: 'לברר',
   interested: 'מעוניין',
+  considering: 'מתלבט',
+  measured: 'נמדד',
+  quoted: 'הצעת מחיר',
   ordered: 'הזמין',
+  cancelled: 'בוטל',
 }
 
+// סדר הצגה לפייפליין (לתפריטים ולמסכי סקירה)
+export const STATUS_ORDER = [
+  'lead', 'interested', 'considering', 'measured', 'quoted', 'ordered', 'cancelled',
+] as const
+
 export const STATUS_COLORS: Record<string, string> = {
-  contact: 'info',
-  considering: 'warning',
+  lead: 'info',
   interested: 'secondary',
+  considering: 'warning',
+  measured: 'info',
+  quoted: 'warning',
   ordered: 'success',
+  cancelled: 'destructive',
 }
 
 export const PAYMENT_STATUS_LABELS: Record<string, string> = {

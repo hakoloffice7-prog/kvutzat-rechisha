@@ -15,16 +15,19 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { Plus, ShoppingCart, Loader2, Trash2, Phone, MapPin, ArrowRight, Edit2 } from 'lucide-react'
+import { Plus, ShoppingCart, Loader2, Trash2, Phone, MapPin, ArrowRight, Edit2, Mail, KeyRound } from 'lucide-react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
-import { STATUS_LABELS, STATUS_COLORS, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, formatCurrency } from '@/lib/utils'
+import { STATUS_LABELS, STATUS_COLORS, STATUS_ORDER, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, formatCurrency } from '@/lib/utils'
 
 type Resident = {
   id: string
   name: string
   address: string
   phone: string
+  phone2: string | null
+  email: string | null
+  key_location: string | null
   projects: { id: string; name: string; cities: { name: string } }
 }
 
@@ -55,7 +58,7 @@ export default function ResidentPage() {
   const [newOrder, setNewOrder] = useState({
     category_id: '',
     supplier_id: '',
-    status: 'contact',
+    status: 'lead',
     notes: '',
   })
   const [saving, setSaving] = useState(false)
@@ -107,7 +110,7 @@ export default function ResidentPage() {
     })
 
     if (!error) {
-      setNewOrder({ category_id: '', supplier_id: '', status: 'contact', notes: '' })
+      setNewOrder({ category_id: '', supplier_id: '', status: 'lead', notes: '' })
       setDialogOpen(false)
       fetchData()
     }
@@ -180,6 +183,25 @@ export default function ResidentPage() {
                     <span dir="ltr">{resident.phone}</span>
                   </p>
                 )}
+                {resident.phone2 && (
+                  <p className="text-gray-500 flex items-center gap-2">
+                    <Phone className="h-4 w-4" />
+                    <span dir="ltr">{resident.phone2}</span>
+                    <span className="text-xs text-gray-400">(נוסף)</span>
+                  </p>
+                )}
+                {resident.email && (
+                  <p className="text-gray-500 flex items-center gap-2">
+                    <Mail className="h-4 w-4" />
+                    <span dir="ltr">{resident.email}</span>
+                  </p>
+                )}
+                {resident.key_location && (
+                  <p className="text-gray-500 flex items-center gap-2">
+                    <KeyRound className="h-4 w-4" />
+                    {resident.key_location}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -225,10 +247,9 @@ export default function ResidentPage() {
                       value={newOrder.status}
                       onChange={(e) => setNewOrder({ ...newOrder, status: e.target.value })}
                     >
-                      <option value="contact">ליצור קשר</option>
-                      <option value="considering">מתלבט</option>
-                      <option value="interested">מעוניין</option>
-                      <option value="ordered">הזמין</option>
+                      {STATUS_ORDER.map(s => (
+                        <option key={s} value={s}>{STATUS_LABELS[s]}</option>
+                      ))}
                     </Select>
                   </div>
                   <div className="space-y-2">

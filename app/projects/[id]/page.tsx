@@ -17,7 +17,7 @@ import {
 import { Plus, Users, ChevronLeft, Loader2, Trash2, Phone, MapPin, ArrowRight } from 'lucide-react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
-import { STATUS_LABELS, STATUS_COLORS } from '@/lib/utils'
+import { STATUS_LABELS, STATUS_COLORS, STATUS_ORDER } from '@/lib/utils'
 
 type Project = {
   id: string
@@ -94,9 +94,12 @@ export default function ProjectPage() {
     fetchData()
   }
 
+  const statusPriority: Record<string, number> = {
+    ordered: 7, quoted: 6, measured: 5, considering: 4, interested: 3, lead: 2, cancelled: 1,
+  }
+
   const getResidentStatus = (orders: { status: string }[]) => {
     if (!orders || orders.length === 0) return null
-    const statusPriority = { ordered: 4, interested: 3, considering: 2, contact: 1 }
     const highestStatus = orders.reduce((best, order) => {
       return (statusPriority[order.status as keyof typeof statusPriority] || 0) >
         (statusPriority[best?.status as keyof typeof statusPriority] || 0)

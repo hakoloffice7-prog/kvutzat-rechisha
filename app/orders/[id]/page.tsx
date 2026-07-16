@@ -15,11 +15,11 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { Plus, Loader2, Trash2, ArrowRight, Save } from 'lucide-react'
+import { Plus, Loader2, Trash2, ArrowRight, Save, X } from 'lucide-react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import {
-  STATUS_LABELS, STATUS_COLORS,
+  STATUS_LABELS, STATUS_COLORS, STATUS_ORDER,
   PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS,
   formatCurrency
 } from '@/lib/utils'
@@ -37,6 +37,12 @@ type Order = {
   status: string
   payment_status: string
   notes: string
+  measurements: string | null
+  total_price: number | null
+  deposit: number | null
+  approved: boolean
+  installed: boolean
+  details: Record<string, string>
   created_at: string
   residents: {
     id: string
@@ -64,7 +70,13 @@ export default function OrderPage() {
     payment_status: '',
     supplier_id: '',
     notes: '',
+    measurements: '',
+    total_price: '',
+    deposit: '',
+    approved: false,
+    installed: false,
   })
+  const [detailsRows, setDetailsRows] = useState<{ key: string; value: string }[]>([])
   const [newItem, setNewItem] = useState({
     description: '',
     model: '',
@@ -109,7 +121,13 @@ export default function OrderPage() {
         payment_status: orderData.payment_status,
         supplier_id: orderData.suppliers?.id || '',
         notes: orderData.notes || '',
+        measurements: orderData.measurements || '',
+        total_price: orderData.total_price ? String(orderData.total_price) : '',
+        deposit: orderData.deposit ? String(orderData.deposit) : '',
+        approved: orderData.approved || false,
+        installed: orderData.installed || false,
       })
+      setDetailsRows(Object.entries(orderData.details || {}).map(([key, value]) => ({ key, value: String(value) })))
     }
     if (suppliersData) setSuppliers(suppliersData)
     setLoading(false)
@@ -117,6 +135,11 @@ export default function OrderPage() {
 
   async function saveOrder() {
     setSaving(true)
+    const details = detailsRows.reduce((acc, row) => {
+      if (row.key.trim()) acc[row.key.trim()] = row.value
+      return acc
+    }, {} as Record<string, string>)
+
     const { error } = await supabase
       .from('orders')
       .update({
@@ -124,6 +147,12 @@ export default function OrderPage() {
         payment_status: editedOrder.payment_status,
         supplier_id: editedOrder.supplier_id || null,
         notes: editedOrder.notes,
+        measurements: editedOrder.measurements,
+        total_price: parseFloat(editedOrder.total_price) || 0,
+        deposit: parseFloat(editedOrder.deposit) || 0,
+        approved: editedOrder.approved,
+        installed: editedOrder.installed,
+        details,
         updated_at: new Date().toISOString(),
       })
       .eq('id', orderId)
@@ -262,10 +291,9 @@ export default function OrderPage() {
                   value={editedOrder.status}
                   onChange={(e) => setEditedOrder({ ...editedOrder, status: e.target.value })}
                 >
-                  <option value="contact">ליצור קשר</option>
-                  <option value="considering">מתלבט</option>
-                  <option value="interested">מעוניין</option>
-                  <option value="ordered">הזמין</option>
+                  {STATUS_ORDER.map(s => (
+                    <option key={s} value={s}>{STATUS_LABELS[s]}</option>
+                  ))}
                 </Select>
               </div>
 
@@ -295,12 +323,106 @@ export default function OrderPage() {
               </div>
 
               <div className="space-y-2">
+                <Label>מדידות</Label>
+                <Input
+                  value={editedOrder.measurements}
+                  onChange={(e) => setEditedOrder({ ...editedOrder, measurements: e.target.value })}
+                  placeholder="לדוגמה: 2 דלת 5 חלון"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>מחיר לתשלום (₪)</Label>
+                  <Input
+                    type="number"
+                    value={editedOrder.total_price}
+                    onChange={(e) => setEditedOrder({ ...editedOrder, total_price: e.target.value })}
+                    placeholder="0"
+                    dir="ltr"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>מקדמה (₪)</Label>
+                  <Input
+                    type="number"
+                    value={editedOrder.deposit}
+                    onChange={(e) => setEditedOrder({ ...editedOrder, deposit: e.target.value })}
+                    placeholder="0"
+                    dir="ltr"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-6">
+                <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editedOrder.approved}
+                    onChange={(e) => setEditedOrder({ ...editedOrder, approved: e.target.checked })}
+                    className="h-4 w-4"
+                  />
+                  מאושר
+                </label>
+                <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editedOrder.installed}
+                    onChange={(e) => setEditedOrder({ ...editedOrder, installed: e.target.checked })}
+                    className="h-4 w-4"
+                  />
+                  הותקן
+                </label>
+              </div>
+
+              <div className="space-y-2">
                 <Label>הערות</Label>
                 <Input
                   value={editedOrder.notes}
                   onChange={(e) => setEditedOrder({ ...editedOrder, notes: e.target.value })}
                   placeholder="הערות נוספות..."
                 />
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label>פרטים נוספים (ספציפי למוצר)</Label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs px-2"
+                    onClick={() => setDetailsRows(prev => [...prev, { key: '', value: '' }])}
+                  >
+                    <Plus className="h-3.5 w-3.5 ml-1" />
+                    הוסף שדה
+                  </Button>
+                </div>
+                {detailsRows.map((row, idx) => (
+                  <div key={idx} className="flex gap-2">
+                    <Input
+                      value={row.key}
+                      onChange={(e) => setDetailsRows(prev => prev.map((r, i) => i === idx ? { ...r, key: e.target.value } : r))}
+                      placeholder="שם שדה (לדוגמה: הגבהה)"
+                      className="h-8 text-sm"
+                    />
+                    <Input
+                      value={row.value}
+                      onChange={(e) => setDetailsRows(prev => prev.map((r, i) => i === idx ? { ...r, value: e.target.value } : r))}
+                      placeholder="ערך"
+                      className="h-8 text-sm"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 text-red-400 hover:text-red-600"
+                      onClick={() => setDetailsRows(prev => prev.filter((_, i) => i !== idx))}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                ))}
               </div>
 
               <Button onClick={saveOrder} disabled={saving} className="w-full">
@@ -320,8 +442,24 @@ export default function OrderPage() {
               <CardTitle>סיכום כספי</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
+              {(order.total_price || order.deposit) ? (
+                <>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">מחיר לתשלום (הזמנה)</span>
+                    <span className="font-medium">{formatCurrency(order.total_price || 0)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">מקדמה ששולמה</span>
+                    <span className="font-medium">{formatCurrency(order.deposit || 0)}</span>
+                  </div>
+                  <div className="flex justify-between border-t pt-3">
+                    <span className="text-gray-500">יתרה לתשלום</span>
+                    <span className="font-medium">{formatCurrency((order.total_price || 0) - (order.deposit || 0))}</span>
+                  </div>
+                </>
+              ) : null}
               <div className="flex justify-between">
-                <span className="text-gray-500">מחיר לקוח (סך)</span>
+                <span className="text-gray-500">מחיר לקוח (פריטים)</span>
                 <span className="font-medium">{formatCurrency(totalRevenue)}</span>
               </div>
               <div className="flex justify-between">
