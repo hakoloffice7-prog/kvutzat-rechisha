@@ -41,6 +41,7 @@ export default function SuppliersPage() {
     category_id: '',
   })
   const [saving, setSaving] = useState(false)
+  const [phoneError, setPhoneError] = useState('')
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null)
   const supabase = createClient()
@@ -64,8 +65,17 @@ export default function SuppliersPage() {
     setLoading(false)
   }
 
+  function isValidPhone(phone: string) {
+    const cleaned = phone.replace(/[\s\-()]/g, '')
+    return /^0\d{8,9}$/.test(cleaned)
+  }
+
   async function addSupplier() {
     if (!newSupplier.name.trim()) return
+    const phone = newSupplier.phone.trim()
+    if (!phone) { setPhoneError('יש להזין מספר טלפון'); return }
+    if (!isValidPhone(phone)) { setPhoneError('מספר טלפון לא תקין (לדוגמה: 050-1234567)'); return }
+    setPhoneError('')
     setSaving(true)
 
     const { error } = await supabase.from('suppliers').insert({
@@ -162,13 +172,15 @@ export default function SuppliersPage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>טלפון</Label>
+                <Label>טלפון *</Label>
                 <Input
                   value={newSupplier.phone}
-                  onChange={(e) => setNewSupplier({ ...newSupplier, phone: e.target.value })}
+                  onChange={(e) => { setNewSupplier({ ...newSupplier, phone: e.target.value }); setPhoneError('') }}
                   placeholder="050-0000000"
                   dir="ltr"
+                  className={phoneError ? 'border-red-500' : ''}
                 />
+                {phoneError && <p className="text-xs text-red-500">{phoneError}</p>}
               </div>
               <div className="space-y-2">
                 <Label>אימייל</Label>
@@ -182,7 +194,7 @@ export default function SuppliersPage() {
               </div>
               <div className="flex gap-2 justify-end">
                 <Button variant="outline" onClick={() => setDialogOpen(false)}>ביטול</Button>
-                <Button onClick={addSupplier} disabled={saving || !newSupplier.name.trim()}>
+                <Button onClick={addSupplier} disabled={saving || !newSupplier.name.trim() || !newSupplier.phone.trim()}>
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'הוסף ספק'}
                 </Button>
               </div>

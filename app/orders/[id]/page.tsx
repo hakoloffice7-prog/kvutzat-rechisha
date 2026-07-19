@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -15,9 +15,9 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { Plus, Loader2, Trash2, ArrowRight, Save, X } from 'lucide-react'
+import { Plus, Loader2, Trash2, ArrowLeft, Save, X, Pencil } from 'lucide-react'
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import {
   STATUS_LABELS, STATUS_COLORS, STATUS_ORDER,
   PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS,
@@ -58,8 +58,11 @@ type Supplier = { id: string; name: string; category_id: string }
 
 export default function OrderPage() {
   const params = useParams()
+  const router = useRouter()
   const orderId = params.id as string
 
+  const updateTotalFromItemsRef = useRef(false)
+  const [editMode, setEditMode] = useState(false)
   const [order, setOrder] = useState<Order | null>(null)
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [loading, setLoading] = useState(true)
@@ -80,6 +83,7 @@ export default function OrderPage() {
   const [newItem, setNewItem] = useState({
     description: '',
     model: '',
+    quantity: '1',
     customer_price: '',
     supplier_price: '',
   })
@@ -116,17 +120,23 @@ export default function OrderPage() {
 
     if (orderData) {
       setOrder(orderData)
+      const itemsRevenue = (orderData.order_items || []).reduce(
+        (sum: number, item: OrderItem) => sum + (item.customer_price || 0), 0
+      )
       setEditedOrder({
         status: orderData.status,
         payment_status: orderData.payment_status,
         supplier_id: orderData.suppliers?.id || '',
         notes: orderData.notes || '',
         measurements: orderData.measurements || '',
-        total_price: orderData.total_price ? String(orderData.total_price) : '',
+        total_price: updateTotalFromItemsRef.current
+          ? String(itemsRevenue)
+          : (orderData.total_price ? String(orderData.total_price) : ''),
         deposit: orderData.deposit ? String(orderData.deposit) : '',
         approved: orderData.approved || false,
         installed: orderData.installed || false,
       })
+      updateTotalFromItemsRef.current = false
       setDetailsRows(Object.entries(orderData.details || {}).map(([key, value]) => ({ key, value: String(value) })))
     }
     if (suppliersData) setSuppliers(suppliersData)
@@ -167,17 +177,22 @@ export default function OrderPage() {
     if (!newItem.description.trim()) return
     setSaving(true)
 
+    const qty = Math.max(1, parseInt(newItem.quantity) || 1)
+    const unitCustomer = parseFloat(newItem.customer_price) || 0
+    const unitSupplier = parseFloat(newItem.supplier_price) || 0
+
     const { error } = await supabase.from('order_items').insert({
       order_id: orderId,
       description: newItem.description.trim(),
       model: newItem.model.trim(),
-      customer_price: parseFloat(newItem.customer_price) || 0,
-      supplier_price: parseFloat(newItem.supplier_price) || 0,
+      customer_price: unitCustomer * qty,
+      supplier_price: unitSupplier * qty,
     })
 
     if (!error) {
-      setNewItem({ description: '', model: '', customer_price: '', supplier_price: '' })
+      setNewItem({ description: '', model: '', quantity: '1', customer_price: '', supplier_price: '' })
       setItemDialogOpen(false)
+      updateTotalFromItemsRef.current = true
       fetchData()
     }
     setSaving(false)
@@ -185,6 +200,7 @@ export default function OrderPage() {
 
   async function deleteItem(itemId: string) {
     await supabase.from('order_items').delete().eq('id', itemId)
+    updateTotalFromItemsRef.current = true
     fetchData()
   }
 
@@ -212,6 +228,7 @@ export default function OrderPage() {
 
     if (!error) {
       setEditingItemId(null)
+      updateTotalFromItemsRef.current = true
       fetchData()
     }
     setSaving(false)
@@ -239,16 +256,12 @@ export default function OrderPage() {
 
   return (
     <div className="space-y-6">
-      {/* Breadcrumb */}
+      {/* Back + Breadcrumb */}
       <div className="flex items-center gap-2 text-sm text-gray-500 flex-wrap">
-        <Link href="/cities" className="hover:text-blue-600 flex items-center gap-1">
-          <ArrowRight className="h-4 w-4" />
-          ערים
-        </Link>
-        <span>/</span>
-        <Link href={`/projects/${order.residents?.projects?.id}`} className="hover:text-blue-600">
-          {order.residents?.projects?.name}
-        </Link>
+        <button onClick={() => router.back()} className="flex items-center gap-1 hover:text-blue-600">
+          <ArrowLeft className="h-4 w-4" />
+          חזור
+        </button>
         <span>/</span>
         <Link href={`/residents/${order.residents?.id}`} className="hover:text-blue-600">
           {order.residents?.name}
@@ -267,13 +280,21 @@ export default function OrderPage() {
             {order.residents?.projects?.name}, {order.residents?.projects?.cities?.name}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
           <Badge variant={STATUS_COLORS[order.status] as any} className="text-sm px-3 py-1">
             {STATUS_LABELS[order.status]}
           </Badge>
           <Badge variant={PAYMENT_STATUS_COLORS[order.payment_status] as any} className="text-sm px-3 py-1">
             {PAYMENT_STATUS_LABELS[order.payment_status]}
           </Badge>
+          <Button
+            variant={editMode ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setEditMode(!editMode)}
+          >
+            <Pencil className="h-4 w-4 ml-1" />
+            {editMode ? 'בטל עריכה' : 'ערוך'}
+          </Button>
         </div>
       </div>
 
@@ -285,154 +306,213 @@ export default function OrderPage() {
               <CardTitle>פרטי הזמנה</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label>סטטוס</Label>
-                <Select
-                  value={editedOrder.status}
-                  onChange={(e) => setEditedOrder({ ...editedOrder, status: e.target.value })}
-                >
-                  {STATUS_ORDER.map(s => (
-                    <option key={s} value={s}>{STATUS_LABELS[s]}</option>
-                  ))}
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label>סטטוס תשלום</Label>
-                <Select
-                  value={editedOrder.payment_status}
-                  onChange={(e) => setEditedOrder({ ...editedOrder, payment_status: e.target.value })}
-                >
-                  <option value="not_paid">לא שילם</option>
-                  <option value="advance">מקדמה</option>
-                  <option value="paid_full">שילם הכל</option>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label>ספק</Label>
-                <Select
-                  value={editedOrder.supplier_id}
-                  onChange={(e) => setEditedOrder({ ...editedOrder, supplier_id: e.target.value })}
-                >
-                  <option value="">ללא ספק</option>
-                  {filteredSuppliers.map(sup => (
-                    <option key={sup.id} value={sup.id}>{sup.name}</option>
-                  ))}
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label>מדידות</Label>
-                <Input
-                  value={editedOrder.measurements}
-                  onChange={(e) => setEditedOrder({ ...editedOrder, measurements: e.target.value })}
-                  placeholder="לדוגמה: 2 דלת 5 חלון"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>מחיר לתשלום (₪)</Label>
-                  <Input
-                    type="number"
-                    value={editedOrder.total_price}
-                    onChange={(e) => setEditedOrder({ ...editedOrder, total_price: e.target.value })}
-                    placeholder="0"
-                    dir="ltr"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>מקדמה (₪)</Label>
-                  <Input
-                    type="number"
-                    value={editedOrder.deposit}
-                    onChange={(e) => setEditedOrder({ ...editedOrder, deposit: e.target.value })}
-                    placeholder="0"
-                    dir="ltr"
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center gap-6">
-                <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={editedOrder.approved}
-                    onChange={(e) => setEditedOrder({ ...editedOrder, approved: e.target.checked })}
-                    className="h-4 w-4"
-                  />
-                  מאושר
-                </label>
-                <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={editedOrder.installed}
-                    onChange={(e) => setEditedOrder({ ...editedOrder, installed: e.target.checked })}
-                    className="h-4 w-4"
-                  />
-                  הותקן
-                </label>
-              </div>
-
-              <div className="space-y-2">
-                <Label>הערות</Label>
-                <Input
-                  value={editedOrder.notes}
-                  onChange={(e) => setEditedOrder({ ...editedOrder, notes: e.target.value })}
-                  placeholder="הערות נוספות..."
-                />
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label>פרטים נוספים (ספציפי למוצר)</Label>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 text-xs px-2"
-                    onClick={() => setDetailsRows(prev => [...prev, { key: '', value: '' }])}
-                  >
-                    <Plus className="h-3.5 w-3.5 ml-1" />
-                    הוסף שדה
-                  </Button>
-                </div>
-                {detailsRows.map((row, idx) => (
-                  <div key={idx} className="flex gap-2">
-                    <Input
-                      value={row.key}
-                      onChange={(e) => setDetailsRows(prev => prev.map((r, i) => i === idx ? { ...r, key: e.target.value } : r))}
-                      placeholder="שם שדה (לדוגמה: הגבהה)"
-                      className="h-8 text-sm"
-                    />
-                    <Input
-                      value={row.value}
-                      onChange={(e) => setDetailsRows(prev => prev.map((r, i) => i === idx ? { ...r, value: e.target.value } : r))}
-                      placeholder="ערך"
-                      className="h-8 text-sm"
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 px-2 text-red-400 hover:text-red-600"
-                      onClick={() => setDetailsRows(prev => prev.filter((_, i) => i !== idx))}
+              {editMode ? (
+                <>
+                  <div className="space-y-2">
+                    <Label>סטטוס</Label>
+                    <Select
+                      value={editedOrder.status}
+                      onChange={(e) => setEditedOrder({ ...editedOrder, status: e.target.value })}
                     >
-                      <X className="h-3.5 w-3.5" />
-                    </Button>
+                      {STATUS_ORDER.map(s => (
+                        <option key={s} value={s}>{STATUS_LABELS[s]}</option>
+                      ))}
+                    </Select>
                   </div>
-                ))}
-              </div>
 
-              <Button onClick={saveOrder} disabled={saving} className="w-full">
-                {saving ? (
-                  <Loader2 className="h-4 w-4 animate-spin ml-2" />
-                ) : (
-                  <Save className="h-4 w-4 ml-2" />
-                )}
-                שמור שינויים
-              </Button>
+                  <div className="space-y-2">
+                    <Label>סטטוס תשלום</Label>
+                    <Select
+                      value={editedOrder.payment_status}
+                      onChange={(e) => setEditedOrder({ ...editedOrder, payment_status: e.target.value })}
+                    >
+                      <option value="not_paid">לא שילם</option>
+                      <option value="advance">מקדמה</option>
+                      <option value="paid_full">שילם הכל</option>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>ספק</Label>
+                    <Select
+                      value={editedOrder.supplier_id}
+                      onChange={(e) => setEditedOrder({ ...editedOrder, supplier_id: e.target.value })}
+                    >
+                      <option value="">ללא ספק</option>
+                      {filteredSuppliers.map(sup => (
+                        <option key={sup.id} value={sup.id}>{sup.name}</option>
+                      ))}
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>מדידות</Label>
+                    <Input
+                      value={editedOrder.measurements}
+                      onChange={(e) => setEditedOrder({ ...editedOrder, measurements: e.target.value })}
+                      placeholder="לדוגמה: 2 דלת 5 חלון"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>מחיר לתשלום (₪)</Label>
+                      <Input
+                        type="number"
+                        value={editedOrder.total_price}
+                        onChange={(e) => setEditedOrder({ ...editedOrder, total_price: e.target.value })}
+                        placeholder="0"
+                        dir="ltr"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>מקדמה (₪)</Label>
+                      <Input
+                        type="number"
+                        value={editedOrder.deposit}
+                        onChange={(e) => setEditedOrder({ ...editedOrder, deposit: e.target.value })}
+                        placeholder="0"
+                        dir="ltr"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-6">
+                    <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editedOrder.approved}
+                        onChange={(e) => setEditedOrder({ ...editedOrder, approved: e.target.checked })}
+                        className="h-4 w-4"
+                      />
+                      מאושר
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editedOrder.installed}
+                        onChange={(e) => setEditedOrder({ ...editedOrder, installed: e.target.checked })}
+                        className="h-4 w-4"
+                      />
+                      הותקן
+                    </label>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>הערות</Label>
+                    <Input
+                      value={editedOrder.notes}
+                      onChange={(e) => setEditedOrder({ ...editedOrder, notes: e.target.value })}
+                      placeholder="הערות נוספות..."
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label>פרטים נוספים</Label>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs px-2"
+                        onClick={() => setDetailsRows(prev => [...prev, { key: '', value: '' }])}
+                      >
+                        <Plus className="h-3.5 w-3.5 ml-1" />
+                        הוסף שדה
+                      </Button>
+                    </div>
+                    {detailsRows.map((row, idx) => (
+                      <div key={idx} className="flex gap-2">
+                        <Input
+                          value={row.key}
+                          onChange={(e) => setDetailsRows(prev => prev.map((r, i) => i === idx ? { ...r, key: e.target.value } : r))}
+                          placeholder="שם שדה"
+                          className="h-8 text-sm"
+                        />
+                        <Input
+                          value={row.value}
+                          onChange={(e) => setDetailsRows(prev => prev.map((r, i) => i === idx ? { ...r, value: e.target.value } : r))}
+                          placeholder="ערך"
+                          className="h-8 text-sm"
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-2 text-red-400 hover:text-red-600"
+                          onClick={() => setDetailsRows(prev => prev.filter((_, i) => i !== idx))}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <Button onClick={saveOrder} disabled={saving} className="w-full">
+                    {saving ? <Loader2 className="h-4 w-4 animate-spin ml-2" /> : <Save className="h-4 w-4 ml-2" />}
+                    שמור שינויים
+                  </Button>
+                </>
+              ) : (
+                <div className="space-y-3 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">סטטוס</span>
+                    <span className="font-medium">{STATUS_LABELS[editedOrder.status]}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">תשלום</span>
+                    <span className="font-medium">{editedOrder.payment_status === 'not_paid' ? 'לא שילם' : editedOrder.payment_status === 'advance' ? 'מקדמה' : 'שילם הכל'}</span>
+                  </div>
+                  {editedOrder.supplier_id && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">ספק</span>
+                      <span className="font-medium">{filteredSuppliers.find(s => s.id === editedOrder.supplier_id)?.name || '—'}</span>
+                    </div>
+                  )}
+                  {editedOrder.measurements && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">מדידות</span>
+                      <span className="font-medium">{editedOrder.measurements}</span>
+                    </div>
+                  )}
+                  {editedOrder.total_price && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">מחיר לתשלום</span>
+                      <span className="font-medium">₪{parseFloat(editedOrder.total_price).toLocaleString('he-IL')}</span>
+                    </div>
+                  )}
+                  {editedOrder.deposit && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">מקדמה</span>
+                      <span className="font-medium">₪{parseFloat(editedOrder.deposit).toLocaleString('he-IL')}</span>
+                    </div>
+                  )}
+                  <div className="flex gap-4 pt-1">
+                    <span className={editedOrder.approved ? 'text-green-600 font-medium' : 'text-gray-400'}>
+                      {editedOrder.approved ? '✓ מאושר' : 'לא מאושר'}
+                    </span>
+                    <span className={editedOrder.installed ? 'text-green-600 font-medium' : 'text-gray-400'}>
+                      {editedOrder.installed ? '✓ הותקן' : 'לא הותקן'}
+                    </span>
+                  </div>
+                  {editedOrder.notes && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">הערות</span>
+                      <span className="font-medium text-left">{editedOrder.notes}</span>
+                    </div>
+                  )}
+                  {detailsRows.length > 0 && (
+                    <div className="border-t pt-3 space-y-2">
+                      {detailsRows.map((row, idx) => (
+                        <div key={idx} className="flex justify-between">
+                          <span className="text-gray-500">{row.key}</span>
+                          <span className="font-medium">{row.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -518,9 +598,20 @@ export default function OrderPage() {
                           placeholder="מספר דגם"
                         />
                       </div>
+                      <div className="space-y-2">
+                        <Label>כמות יחידות</Label>
+                        <Input
+                          type="number"
+                          min="1"
+                          value={newItem.quantity}
+                          onChange={(e) => setNewItem({ ...newItem, quantity: e.target.value })}
+                          placeholder="1"
+                          dir="ltr"
+                        />
+                      </div>
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
-                          <Label>מחיר לקוח (₪)</Label>
+                          <Label>מחיר לקוח ליחידה (₪)</Label>
                           <Input
                             type="number"
                             value={newItem.customer_price}
@@ -530,7 +621,7 @@ export default function OrderPage() {
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label>מחיר ספק (₪)</Label>
+                          <Label>מחיר ספק ליחידה (₪)</Label>
                           <Input
                             type="number"
                             value={newItem.supplier_price}
@@ -541,15 +632,17 @@ export default function OrderPage() {
                         </div>
                       </div>
                       {newItem.customer_price && newItem.supplier_price && (
-                        <div className="bg-gray-50 p-3 rounded-lg">
-                          <p className="text-sm text-gray-600">
+                        <div className="bg-gray-50 p-3 rounded-lg text-sm text-gray-600 space-y-1">
+                          {parseInt(newItem.quantity) > 1 && (
+                            <p>סה"כ לקוח: <strong>{formatCurrency((parseFloat(newItem.customer_price) || 0) * (parseInt(newItem.quantity) || 1))}</strong></p>
+                          )}
+                          <p>
                             רווח צפוי:{' '}
                             <span className={`font-bold ${
-                              parseFloat(newItem.customer_price) - parseFloat(newItem.supplier_price) >= 0
-                                ? 'text-green-600'
-                                : 'text-red-600'
+                              (parseFloat(newItem.customer_price) - parseFloat(newItem.supplier_price)) >= 0
+                                ? 'text-green-600' : 'text-red-600'
                             }`}>
-                              {formatCurrency(parseFloat(newItem.customer_price) - parseFloat(newItem.supplier_price))}
+                              {formatCurrency((parseFloat(newItem.customer_price) - parseFloat(newItem.supplier_price)) * (parseInt(newItem.quantity) || 1))}
                             </span>
                           </p>
                         </div>

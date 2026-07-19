@@ -15,9 +15,9 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { Plus, ShoppingCart, Loader2, Trash2, Phone, MapPin, ArrowRight, Edit2, Mail, KeyRound } from 'lucide-react'
+import { Plus, ShoppingCart, Loader2, Trash2, Phone, MapPin, ArrowLeft, Edit2, Mail, KeyRound } from 'lucide-react'
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { STATUS_LABELS, STATUS_COLORS, STATUS_ORDER, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, formatCurrency } from '@/lib/utils'
 
 type Resident = {
@@ -47,6 +47,7 @@ type Supplier = { id: string; name: string; category_id: string }
 
 export default function ResidentPage() {
   const params = useParams()
+  const router = useRouter()
   const residentId = params.id as string
 
   const [resident, setResident] = useState<Resident | null>(null)
@@ -59,6 +60,7 @@ export default function ResidentPage() {
     category_id: '',
     supplier_id: '',
     status: 'lead',
+    payment_status: 'not_paid',
     notes: '',
   })
   const [saving, setSaving] = useState(false)
@@ -106,11 +108,12 @@ export default function ResidentPage() {
       category_id: newOrder.category_id,
       supplier_id: newOrder.supplier_id || null,
       status: newOrder.status,
+      payment_status: newOrder.payment_status,
       notes: newOrder.notes,
     })
 
     if (!error) {
-      setNewOrder({ category_id: '', supplier_id: '', status: 'lead', notes: '' })
+      setNewOrder({ category_id: '', supplier_id: '', status: 'lead', payment_status: 'not_paid', notes: '' })
       setDialogOpen(false)
       fetchData()
     }
@@ -148,12 +151,12 @@ export default function ResidentPage() {
 
   return (
     <div className="space-y-6">
-      {/* Breadcrumb */}
+      {/* Back + Breadcrumb */}
       <div className="flex items-center gap-2 text-sm text-gray-500 flex-wrap">
-        <Link href="/cities" className="hover:text-blue-600 flex items-center gap-1">
-          <ArrowRight className="h-4 w-4" />
-          ערים
-        </Link>
+        <button onClick={() => router.back()} className="flex items-center gap-1 hover:text-blue-600">
+          <ArrowLeft className="h-4 w-4" />
+          חזור
+        </button>
         <span>/</span>
         <span>{resident.projects?.cities?.name}</span>
         <span>/</span>
@@ -256,6 +259,17 @@ export default function ResidentPage() {
                       {STATUS_ORDER.map(s => (
                         <option key={s} value={s}>{STATUS_LABELS[s]}</option>
                       ))}
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>סטטוס תשלום</Label>
+                    <Select
+                      value={newOrder.payment_status}
+                      onChange={(e) => setNewOrder({ ...newOrder, payment_status: e.target.value })}
+                    >
+                      <option value="not_paid">לא שילם</option>
+                      <option value="advance">מקדמה</option>
+                      <option value="paid_full">שילם הכל</option>
                     </Select>
                   </div>
                   <div className="space-y-2">

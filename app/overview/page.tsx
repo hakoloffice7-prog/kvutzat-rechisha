@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -47,6 +47,8 @@ export default function OverviewPage() {
   const [projects, setProjects] = useState<Project[]>([])
   const [categories, setCategories] = useState<Category[]>([])
 
+  const pendingProjectIdRef = useRef('')
+
   const [selectedCityId, setSelectedCityId] = useState('')
   const [selectedProjectId, setSelectedProjectId] = useState('')
   const [selectedCategoryId, setSelectedCategoryId] = useState('')
@@ -58,7 +60,7 @@ export default function OverviewPage() {
   const [loadingInit, setLoadingInit] = useState(true)
   const [loadingData, setLoadingData] = useState(false)
 
-  // Load cities + categories on mount
+  // Load cities + categories on mount, restore saved filters
   useEffect(() => {
     async function init() {
       const [{ data: citiesData }, { data: catsData }] = await Promise.all([
@@ -68,11 +70,24 @@ export default function OverviewPage() {
       setCities(citiesData || [])
       setCategories(catsData || [])
       setLoadingInit(false)
+
+      try {
+        const saved = sessionStorage.getItem('overview-filters')
+        if (saved) {
+          const f = JSON.parse(saved)
+          if (f.categoryId) setSelectedCategoryId(f.categoryId)
+          if (f.statusFilter) setStatusFilter(f.statusFilter)
+          if (f.cityId) {
+            pendingProjectIdRef.current = f.projectId || ''
+            setSelectedCityId(f.cityId)
+          }
+        }
+      } catch {}
     }
     init()
   }, [])
 
-  // Load projects when city changes
+  // Load projects when city changes, restore saved project if any
   useEffect(() => {
     if (!selectedCityId) {
       setProjects([])
@@ -85,10 +100,29 @@ export default function OverviewPage() {
       .eq('city_id', selectedCityId)
       .order('name')
       .then(({ data }) => {
-        setProjects(data || [])
-        setSelectedProjectId('')
+        const projectsData = data || []
+        setProjects(projectsData)
+        const pending = pendingProjectIdRef.current
+        if (pending && projectsData.some((p) => p.id === pending)) {
+          setSelectedProjectId(pending)
+        } else {
+          setSelectedProjectId('')
+        }
+        pendingProjectIdRef.current = ''
       })
   }, [selectedCityId])
+
+  // Save filters to sessionStorage
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('overview-filters', JSON.stringify({
+        cityId: selectedCityId,
+        projectId: selectedProjectId,
+        categoryId: selectedCategoryId,
+        statusFilter,
+      }))
+    } catch {}
+  }, [selectedCityId, selectedProjectId, selectedCategoryId, statusFilter])
 
   // Load residents + orders when project + category selected
   useEffect(() => {
@@ -295,7 +329,9 @@ export default function OverviewPage() {
                       return (
                         <tr key={resident.id} className="border-b hover:bg-gray-50 transition-colors">
                           <td className="py-3 px-4 text-gray-400">{idx + 1}</td>
-                          <td className="py-3 px-4 font-medium text-gray-900">{resident.name}</td>
+                          <td className="py-3 px-4 font-medium">
+                            <a href={`/residents/${resident.id}`} className="text-blue-700 hover:underline">{resident.name}</a>
+                          </td>
                           <td className="py-3 px-4 text-left">
                             {resident.phone
                               ? <div className="flex items-center gap-2">
