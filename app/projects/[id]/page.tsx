@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/dialog'
 import { Plus, Users, ChevronLeft, Loader2, Trash2, Phone, MapPin, ArrowRight } from 'lucide-react'
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { STATUS_LABELS, STATUS_COLORS, STATUS_ORDER } from '@/lib/utils'
 
 type Project = {
@@ -36,6 +36,7 @@ type Resident = {
 
 export default function ProjectPage() {
   const params = useParams()
+  const router = useRouter()
   const projectId = params.id as string
   const [project, setProject] = useState<Project | null>(null)
   const [residents, setResidents] = useState<Resident[]>([])
@@ -43,7 +44,14 @@ export default function ProjectPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [newResident, setNewResident] = useState({ name: '', address: '', phone: '' })
   const [saving, setSaving] = useState(false)
+  const [phoneError, setPhoneError] = useState('')
+  const [deleteConfirm, setDeleteConfirm] = useState<{ open: boolean; id: string; name: string }>({ open: false, id: '', name: '' })
   const supabase = createClient()
+
+  function isValidPhone(phone: string) {
+    const cleaned = phone.replace(/[\s\-()]/g, '')
+    return /^0\d{8,9}$/.test(cleaned)
+  }
 
   useEffect(() => {
     fetchData()
@@ -71,13 +79,17 @@ export default function ProjectPage() {
 
   async function addResident() {
     if (!newResident.name.trim()) return
+    const phone = newResident.phone.trim()
+    if (!phone) { setPhoneError('יש להזין מספר טלפון'); return }
+    if (!isValidPhone(phone)) { setPhoneError('מספר טלפון לא תקין (לדוגמה: 050-1234567)'); return }
+    setPhoneError('')
     setSaving(true)
 
     const { error } = await supabase.from('residents').insert({
       project_id: projectId,
       name: newResident.name.trim(),
       address: newResident.address.trim(),
-      phone: newResident.phone.trim(),
+      phone: phone,
     })
 
     if (!error) {
@@ -88,9 +100,13 @@ export default function ProjectPage() {
     setSaving(false)
   }
 
-  async function deleteResident(residentId: string) {
-    if (!confirm('האם למחוק דייר זה? כל ההזמנות שלו יימחקו.')) return
-    await supabase.from('residents').delete().eq('id', residentId)
+  function openDeleteConfirm(resident: Resident) {
+    setDeleteConfirm({ open: true, id: resident.id, name: resident.name })
+  }
+
+  async function confirmDeleteResident() {
+    await supabase.from('residents').delete().eq('id', deleteConfirm.id)
+    setDeleteConfirm({ open: false, id: '', name: '' })
     fetchData()
   }
 
@@ -179,18 +195,20 @@ export default function ProjectPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="residentPhone">טלפון</Label>
+                <Label htmlFor="residentPhone">טלפון *</Label>
                 <Input
                   id="residentPhone"
                   value={newResident.phone}
-                  onChange={(e) => setNewResident({ ...newResident, phone: e.target.value })}
+                  onChange={(e) => { setNewResident({ ...newResident, phone: e.target.value }); setPhoneError('') }}
                   placeholder="050-0000000"
                   dir="ltr"
+                  className={phoneError ? 'border-red-500' : ''}
                 />
+                {phoneError && <p className="text-xs text-red-500">{phoneError}</p>}
               </div>
               <div className="flex gap-2 justify-end">
                 <Button variant="outline" onClick={() => setDialogOpen(false)}>ביטול</Button>
-                <Button onClick={addResident} disabled={saving || !newResident.name.trim()}>
+                <Button onClick={addResident} disabled={saving || !newResident.name.trim() || !newResident.phone.trim()}>
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'הוסף דייר'}
                 </Button>
               </div>
@@ -230,7 +248,7 @@ export default function ProjectPage() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => deleteResident(resident.id)}
+                        onClick={() => openDeleteConfirm(resident)}
                         className="text-red-400 hover:text-red-600"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -272,6 +290,22 @@ export default function ProjectPage() {
           })}
         </div>
       )}
+      {/* Delete Resident Confirmation */}
+      <Dialog open={deleteConfirm.open} onOpenChange={(open) => setDeleteConfirm(prev => ({ ...prev, open }))}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>מחיקת דייר</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4" dir="rtl">
+            <p className="text-gray-700">האם אתה בטוח שברצונך למחוק את <strong>{deleteConfirm.name}</strong>?</p>
+            <p className="text-sm text-red-600">פעולה זו תמחק את כל ההזמנות של הדייר ולא ניתן לבטלה.</p>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setDeleteConfirm({ open: false, id: '', name: '' })}>ביטול</Button>
+              <Button variant="destructive" onClick={confirmDeleteResident}>מחק</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

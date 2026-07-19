@@ -87,6 +87,7 @@ export default function OrderPage() {
     customer_price: '',
     supplier_price: '',
   })
+  const [deleteItemConfirmId, setDeleteItemConfirmId] = useState<string | null>(null)
   const [editingItemId, setEditingItemId] = useState<string | null>(null)
   const [editingItemData, setEditingItemData] = useState<{
     description: string
@@ -768,7 +769,7 @@ export default function OrderPage() {
                                     <Button
                                       variant="ghost"
                                       size="sm"
-                                      onClick={() => deleteItem(item.id)}
+                                      onClick={() => setDeleteItemConfirmId(item.id)}
                                       className="text-red-400 hover:text-red-600"
                                     >
                                       <Trash2 className="h-4 w-4" />
@@ -799,6 +800,28 @@ export default function OrderPage() {
           </Card>
         </div>
       </div>
+
+      {/* Delete Item Confirmation */}
+      <Dialog open={!!deleteItemConfirmId} onOpenChange={(open) => { if (!open) setDeleteItemConfirmId(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>מחיקת פריט</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4" dir="rtl">
+            <p className="text-gray-700">האם אתה בטוח שברצונך למחוק פריט זה?</p>
+            <p className="text-sm text-red-600">פעולה זו אינה ניתנת לביטול.</p>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setDeleteItemConfirmId(null)}>ביטול</Button>
+              <Button variant="destructive" onClick={() => {
+                if (deleteItemConfirmId) {
+                  deleteItem(deleteItemConfirmId)
+                  setDeleteItemConfirmId(null)
+                }
+              }}>מחק</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

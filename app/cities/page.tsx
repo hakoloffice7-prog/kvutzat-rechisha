@@ -40,6 +40,13 @@ export default function CitiesPage() {
   const [newCityName, setNewCityName] = useState('')
   const [newProject, setNewProject] = useState({ name: '', address: '' })
   const [saving, setSaving] = useState(false)
+
+  // Delete confirmation dialogs
+  const [deleteCityConfirm, setDeleteCityConfirm] = useState<{ open: boolean; id: string; name: string }>({ open: false, id: '', name: '' })
+  const [deleteProjectConfirm, setDeleteProjectConfirm] = useState<{ open: boolean; id: string; name: string }>({ open: false, id: '', name: '' })
+  // Error dialog when deletion is blocked
+  const [blockError, setBlockError] = useState<{ open: boolean; message: string }>({ open: false, message: '' })
+
   const supabase = createClient()
 
   useEffect(() => {
@@ -98,17 +105,36 @@ export default function CitiesPage() {
     setSaving(false)
   }
 
-  async function deleteCity(cityId: string) {
-    if (!confirm('האם למחוק עיר זו? כל הפרויקטים והדיירים שבה יימחקו.')) return
+  function openDeleteCity(city: City) {
+    if ((city.projects?.length || 0) > 0) {
+      setBlockError({ open: true, message: 'לא ניתן למחוק עיר שיש בה פרויקטים. יש למחוק את כל הפרויקטים תחילה.' })
+      return
+    }
+    setDeleteCityConfirm({ open: true, id: city.id, name: city.name })
+  }
 
-    await supabase.from('cities').delete().eq('id', cityId)
+  async function confirmDeleteCity() {
+    await supabase.from('cities').delete().eq('id', deleteCityConfirm.id)
+    setDeleteCityConfirm({ open: false, id: '', name: '' })
     fetchCities()
   }
 
-  async function deleteProject(projectId: string) {
-    if (!confirm('האם למחוק פרויקט זה? כל הדיירים וההזמנות שבו יימחקו.')) return
+  async function openDeleteProject(project: Project) {
+    const { count } = await supabase
+      .from('residents')
+      .select('*', { count: 'exact', head: true })
+      .eq('project_id', project.id)
 
-    await supabase.from('projects').delete().eq('id', projectId)
+    if ((count || 0) > 0) {
+      setBlockError({ open: true, message: 'לא ניתן למחוק פרויקט שיש בו דיירים. יש למחוק את כל הדיירים תחילה.' })
+      return
+    }
+    setDeleteProjectConfirm({ open: true, id: project.id, name: project.name })
+  }
+
+  async function confirmDeleteProject() {
+    await supabase.from('projects').delete().eq('id', deleteProjectConfirm.id)
+    setDeleteProjectConfirm({ open: false, id: '', name: '' })
     fetchCities()
   }
 
@@ -197,7 +223,7 @@ export default function CitiesPage() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => deleteCity(city.id)}
+                      onClick={() => openDeleteCity(city)}
                       className="text-red-500 hover:text-red-700 hover:bg-red-50"
                     >
                       <Trash2 className="h-4 w-4" />
@@ -235,7 +261,7 @@ export default function CitiesPage() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => deleteProject(project.id)}
+                              onClick={() => openDeleteProject(project)}
                               className="text-red-400 hover:text-red-600 hover:bg-red-50"
                             >
                               <Trash2 className="h-4 w-4" />
@@ -288,6 +314,55 @@ export default function CitiesPage() {
               <Button onClick={addProject} disabled={saving || !newProject.name.trim()}>
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'הוסף פרויקט'}
               </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete City Confirmation */}
+      <Dialog open={deleteCityConfirm.open} onOpenChange={(open) => setDeleteCityConfirm(prev => ({ ...prev, open }))}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>מחיקת עיר</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4" dir="rtl">
+            <p className="text-gray-700">האם אתה בטוח שברצונך למחוק את העיר <strong>{deleteCityConfirm.name}</strong>?</p>
+            <p className="text-sm text-red-600">פעולה זו אינה ניתנת לביטול.</p>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setDeleteCityConfirm({ open: false, id: '', name: '' })}>ביטול</Button>
+              <Button variant="destructive" onClick={confirmDeleteCity}>מחק</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Project Confirmation */}
+      <Dialog open={deleteProjectConfirm.open} onOpenChange={(open) => setDeleteProjectConfirm(prev => ({ ...prev, open }))}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>מחיקת פרויקט</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4" dir="rtl">
+            <p className="text-gray-700">האם אתה בטוח שברצונך למחוק את הפרויקט <strong>{deleteProjectConfirm.name}</strong>?</p>
+            <p className="text-sm text-red-600">פעולה זו אינה ניתנת לביטול.</p>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setDeleteProjectConfirm({ open: false, id: '', name: '' })}>ביטול</Button>
+              <Button variant="destructive" onClick={confirmDeleteProject}>מחק</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Block Error Dialog */}
+      <Dialog open={blockError.open} onOpenChange={(open) => setBlockError(prev => ({ ...prev, open }))}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>לא ניתן למחוק</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4" dir="rtl">
+            <p className="text-gray-700">{blockError.message}</p>
+            <div className="flex justify-end">
+              <Button onClick={() => setBlockError({ open: false, message: '' })}>הבנתי</Button>
             </div>
           </div>
         </DialogContent>
