@@ -178,17 +178,23 @@ export default function ResidentPage() {
                   </p>
                 )}
                 {resident.phone && (
-                  <a href={`tel:${resident.phone}`} className="text-gray-500 hover:text-blue-600 flex items-center gap-2">
-                    <Phone className="h-4 w-4" />
+                  <div className="text-gray-500 flex items-center gap-2">
+                    <Phone className="h-4 w-4 shrink-0" />
                     <span dir="ltr">{resident.phone}</span>
-                  </a>
+                    <a href={`tel:${resident.phone}`} className="inline-flex items-center justify-center p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200 transition-colors" title="חייג">
+                      <Phone className="h-3.5 w-3.5" />
+                    </a>
+                  </div>
                 )}
                 {resident.phone2 && (
-                  <a href={`tel:${resident.phone2}`} className="text-gray-500 hover:text-blue-600 flex items-center gap-2">
-                    <Phone className="h-4 w-4" />
+                  <div className="text-gray-500 flex items-center gap-2">
+                    <Phone className="h-4 w-4 shrink-0" />
                     <span dir="ltr">{resident.phone2}</span>
                     <span className="text-xs text-gray-400">(נוסף)</span>
-                  </a>
+                    <a href={`tel:${resident.phone2}`} className="inline-flex items-center justify-center p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200 transition-colors" title="חייג">
+                      <Phone className="h-3.5 w-3.5" />
+                    </a>
+                  </div>
                 )}
                 {resident.email && (
                   <p className="text-gray-500 flex items-center gap-2">

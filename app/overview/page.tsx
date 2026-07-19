@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
-import { Loader2, BarChart2 } from 'lucide-react'
+import { Loader2, BarChart2, Phone } from 'lucide-react'
 import { STATUS_LABELS, STATUS_ORDER, STATUS_COLORS, PAYMENT_STATUS_LABELS } from '@/lib/utils'
 
 type City = { id: string; name: string }
@@ -298,7 +298,12 @@ export default function OverviewPage() {
                           <td className="py-3 px-4 font-medium text-gray-900">{resident.name}</td>
                           <td className="py-3 px-4 text-left">
                             {resident.phone
-                              ? <a href={`tel:${resident.phone}`} className="text-gray-600 hover:text-blue-600" dir="ltr">{resident.phone}</a>
+                              ? <div className="flex items-center gap-2">
+                                  <span className="text-gray-600" dir="ltr">{resident.phone}</span>
+                                  <a href={`tel:${resident.phone}`} className="inline-flex items-center justify-center p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200 transition-colors" title="חייג">
+                                    <Phone className="h-3.5 w-3.5" />
+                                  </a>
+                                </div>
                               : <span className="text-gray-400">—</span>}
                           </td>
                           <td className="py-3 px-4">

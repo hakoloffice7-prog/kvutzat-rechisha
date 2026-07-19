@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Plus, Users, Loader2, Pencil, Trash2, ShoppingCart, X, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, Users, Loader2, Pencil, Trash2, ShoppingCart, X, ChevronDown, ChevronUp, Phone } from 'lucide-react'
 import { STATUS_LABELS, STATUS_ORDER } from '@/lib/utils'
 import Link from 'next/link'
 
@@ -485,7 +485,12 @@ export default function ResidentsPage() {
                       <td className="py-3 px-4 text-gray-600">{resident.address || '—'}</td>
                       <td className="py-3 px-4">
                         {resident.phone
-                          ? <a href={`tel:${resident.phone}`} className="text-gray-600 hover:text-blue-600" dir="ltr">{resident.phone}</a>
+                          ? <div className="flex items-center gap-2">
+                              <span className="text-gray-600" dir="ltr">{resident.phone}</span>
+                              <a href={`tel:${resident.phone}`} className="inline-flex items-center justify-center p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200 transition-colors" title="חייג">
+                                <Phone className="h-3.5 w-3.5" />
+                              </a>
+                            </div>
                           : <span className="text-gray-400">—</span>}
                       </td>
                       <td className="py-3 px-4">

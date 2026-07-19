@@ -246,10 +246,13 @@ export default function ProjectPage() {
                       </p>
                     )}
                     {resident.phone && (
-                      <a href={`tel:${resident.phone}`} className="text-sm text-gray-500 hover:text-blue-600 flex items-center gap-1">
-                        <Phone className="h-3.5 w-3.5" />
+                      <div className="text-sm text-gray-500 flex items-center gap-1">
+                        <Phone className="h-3.5 w-3.5 shrink-0" />
                         <span dir="ltr">{resident.phone}</span>
-                      </a>
+                        <a href={`tel:${resident.phone}`} className="inline-flex items-center justify-center p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200 transition-colors" title="חייג">
+                          <Phone className="h-3.5 w-3.5" />
+                        </a>
+                      </div>
                     )}
                   </div>
 

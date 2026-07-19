@@ -252,13 +252,13 @@ export default function SuppliersPage() {
 
                 <div className="space-y-1.5">
                   {supplier.phone && (
-                    <a
-                      href={`tel:${supplier.phone}`}
-                      className="text-sm text-gray-500 flex items-center gap-2 hover:text-blue-600"
-                    >
-                      <Phone className="h-3.5 w-3.5" />
+                    <div className="text-sm text-gray-500 flex items-center gap-2">
+                      <Phone className="h-3.5 w-3.5 shrink-0" />
                       <span dir="ltr">{supplier.phone}</span>
-                    </a>
+                      <a href={`tel:${supplier.phone}`} className="inline-flex items-center justify-center p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200 transition-colors" title="חייג">
+                        <Phone className="h-3.5 w-3.5" />
+                      </a>
+                    </div>
                   )}
                   {supplier.email && (
                     <a
