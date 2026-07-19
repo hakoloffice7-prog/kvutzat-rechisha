@@ -30,12 +30,15 @@ type Resident = {
   email: string
   key_location: string
 }
+type OrderItem = { id: string; description: string; model: string; customer_price: number; supplier_price: number }
+
 type SimpleOrder = {
   id: string
   status: string
   payment_status: string
   categories: { name: string }
   suppliers: { name: string } | null
+  order_items: OrderItem[]
 }
 
 export default function ResidentsPage() {
@@ -64,6 +67,7 @@ export default function ResidentsPage() {
 
   // Filter persistence
   const pendingProjectIdRef = useRef('')
+  const pendingAddDialogRef = useRef(false)
   // Delete confirmation dialog
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [deleteConfirmId, setDeleteConfirmId] = useState('')
@@ -76,6 +80,10 @@ export default function ResidentsPage() {
   useEffect(() => {
     fetchCities()
     try {
+      if (sessionStorage.getItem('residents-pending-add') === '1') {
+        sessionStorage.removeItem('residents-pending-add')
+        pendingAddDialogRef.current = true
+      }
       const saved = sessionStorage.getItem('residents-filter')
       if (saved) {
         const { cityId, projectId } = JSON.parse(saved)
@@ -100,6 +108,10 @@ export default function ResidentsPage() {
         const pending = pendingProjectIdRef.current
         if (pending && projectsData.some((p) => p.id === pending)) {
           setSelectedProjectId(pending)
+          if (pendingAddDialogRef.current) {
+            pendingAddDialogRef.current = false
+            setAddDialogOpen(true)
+          }
         } else {
           setSelectedProjectId('')
           setResidents([])
@@ -231,7 +243,7 @@ export default function ResidentsPage() {
 
     const { data } = await supabase
       .from('orders')
-      .select('id, status, payment_status, categories(name), suppliers(name)')
+      .select('id, status, payment_status, categories(name), suppliers(name), order_items(id, description, model, customer_price, supplier_price)')
       .eq('resident_id', resident.id)
       .order('created_at', { ascending: false })
 
@@ -590,24 +602,43 @@ export default function ResidentsPage() {
               <p>אין הזמנות</p>
             </div>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-3">
               {residentOrders.map((order) => (
-                <div key={order.id} className="flex items-center justify-between border rounded-lg p-3 hover:bg-gray-50">
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <span className="font-medium text-gray-900">{order.categories?.name}</span>
-                    <Badge variant={STATUS_COLORS[order.status] as any}>
-                      {STATUS_LABELS[order.status]}
-                    </Badge>
-                    <Badge variant={PAYMENT_STATUS_COLORS[order.payment_status] as any}>
-                      {PAYMENT_STATUS_LABELS[order.payment_status]}
-                    </Badge>
-                    {order.suppliers && (
-                      <span className="text-sm text-gray-500">{order.suppliers.name}</span>
-                    )}
+                <div key={order.id} className="border rounded-lg overflow-hidden">
+                  {/* Order row */}
+                  <div className="flex items-center justify-between p-3 bg-white">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-gray-900">{order.categories?.name}</span>
+                      <Badge variant={STATUS_COLORS[order.status] as any}>
+                        {STATUS_LABELS[order.status]}
+                      </Badge>
+                      <Badge variant={PAYMENT_STATUS_COLORS[order.payment_status] as any}>
+                        {PAYMENT_STATUS_LABELS[order.payment_status]}
+                      </Badge>
+                      {order.suppliers && (
+                        <span className="text-sm text-gray-500">{order.suppliers.name}</span>
+                      )}
+                    </div>
+                    <Link href={`/orders/${order.id}`}>
+                      <Button variant="outline" size="sm">ערוך</Button>
+                    </Link>
                   </div>
-                  <Link href={`/orders/${order.id}`}>
-                    <Button variant="outline" size="sm">ערוך</Button>
-                  </Link>
+                  {/* Items sub-list */}
+                  {order.order_items && order.order_items.length > 0 && (
+                    <div className="border-t bg-gray-50 px-4 py-2 space-y-1">
+                      {order.order_items.map((item) => (
+                        <div key={item.id} className="flex items-center justify-between text-sm">
+                          <span className="text-gray-700">
+                            {item.description}
+                            {item.model ? <span className="text-gray-400 mr-1"> — {item.model}</span> : null}
+                          </span>
+                          <span className="text-gray-500 text-xs mr-4">
+                            ₪{(item.customer_price || 0).toLocaleString('he-IL')}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

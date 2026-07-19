@@ -103,19 +103,17 @@ export default function ResidentPage() {
     if (!newOrder.category_id) return
     setSaving(true)
 
-    const { error } = await supabase.from('orders').insert({
+    const { data: orderData, error } = await supabase.from('orders').insert({
       resident_id: residentId,
       category_id: newOrder.category_id,
       supplier_id: newOrder.supplier_id || null,
       status: newOrder.status,
       payment_status: newOrder.payment_status,
       notes: newOrder.notes,
-    })
+    }).select('id').single()
 
-    if (!error) {
-      setNewOrder({ category_id: '', supplier_id: '', status: 'lead', payment_status: 'not_paid', notes: '' })
-      setDialogOpen(false)
-      fetchData()
+    if (!error && orderData) {
+      router.push(`/orders/${orderData.id}`)
     }
     setSaving(false)
   }

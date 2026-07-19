@@ -3,8 +3,6 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -12,7 +10,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog'
 import { Plus, Users, ChevronLeft, Loader2, Trash2, Phone, MapPin, ArrowRight } from 'lucide-react'
 import Link from 'next/link'
@@ -23,6 +20,7 @@ type Project = {
   id: string
   name: string
   address: string
+  city_id: string
   cities: { name: string }
 }
 
@@ -41,17 +39,8 @@ export default function ProjectPage() {
   const [project, setProject] = useState<Project | null>(null)
   const [residents, setResidents] = useState<Resident[]>([])
   const [loading, setLoading] = useState(true)
-  const [dialogOpen, setDialogOpen] = useState(false)
-  const [newResident, setNewResident] = useState({ name: '', address: '', phone: '' })
-  const [saving, setSaving] = useState(false)
-  const [phoneError, setPhoneError] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState<{ open: boolean; id: string; name: string }>({ open: false, id: '', name: '' })
   const supabase = createClient()
-
-  function isValidPhone(phone: string) {
-    const cleaned = phone.replace(/[\s\-()]/g, '')
-    return /^0\d{8,9}$/.test(cleaned)
-  }
 
   useEffect(() => {
     fetchData()
@@ -77,27 +66,16 @@ export default function ProjectPage() {
     setLoading(false)
   }
 
-  async function addResident() {
-    if (!newResident.name.trim()) return
-    const phone = newResident.phone.trim()
-    if (!phone) { setPhoneError('יש להזין מספר טלפון'); return }
-    if (!isValidPhone(phone)) { setPhoneError('מספר טלפון לא תקין (לדוגמה: 050-1234567)'); return }
-    setPhoneError('')
-    setSaving(true)
-
-    const { error } = await supabase.from('residents').insert({
-      project_id: projectId,
-      name: newResident.name.trim(),
-      address: newResident.address.trim(),
-      phone: phone,
-    })
-
-    if (!error) {
-      setNewResident({ name: '', address: '', phone: '' })
-      setDialogOpen(false)
-      fetchData()
-    }
-    setSaving(false)
+  function goToAddResident() {
+    if (!project) return
+    try {
+      sessionStorage.setItem('residents-filter', JSON.stringify({
+        cityId: project.city_id,
+        projectId: projectId,
+      }))
+      sessionStorage.setItem('residents-pending-add', '1')
+    } catch {}
+    router.push('/residents')
   }
 
   function openDeleteConfirm(resident: Resident) {
@@ -164,57 +142,10 @@ export default function ProjectPage() {
           <p className="text-sm text-gray-400 mt-1">{residents.length} דיירים</p>
         </div>
 
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="h-4 w-4 ml-2" />
-              הוסף דייר
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>הוספת דייר חדש</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="residentName">שם הדייר *</Label>
-                <Input
-                  id="residentName"
-                  value={newResident.name}
-                  onChange={(e) => setNewResident({ ...newResident, name: e.target.value })}
-                  placeholder="שם מלא"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="residentAddress">כתובת (דירה)</Label>
-                <Input
-                  id="residentAddress"
-                  value={newResident.address}
-                  onChange={(e) => setNewResident({ ...newResident, address: e.target.value })}
-                  placeholder="לדוגמה: דירה 5, קומה 2"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="residentPhone">טלפון *</Label>
-                <Input
-                  id="residentPhone"
-                  value={newResident.phone}
-                  onChange={(e) => { setNewResident({ ...newResident, phone: e.target.value }); setPhoneError('') }}
-                  placeholder="050-0000000"
-                  dir="ltr"
-                  className={phoneError ? 'border-red-500' : ''}
-                />
-                {phoneError && <p className="text-xs text-red-500">{phoneError}</p>}
-              </div>
-              <div className="flex gap-2 justify-end">
-                <Button variant="outline" onClick={() => setDialogOpen(false)}>ביטול</Button>
-                <Button onClick={addResident} disabled={saving || !newResident.name.trim() || !newResident.phone.trim()}>
-                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'הוסף דייר'}
-                </Button>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
+        <Button onClick={goToAddResident}>
+          <Plus className="h-4 w-4 ml-2" />
+          הוסף דייר
+        </Button>
       </div>
 
       {/* Residents List */}
@@ -223,7 +154,7 @@ export default function ProjectPage() {
           <CardContent className="text-center py-12">
             <Users className="h-12 w-12 text-gray-300 mx-auto mb-4" />
             <p className="text-gray-500 text-lg">אין דיירים עדיין</p>
-            <p className="text-gray-400 text-sm mt-1">הוסף דייר ראשון לפרויקט</p>
+            <p className="text-gray-400 text-sm mt-1">לחץ על "הוסף דייר" להוספת דייר ראשון</p>
           </CardContent>
         </Card>
       ) : (
@@ -290,6 +221,7 @@ export default function ProjectPage() {
           })}
         </div>
       )}
+
       {/* Delete Resident Confirmation */}
       <Dialog open={deleteConfirm.open} onOpenChange={(open) => setDeleteConfirm(prev => ({ ...prev, open }))}>
         <DialogContent>
