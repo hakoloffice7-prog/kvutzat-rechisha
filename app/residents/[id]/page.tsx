@@ -15,7 +15,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { Plus, ShoppingCart, Loader2, Trash2, Phone, MapPin, ArrowLeft, Edit2, Mail, KeyRound } from 'lucide-react'
+import { Plus, ShoppingCart, Loader2, Trash2, Phone, MapPin, ArrowLeft, Edit2, Mail, KeyRound, X } from 'lucide-react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { STATUS_LABELS, STATUS_COLORS, STATUS_ORDER, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, formatCurrency } from '@/lib/utils'
@@ -44,6 +44,7 @@ type Order = {
 
 type Category = { id: string; name: string }
 type Supplier = { id: string; name: string; category_id: string }
+type NewOrderItem = { description: string; model: string; customer_price: string; supplier_price: string }
 
 export default function ResidentPage() {
   const params = useParams()
@@ -64,7 +65,18 @@ export default function ResidentPage() {
     notes: '',
   })
   const [saving, setSaving] = useState(false)
+  const [newOrderItems, setNewOrderItems] = useState<NewOrderItem[]>([])
   const supabase = createClient()
+
+  function addNewOrderItem() {
+    setNewOrderItems(prev => [...prev, { description: '', model: '', customer_price: '', supplier_price: '' }])
+  }
+  function updateNewOrderItem(idx: number, field: keyof NewOrderItem, value: string) {
+    setNewOrderItems(prev => prev.map((item, i) => i === idx ? { ...item, [field]: value } : item))
+  }
+  function removeNewOrderItem(idx: number) {
+    setNewOrderItems(prev => prev.filter((_, i) => i !== idx))
+  }
 
   useEffect(() => {
     fetchData()
@@ -113,6 +125,18 @@ export default function ResidentPage() {
     }).select('id').single()
 
     if (!error && orderData) {
+      const validItems = newOrderItems.filter(i => i.description.trim())
+      if (validItems.length > 0) {
+        await supabase.from('order_items').insert(
+          validItems.map(i => ({
+            order_id: orderData.id,
+            description: i.description.trim(),
+            model: i.model.trim(),
+            customer_price: parseFloat(i.customer_price) || 0,
+            supplier_price: parseFloat(i.supplier_price) || 0,
+          }))
+        )
+      }
       router.push(`/orders/${orderData.id}`)
     }
     setSaving(false)
@@ -212,63 +236,71 @@ export default function ResidentPage() {
               </div>
             </div>
 
-            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <Dialog open={dialogOpen} onOpenChange={(open) => {
+              setDialogOpen(open)
+              if (!open) {
+                setNewOrder({ category_id: '', supplier_id: '', status: 'lead', payment_status: 'not_paid', notes: '' })
+                setNewOrderItems([])
+              }
+            }}>
               <DialogTrigger asChild>
                 <Button>
                   <Plus className="h-4 w-4 ml-2" />
                   הוסף הזמנה
                 </Button>
               </DialogTrigger>
-              <DialogContent>
+              <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto" dir="rtl">
                 <DialogHeader>
                   <DialogTitle>הוספת הזמנה חדשה</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label>קטגוריה *</Label>
-                    <Select
-                      value={newOrder.category_id}
-                      onChange={(e) => setNewOrder({ ...newOrder, category_id: e.target.value, supplier_id: '' })}
-                    >
-                      <option value="">בחר קטגוריה</option>
-                      {categories.map(cat => (
-                        <option key={cat.id} value={cat.id}>{cat.name}</option>
-                      ))}
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>ספק</Label>
-                    <Select
-                      value={newOrder.supplier_id}
-                      onChange={(e) => setNewOrder({ ...newOrder, supplier_id: e.target.value })}
-                    >
-                      <option value="">בחר ספק (אופציונלי)</option>
-                      {filteredSuppliers.map(sup => (
-                        <option key={sup.id} value={sup.id}>{sup.name}</option>
-                      ))}
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>סטטוס</Label>
-                    <Select
-                      value={newOrder.status}
-                      onChange={(e) => setNewOrder({ ...newOrder, status: e.target.value })}
-                    >
-                      {STATUS_ORDER.map(s => (
-                        <option key={s} value={s}>{STATUS_LABELS[s]}</option>
-                      ))}
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>סטטוס תשלום</Label>
-                    <Select
-                      value={newOrder.payment_status}
-                      onChange={(e) => setNewOrder({ ...newOrder, payment_status: e.target.value })}
-                    >
-                      <option value="not_paid">לא שילם</option>
-                      <option value="advance">מקדמה</option>
-                      <option value="paid_full">שילם הכל</option>
-                    </Select>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>קטגוריה *</Label>
+                      <Select
+                        value={newOrder.category_id}
+                        onChange={(e) => setNewOrder({ ...newOrder, category_id: e.target.value, supplier_id: '' })}
+                      >
+                        <option value="">בחר קטגוריה</option>
+                        {categories.map(cat => (
+                          <option key={cat.id} value={cat.id}>{cat.name}</option>
+                        ))}
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>ספק</Label>
+                      <Select
+                        value={newOrder.supplier_id}
+                        onChange={(e) => setNewOrder({ ...newOrder, supplier_id: e.target.value })}
+                      >
+                        <option value="">ספק (אופציונלי)</option>
+                        {filteredSuppliers.map(sup => (
+                          <option key={sup.id} value={sup.id}>{sup.name}</option>
+                        ))}
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>סטטוס</Label>
+                      <Select
+                        value={newOrder.status}
+                        onChange={(e) => setNewOrder({ ...newOrder, status: e.target.value })}
+                      >
+                        {STATUS_ORDER.map(s => (
+                          <option key={s} value={s}>{STATUS_LABELS[s]}</option>
+                        ))}
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>סטטוס תשלום</Label>
+                      <Select
+                        value={newOrder.payment_status}
+                        onChange={(e) => setNewOrder({ ...newOrder, payment_status: e.target.value })}
+                      >
+                        <option value="not_paid">לא שילם</option>
+                        <option value="advance">מקדמה</option>
+                        <option value="paid_full">שילם הכל</option>
+                      </Select>
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <Label>הערות</Label>
@@ -278,7 +310,64 @@ export default function ResidentPage() {
                       placeholder="הערות נוספות..."
                     />
                   </div>
-                  <div className="flex gap-2 justify-end">
+
+                  {/* Items section */}
+                  <div className="border-t pt-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-base font-semibold">פריטים</Label>
+                      <Button type="button" variant="outline" size="sm" onClick={addNewOrderItem}>
+                        <Plus className="h-3.5 w-3.5 ml-1" />
+                        הוסף פריט
+                      </Button>
+                    </div>
+                    {newOrderItems.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-[2fr_1fr_1fr_auto] gap-2 text-xs text-gray-500 px-1">
+                          <span>תיאור</span>
+                          <span>מחיר לקוח ₪</span>
+                          <span>מחיר ספק ₪</span>
+                          <span></span>
+                        </div>
+                        {newOrderItems.map((item, idx) => (
+                          <div key={idx} className="grid grid-cols-[2fr_1fr_1fr_auto] gap-2 items-center">
+                            <Input
+                              value={item.description}
+                              onChange={(e) => updateNewOrderItem(idx, 'description', e.target.value)}
+                              placeholder="תיאור הפריט"
+                              className="h-8 text-sm"
+                            />
+                            <Input
+                              type="number"
+                              value={item.customer_price}
+                              onChange={(e) => updateNewOrderItem(idx, 'customer_price', e.target.value)}
+                              placeholder="0"
+                              className="h-8 text-sm"
+                              dir="ltr"
+                            />
+                            <Input
+                              type="number"
+                              value={item.supplier_price}
+                              onChange={(e) => updateNewOrderItem(idx, 'supplier_price', e.target.value)}
+                              placeholder="0"
+                              className="h-8 text-sm"
+                              dir="ltr"
+                            />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0 text-red-400 hover:text-red-600"
+                              onClick={() => removeNewOrderItem(idx)}
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex gap-2 justify-end border-t pt-3">
                     <Button variant="outline" onClick={() => setDialogOpen(false)}>ביטול</Button>
                     <Button onClick={addOrder} disabled={saving || !newOrder.category_id}>
                       {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'הוסף הזמנה'}
