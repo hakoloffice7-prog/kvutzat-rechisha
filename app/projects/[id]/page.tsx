@@ -246,10 +246,10 @@ export default function ProjectPage() {
                       </p>
                     )}
                     {resident.phone && (
-                      <p className="text-sm text-gray-500 flex items-center gap-1">
+                      <a href={`tel:${resident.phone}`} className="text-sm text-gray-500 hover:text-blue-600 flex items-center gap-1">
                         <Phone className="h-3.5 w-3.5" />
                         <span dir="ltr">{resident.phone}</span>
-                      </p>
+                      </a>
                     )}
                   </div>
 

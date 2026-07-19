@@ -483,7 +483,11 @@ export default function ResidentsPage() {
                         </button>
                       </td>
                       <td className="py-3 px-4 text-gray-600">{resident.address || '—'}</td>
-                      <td className="py-3 px-4 text-gray-600">{resident.phone || '—'}</td>
+                      <td className="py-3 px-4">
+                        {resident.phone
+                          ? <a href={`tel:${resident.phone}`} className="text-gray-600 hover:text-blue-600" dir="ltr">{resident.phone}</a>
+                          : <span className="text-gray-400">—</span>}
+                      </td>
                       <td className="py-3 px-4">
                         <div className="flex gap-1 justify-end">
                           <Button

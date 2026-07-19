@@ -178,17 +178,17 @@ export default function ResidentPage() {
                   </p>
                 )}
                 {resident.phone && (
-                  <p className="text-gray-500 flex items-center gap-2">
+                  <a href={`tel:${resident.phone}`} className="text-gray-500 hover:text-blue-600 flex items-center gap-2">
                     <Phone className="h-4 w-4" />
                     <span dir="ltr">{resident.phone}</span>
-                  </p>
+                  </a>
                 )}
                 {resident.phone2 && (
-                  <p className="text-gray-500 flex items-center gap-2">
+                  <a href={`tel:${resident.phone2}`} className="text-gray-500 hover:text-blue-600 flex items-center gap-2">
                     <Phone className="h-4 w-4" />
                     <span dir="ltr">{resident.phone2}</span>
                     <span className="text-xs text-gray-400">(נוסף)</span>
-                  </p>
+                  </a>
                 )}
                 {resident.email && (
                   <p className="text-gray-500 flex items-center gap-2">

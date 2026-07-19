@@ -296,7 +296,11 @@ export default function OverviewPage() {
                         <tr key={resident.id} className="border-b hover:bg-gray-50 transition-colors">
                           <td className="py-3 px-4 text-gray-400">{idx + 1}</td>
                           <td className="py-3 px-4 font-medium text-gray-900">{resident.name}</td>
-                          <td className="py-3 px-4 text-gray-600 dir-ltr text-left">{resident.phone || '—'}</td>
+                          <td className="py-3 px-4 text-left">
+                            {resident.phone
+                              ? <a href={`tel:${resident.phone}`} className="text-gray-600 hover:text-blue-600" dir="ltr">{resident.phone}</a>
+                              : <span className="text-gray-400">—</span>}
+                          </td>
                           <td className="py-3 px-4">
                             <Badge variant={statusVariant as any}>{statusLabel}</Badge>
                           </td>
