@@ -86,6 +86,7 @@ export default function ProjectPage() {
     await supabase.from('residents').delete().eq('id', deleteConfirm.id)
     setDeleteConfirm({ open: false, id: '', name: '' })
     fetchData()
+    router.refresh()
   }
 
   const statusPriority: Record<string, number> = {

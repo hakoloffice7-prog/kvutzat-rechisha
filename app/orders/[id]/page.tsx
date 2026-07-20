@@ -195,6 +195,7 @@ export default function OrderPage() {
       setItemDialogOpen(false)
       updateTotalFromItemsRef.current = true
       fetchData()
+      router.refresh()
     }
     setSaving(false)
   }
@@ -203,6 +204,7 @@ export default function OrderPage() {
     await supabase.from('order_items').delete().eq('id', itemId)
     updateTotalFromItemsRef.current = true
     fetchData()
+    router.refresh()
   }
 
   function startEditItem(item: OrderItem) {

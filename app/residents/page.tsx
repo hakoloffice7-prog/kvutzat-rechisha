@@ -191,6 +191,7 @@ export default function ResidentsPage() {
       setNewResident({ name: '', address: '', phone: '', phone2: '', email: '', key_location: '' })
       setAddDialogOpen(false)
       fetchResidents(selectedProjectId)
+      router.refresh()
     }
     setSaving(false)
   }
@@ -230,6 +231,7 @@ export default function ResidentsPage() {
     setDeleteConfirmId('')
     setDeleteConfirmName('')
     fetchResidents(selectedProjectId)
+    router.refresh()
   }
 
   // ──────────────────────────────────────────────────

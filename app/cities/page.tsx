@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dialog'
 import { Plus, Building2, ChevronLeft, Loader2, Trash2, FolderOpen } from 'lucide-react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 
 type City = {
   id: string
@@ -48,6 +49,7 @@ export default function CitiesPage() {
   const [blockError, setBlockError] = useState<{ open: boolean; message: string }>({ open: false, message: '' })
 
   const supabase = createClient()
+  const router = useRouter()
 
   useEffect(() => {
     fetchCities()
@@ -81,6 +83,7 @@ export default function CitiesPage() {
       setNewCityName('')
       setCityDialogOpen(false)
       fetchCities()
+      router.refresh()
     }
     setSaving(false)
   }
@@ -101,6 +104,7 @@ export default function CitiesPage() {
       setNewProject({ name: '', address: '' })
       setProjectDialogOpen(false)
       fetchCities()
+      router.refresh()
     }
     setSaving(false)
   }
@@ -117,6 +121,7 @@ export default function CitiesPage() {
     await supabase.from('cities').delete().eq('id', deleteCityConfirm.id)
     setDeleteCityConfirm({ open: false, id: '', name: '' })
     fetchCities()
+    router.refresh()
   }
 
   async function openDeleteProject(project: Project) {
@@ -136,6 +141,7 @@ export default function CitiesPage() {
     await supabase.from('projects').delete().eq('id', deleteProjectConfirm.id)
     setDeleteProjectConfirm({ open: false, id: '', name: '' })
     fetchCities()
+    router.refresh()
   }
 
   if (loading) {
