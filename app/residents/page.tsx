@@ -203,11 +203,11 @@ export default function ResidentsPage() {
       .from('residents')
       .update({
         name: editingResident.name.trim(),
-        address: editingResident.address.trim(),
-        phone: editingResident.phone.trim(),
-        phone2: editingResident.phone2.trim(),
-        email: editingResident.email.trim(),
-        key_location: editingResident.key_location.trim(),
+        address: (editingResident.address || '').trim(),
+        phone: (editingResident.phone || '').trim(),
+        phone2: (editingResident.phone2 || '').trim(),
+        email: (editingResident.email || '').trim(),
+        key_location: (editingResident.key_location || '').trim(),
       })
       .eq('id', editingResident.id)
     if (!error) {
