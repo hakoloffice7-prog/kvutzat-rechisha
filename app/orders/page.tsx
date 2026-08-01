@@ -14,10 +14,10 @@ type Order = {
   status: string
   payment_status: string
   total_price: number
-  deposit: number
   created_at: string
   residents: { id: string; name: string }
   categories: { name: string }
+  order_payments: { amount: number }[]
 }
 
 const ALL = 'all'
@@ -33,7 +33,7 @@ export default function OrdersPage() {
     async function fetchOrders() {
       const { data } = await supabase
         .from('orders')
-        .select('id, status, payment_status, total_price, deposit, created_at, residents(id, name), categories(name)')
+        .select('id, status, payment_status, total_price, created_at, residents(id, name), categories(name), order_payments(amount)')
         .order('created_at', { ascending: false })
       if (data) setOrders(data as any)
       setLoading(false)
@@ -121,7 +121,9 @@ export default function OrdersPage() {
         </Card>
       ) : (
         <div className="space-y-2">
-          {filtered.map((order) => (
+          {filtered.map((order) => {
+            const totalPaid = (order.order_payments || []).reduce((sum, p) => sum + (p.amount || 0), 0)
+            return (
             <Link key={order.id} href={`/orders/${order.id}`}>
               <div className="flex items-center justify-between p-4 bg-white border rounded-lg hover:shadow-sm hover:border-blue-200 transition-all cursor-pointer">
                 <div className="flex-1 min-w-0">
@@ -134,10 +136,10 @@ export default function OrdersPage() {
                       {(order.categories as any)?.name || 'ללא קטגוריה'}
                     </span>
                   </div>
-                  {(order.total_price > 0 || order.deposit > 0) && (
+                  {(order.total_price > 0 || totalPaid > 0) && (
                     <p className="text-xs text-gray-400 mt-0.5">
                       {order.total_price > 0 && `סה"כ: ${formatCurrency(order.total_price)}`}
-                      {order.deposit > 0 && ` · מקדמה: ${formatCurrency(order.deposit)}`}
+                      {totalPaid > 0 && ` · שולם: ${formatCurrency(totalPaid)}`}
                     </p>
                   )}
                 </div>
@@ -156,7 +158,8 @@ export default function OrdersPage() {
                 </div>
               </div>
             </Link>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>

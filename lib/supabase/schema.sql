@@ -85,7 +85,6 @@ CREATE TABLE orders (
     ('not_paid', 'advance', 'partial', 'paid_full')),
   measurements TEXT,           -- מדידות (טקסט חופשי, למשל "2 דלת 5 חלון")
   total_price DECIMAL(10,2) DEFAULT 0,   -- מחיר לתשלום / סיכום (גם המחיר הגלובלי ללקוח כשis_global_price=TRUE)
-  deposit DECIMAL(10,2) DEFAULT 0,       -- מקדמה
   is_global_price BOOLEAN DEFAULT FALSE, -- מחיר גלובלי לכל ההזמנה במקום לפי פריטים
   global_supplier_price DECIMAL(10,2) DEFAULT 0, -- מחיר ספק גלובלי (כש-is_global_price=TRUE)
   details JSONB DEFAULT '{}'::jsonb,     -- שדות ספציפיים למוצר (הגבהה/נפתח/צורה/דגם וכו')
@@ -102,6 +101,16 @@ CREATE TABLE order_items (
   model TEXT,
   customer_price DECIMAL(10,2) DEFAULT 0,
   supplier_price DECIMAL(10,2) DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Order payments table (היסטוריית תשלומים בפועל של הלקוח עבור ההזמנה)
+CREATE TABLE order_payments (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  order_id UUID REFERENCES orders(id) ON DELETE CASCADE,
+  amount DECIMAL(10,2) NOT NULL DEFAULT 0,
+  paid_at DATE DEFAULT CURRENT_DATE,
+  note TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -126,6 +135,7 @@ ALTER TABLE suppliers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE supplier_project_ledger ENABLE ROW LEVEL SECURITY;
 ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE order_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE order_payments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies - authenticated users can do everything
@@ -168,6 +178,11 @@ CREATE POLICY "Authenticated users can view order_items" ON order_items FOR SELE
 CREATE POLICY "Authenticated users can insert order_items" ON order_items FOR INSERT TO authenticated WITH CHECK (true);
 CREATE POLICY "Authenticated users can update order_items" ON order_items FOR UPDATE TO authenticated USING (true);
 CREATE POLICY "Authenticated users can delete order_items" ON order_items FOR DELETE TO authenticated USING (true);
+
+CREATE POLICY "Authenticated users can view order_payments" ON order_payments FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Authenticated users can insert order_payments" ON order_payments FOR INSERT TO authenticated WITH CHECK (true);
+CREATE POLICY "Authenticated users can update order_payments" ON order_payments FOR UPDATE TO authenticated USING (true);
+CREATE POLICY "Authenticated users can delete order_payments" ON order_payments FOR DELETE TO authenticated USING (true);
 
 CREATE POLICY "Authenticated users can view notifications" ON notifications FOR SELECT TO authenticated USING (true);
 CREATE POLICY "Authenticated users can insert notifications" ON notifications FOR INSERT TO authenticated WITH CHECK (true);

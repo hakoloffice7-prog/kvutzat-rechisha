@@ -21,7 +21,7 @@ import { useParams, useRouter } from 'next/navigation'
 import {
   STATUS_LABELS, STATUS_COLORS, STATUS_ORDER,
   PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS,
-  formatCurrency
+  formatCurrency, formatDate
 } from '@/lib/utils'
 
 type OrderItem = {
@@ -32,6 +32,13 @@ type OrderItem = {
   supplier_price: number
 }
 
+type OrderPayment = {
+  id: string
+  amount: number
+  paid_at: string
+  note: string | null
+}
+
 type Order = {
   id: string
   status: string
@@ -39,7 +46,6 @@ type Order = {
   notes: string
   measurements: string | null
   total_price: number | null
-  deposit: number | null
   is_global_price: boolean
   global_supplier_price: number | null
   details: Record<string, string>
@@ -52,6 +58,7 @@ type Order = {
   categories: { id: string; name: string }
   suppliers: { id: string; name: string } | null
   order_items: OrderItem[]
+  order_payments: OrderPayment[]
 }
 
 type Supplier = { id: string; name: string; category_id: string }
@@ -75,7 +82,6 @@ export default function OrderPage() {
     notes: '',
     measurements: '',
     total_price: '',
-    deposit: '',
     is_global_price: false,
     global_supplier_price: '',
   })
@@ -96,6 +102,14 @@ export default function OrderPage() {
     supplier_price: string
   }>({ description: '', model: '', customer_price: '', supplier_price: '' })
 
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false)
+  const [newPayment, setNewPayment] = useState({
+    amount: '',
+    paid_at: new Date().toISOString().slice(0, 10),
+    note: '',
+  })
+  const [deletePaymentConfirmId, setDeletePaymentConfirmId] = useState<string | null>(null)
+
   const supabase = createClient()
 
   useEffect(() => {
@@ -112,7 +126,8 @@ export default function OrderPage() {
           residents(id, name, projects(id, name, cities(name))),
           categories(id, name),
           suppliers(id, name),
-          order_items(*)
+          order_items(*),
+          order_payments(*)
         `)
         .eq('id', orderId)
         .single(),
@@ -133,7 +148,6 @@ export default function OrderPage() {
         total_price: (updateTotalFromItemsRef.current && !orderData.is_global_price)
           ? String(itemsRevenue)
           : (orderData.total_price ? String(orderData.total_price) : ''),
-        deposit: orderData.deposit ? String(orderData.deposit) : '',
         is_global_price: orderData.is_global_price || false,
         global_supplier_price: orderData.global_supplier_price ? String(orderData.global_supplier_price) : '',
       })
@@ -160,7 +174,6 @@ export default function OrderPage() {
         notes: editedOrder.notes,
         measurements: editedOrder.measurements,
         total_price: parseFloat(editedOrder.total_price) || 0,
-        deposit: parseFloat(editedOrder.deposit) || 0,
         is_global_price: editedOrder.is_global_price,
         global_supplier_price: parseFloat(editedOrder.global_supplier_price) || 0,
         details,
@@ -236,6 +249,37 @@ export default function OrderPage() {
     }
     setSaving(false)
   }
+
+  async function addPayment() {
+    const amount = parseFloat(newPayment.amount) || 0
+    if (amount <= 0) return
+    setSaving(true)
+
+    const { error } = await supabase.from('order_payments').insert({
+      order_id: orderId,
+      amount,
+      paid_at: newPayment.paid_at,
+      note: newPayment.note.trim() || null,
+    })
+
+    if (!error) {
+      setNewPayment({ amount: '', paid_at: new Date().toISOString().slice(0, 10), note: '' })
+      setPaymentDialogOpen(false)
+      fetchData()
+    }
+    setSaving(false)
+  }
+
+  async function deletePayment(paymentId: string) {
+    await supabase.from('order_payments').delete().eq('id', paymentId)
+    fetchData()
+  }
+
+  const sortedPayments = [...(order?.order_payments || [])].sort(
+    (a, b) => a.paid_at.localeCompare(b.paid_at) || a.id.localeCompare(b.id)
+  )
+  const totalPaid = sortedPayments.reduce((sum, p) => sum + (p.amount || 0), 0)
+  const balanceDue = (order?.total_price || 0) - totalPaid
 
   const totalRevenue = order?.is_global_price
     ? (order.total_price || 0)
@@ -361,27 +405,15 @@ export default function OrderPage() {
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>מחיר לתשלום (₪)</Label>
-                      <Input
-                        type="number"
-                        value={editedOrder.total_price}
-                        onChange={(e) => setEditedOrder({ ...editedOrder, total_price: e.target.value })}
-                        placeholder="0"
-                        dir="ltr"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>מקדמה (₪)</Label>
-                      <Input
-                        type="number"
-                        value={editedOrder.deposit}
-                        onChange={(e) => setEditedOrder({ ...editedOrder, deposit: e.target.value })}
-                        placeholder="0"
-                        dir="ltr"
-                      />
-                    </div>
+                  <div className="space-y-2">
+                    <Label>מחיר לתשלום (₪)</Label>
+                    <Input
+                      type="number"
+                      value={editedOrder.total_price}
+                      onChange={(e) => setEditedOrder({ ...editedOrder, total_price: e.target.value })}
+                      placeholder="0"
+                      dir="ltr"
+                    />
                   </div>
 
                   <div className="space-y-2 border-t pt-3">
@@ -494,12 +526,6 @@ export default function OrderPage() {
                       <span className="font-medium">₪{parseFloat(editedOrder.total_price).toLocaleString('he-IL')}</span>
                     </div>
                   )}
-                  {editedOrder.deposit && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">מקדמה</span>
-                      <span className="font-medium">₪{parseFloat(editedOrder.deposit).toLocaleString('he-IL')}</span>
-                    </div>
-                  )}
                   {editedOrder.notes && (
                     <div className="flex justify-between">
                       <span className="text-gray-500">הערות</span>
@@ -527,19 +553,21 @@ export default function OrderPage() {
               <CardTitle>סיכום כספי</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {(order.total_price || order.deposit) ? (
+              {(order.total_price || totalPaid > 0) ? (
                 <>
                   <div className="flex justify-between">
                     <span className="text-gray-500">מחיר לתשלום (הזמנה)</span>
                     <span className="font-medium">{formatCurrency(order.total_price || 0)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-500">מקדמה ששולמה</span>
-                    <span className="font-medium">{formatCurrency(order.deposit || 0)}</span>
+                    <span className="text-gray-500">סה"כ שולם בפועל</span>
+                    <span className="font-medium">{formatCurrency(totalPaid)}</span>
                   </div>
                   <div className="flex justify-between border-t pt-3">
                     <span className="text-gray-500">יתרה לתשלום</span>
-                    <span className="font-medium">{formatCurrency((order.total_price || 0) - (order.deposit || 0))}</span>
+                    <span className={`font-medium ${balanceDue > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                      {formatCurrency(balanceDue)}
+                    </span>
                   </div>
                 </>
               ) : null}
@@ -563,6 +591,101 @@ export default function OrderPage() {
                   <span className="text-gray-700">
                     {((totalProfit / totalRevenue) * 100).toFixed(1)}%
                   </span>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Payment History */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle>תשלומים</CardTitle>
+                <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button size="sm">
+                      <Plus className="h-4 w-4 ml-1" />
+                      הוסף תשלום
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>הוספת תשלום</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label>תאריך</Label>
+                        <Input
+                          type="date"
+                          value={newPayment.paid_at}
+                          onChange={(e) => setNewPayment({ ...newPayment, paid_at: e.target.value })}
+                          dir="ltr"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>סכום (₪) *</Label>
+                        <Input
+                          type="number"
+                          value={newPayment.amount}
+                          onChange={(e) => setNewPayment({ ...newPayment, amount: e.target.value })}
+                          placeholder="0"
+                          dir="ltr"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>הערה</Label>
+                        <Input
+                          value={newPayment.note}
+                          onChange={(e) => setNewPayment({ ...newPayment, note: e.target.value })}
+                          placeholder="לדוגמה: מקדמה במזומן"
+                        />
+                      </div>
+                      <div className="flex gap-2 justify-end">
+                        <Button variant="outline" onClick={() => setPaymentDialogOpen(false)}>ביטול</Button>
+                        <Button onClick={addPayment} disabled={saving || !(parseFloat(newPayment.amount) > 0)}>
+                          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'הוסף תשלום'}
+                        </Button>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {sortedPayments.length === 0 ? (
+                <div className="text-center py-6 text-gray-500 text-sm">
+                  <p>עדיין לא נרשמו תשלומים</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {sortedPayments.reduce((rows: JSX.Element[], payment, idx) => {
+                    const paidSoFar = sortedPayments.slice(0, idx + 1).reduce((s, p) => s + (p.amount || 0), 0)
+                    const remaining = (order.total_price || 0) - paidSoFar
+                    rows.push(
+                      <div key={payment.id} className="flex items-center justify-between text-sm border-b pb-2 last:border-b-0">
+                        <div>
+                          <div className="font-medium">{formatCurrency(payment.amount)}</div>
+                          <div className="text-gray-500 text-xs">
+                            {formatDate(payment.paid_at)}{payment.note ? ` · ${payment.note}` : ''}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="text-left text-xs text-gray-500">
+                            נותר: <span className={remaining > 0 ? 'text-red-600 font-medium' : 'text-green-600 font-medium'}>{formatCurrency(remaining)}</span>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setDeletePaymentConfirmId(payment.id)}
+                            className="text-red-400 hover:text-red-600 h-7 px-1"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                    )
+                    return rows
+                  }, [])}
                 </div>
               )}
             </CardContent>
@@ -842,6 +965,28 @@ export default function OrderPage() {
                 if (deleteItemConfirmId) {
                   deleteItem(deleteItemConfirmId)
                   setDeleteItemConfirmId(null)
+                }
+              }}>מחק</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Payment Confirmation */}
+      <Dialog open={!!deletePaymentConfirmId} onOpenChange={(open) => { if (!open) setDeletePaymentConfirmId(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>מחיקת תשלום</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4" dir="rtl">
+            <p className="text-gray-700">האם אתה בטוח שברצונך למחוק תשלום זה?</p>
+            <p className="text-sm text-red-600">פעולה זו אינה ניתנת לביטול.</p>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setDeletePaymentConfirmId(null)}>ביטול</Button>
+              <Button variant="destructive" onClick={() => {
+                if (deletePaymentConfirmId) {
+                  deletePayment(deletePaymentConfirmId)
+                  setDeletePaymentConfirmId(null)
                 }
               }}>מחק</Button>
             </div>
