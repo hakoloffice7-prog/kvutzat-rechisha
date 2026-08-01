@@ -13,7 +13,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { Plus, Building2, ChevronLeft, Loader2, Trash2, FolderOpen } from 'lucide-react'
+import { Plus, Building2, ChevronLeft, Loader2, Trash2, FolderOpen, Edit2 } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 
@@ -41,6 +41,12 @@ export default function CitiesPage() {
   const [newCityName, setNewCityName] = useState('')
   const [newProject, setNewProject] = useState({ name: '', address: '' })
   const [saving, setSaving] = useState(false)
+
+  // Edit dialogs
+  const [editCityDialogOpen, setEditCityDialogOpen] = useState(false)
+  const [editingCity, setEditingCity] = useState<{ id: string; name: string } | null>(null)
+  const [editProjectDialogOpen, setEditProjectDialogOpen] = useState(false)
+  const [editingProject, setEditingProject] = useState<{ id: string; name: string; address: string } | null>(null)
 
   // Delete confirmation dialogs
   const [deleteCityConfirm, setDeleteCityConfirm] = useState<{ open: boolean; id: string; name: string }>({ open: false, id: '', name: '' })
@@ -103,6 +109,41 @@ export default function CitiesPage() {
     if (!error) {
       setNewProject({ name: '', address: '' })
       setProjectDialogOpen(false)
+      fetchCities()
+      router.refresh()
+    }
+    setSaving(false)
+  }
+
+  async function saveEditCity() {
+    if (!editingCity || !editingCity.name.trim()) return
+    setSaving(true)
+    const { error } = await supabase
+      .from('cities')
+      .update({ name: editingCity.name.trim() })
+      .eq('id', editingCity.id)
+    if (!error) {
+      setEditCityDialogOpen(false)
+      setEditingCity(null)
+      fetchCities()
+      router.refresh()
+    }
+    setSaving(false)
+  }
+
+  async function saveEditProject() {
+    if (!editingProject || !editingProject.name.trim()) return
+    setSaving(true)
+    const { error } = await supabase
+      .from('projects')
+      .update({
+        name: editingProject.name.trim(),
+        address: editingProject.address.trim(),
+      })
+      .eq('id', editingProject.id)
+    if (!error) {
+      setEditProjectDialogOpen(false)
+      setEditingProject(null)
       fetchCities()
       router.refresh()
     }
@@ -229,6 +270,17 @@ export default function CitiesPage() {
                     <Button
                       variant="ghost"
                       size="sm"
+                      onClick={() => {
+                        setEditingCity({ id: city.id, name: city.name })
+                        setEditCityDialogOpen(true)
+                      }}
+                      className="text-blue-400 hover:text-blue-600"
+                    >
+                      <Edit2 className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       onClick={() => openDeleteCity(city)}
                       className="text-red-500 hover:text-red-700 hover:bg-red-50"
                     >
@@ -264,6 +316,17 @@ export default function CitiesPage() {
                                 <ChevronLeft className="h-4 w-4" />
                               </Button>
                             </Link>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setEditingProject({ id: project.id, name: project.name, address: project.address || '' })
+                                setEditProjectDialogOpen(true)
+                              }}
+                              className="text-blue-400 hover:text-blue-600"
+                            >
+                              <Edit2 className="h-4 w-4" />
+                            </Button>
                             <Button
                               variant="ghost"
                               size="sm"
@@ -322,6 +385,66 @@ export default function CitiesPage() {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit City Dialog */}
+      <Dialog open={editCityDialogOpen} onOpenChange={setEditCityDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>עריכת עיר</DialogTitle>
+          </DialogHeader>
+          {editingCity && (
+            <div className="space-y-4" dir="rtl">
+              <div className="space-y-2">
+                <Label>שם העיר</Label>
+                <Input
+                  value={editingCity.name}
+                  onChange={(e) => setEditingCity({ ...editingCity, name: e.target.value })}
+                  onKeyDown={(e) => e.key === 'Enter' && saveEditCity()}
+                />
+              </div>
+              <div className="flex gap-2 justify-end">
+                <Button variant="outline" onClick={() => setEditCityDialogOpen(false)}>ביטול</Button>
+                <Button onClick={saveEditCity} disabled={saving || !editingCity.name.trim()}>
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'שמור'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Project Dialog */}
+      <Dialog open={editProjectDialogOpen} onOpenChange={setEditProjectDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>עריכת פרויקט</DialogTitle>
+          </DialogHeader>
+          {editingProject && (
+            <div className="space-y-4" dir="rtl">
+              <div className="space-y-2">
+                <Label>שם הפרויקט</Label>
+                <Input
+                  value={editingProject.name}
+                  onChange={(e) => setEditingProject({ ...editingProject, name: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>כתובת</Label>
+                <Input
+                  value={editingProject.address}
+                  onChange={(e) => setEditingProject({ ...editingProject, address: e.target.value })}
+                />
+              </div>
+              <div className="flex gap-2 justify-end">
+                <Button variant="outline" onClick={() => setEditProjectDialogOpen(false)}>ביטול</Button>
+                <Button onClick={saveEditProject} disabled={saving || !editingProject.name.trim()}>
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'שמור'}
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

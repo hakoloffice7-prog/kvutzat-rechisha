@@ -15,14 +15,19 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { Plus, Truck, Loader2, Trash2, Phone, Mail, Edit2 } from 'lucide-react'
+import { Plus, Truck, Loader2, Trash2, Phone, Mail, Edit2, Wallet } from 'lucide-react'
+import Link from 'next/link'
+import { formatCurrency } from '@/lib/utils'
 
 type Supplier = {
   id: string
   name: string
   phone: string
+  phone2: string | null
   email: string
   category_id: string
+  advance_amount: number | null
+  advance_note: string | null
   categories: { name: string } | null
 }
 
@@ -37,6 +42,7 @@ export default function SuppliersPage() {
   const [newSupplier, setNewSupplier] = useState({
     name: '',
     phone: '',
+    phone2: '',
     email: '',
     category_id: '',
   })
@@ -81,12 +87,13 @@ export default function SuppliersPage() {
     const { error } = await supabase.from('suppliers').insert({
       name: newSupplier.name.trim(),
       phone: newSupplier.phone.trim(),
+      phone2: newSupplier.phone2.trim(),
       email: newSupplier.email.trim(),
       category_id: newSupplier.category_id || null,
     })
 
     if (!error) {
-      setNewSupplier({ name: '', phone: '', email: '', category_id: '' })
+      setNewSupplier({ name: '', phone: '', phone2: '', email: '', category_id: '' })
       setDialogOpen(false)
       fetchData()
     }
@@ -101,8 +108,11 @@ export default function SuppliersPage() {
       .update({
         name: editingSupplier.name.trim(),
         phone: editingSupplier.phone.trim(),
+        phone2: (editingSupplier.phone2 || '').trim(),
         email: editingSupplier.email.trim(),
         category_id: editingSupplier.category_id || null,
+        advance_amount: editingSupplier.advance_amount || 0,
+        advance_note: (editingSupplier.advance_note || '').trim(),
       })
       .eq('id', editingSupplier.id)
     if (!error) {
@@ -181,6 +191,15 @@ export default function SuppliersPage() {
                   className={phoneError ? 'border-red-500' : ''}
                 />
                 {phoneError && <p className="text-xs text-red-500">{phoneError}</p>}
+              </div>
+              <div className="space-y-2">
+                <Label>טלפון נוסף</Label>
+                <Input
+                  value={newSupplier.phone2}
+                  onChange={(e) => setNewSupplier({ ...newSupplier, phone2: e.target.value })}
+                  placeholder="050-0000000"
+                  dir="ltr"
+                />
               </div>
               <div className="space-y-2">
                 <Label>אימייל</Label>
@@ -272,6 +291,15 @@ export default function SuppliersPage() {
                       </a>
                     </div>
                   )}
+                  {supplier.phone2 && (
+                    <div className="text-sm text-gray-500 flex items-center gap-2">
+                      <Phone className="h-3.5 w-3.5 shrink-0" />
+                      <span dir="ltr">{supplier.phone2}</span>
+                      <a href={`tel:${supplier.phone2}`} className="inline-flex items-center justify-center p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200 transition-colors" title="חייג">
+                        <Phone className="h-3.5 w-3.5" />
+                      </a>
+                    </div>
+                  )}
                   {supplier.email && (
                     <a
                       href={`mailto:${supplier.email}`}
@@ -281,7 +309,20 @@ export default function SuppliersPage() {
                       <span dir="ltr">{supplier.email}</span>
                     </a>
                   )}
+                  {!!supplier.advance_amount && (
+                    <p className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-1">
+                      מקדמה ששולמה: {formatCurrency(supplier.advance_amount)}
+                      {supplier.advance_note ? ` — ${supplier.advance_note}` : ''}
+                    </p>
+                  )}
                 </div>
+
+                <Link href={`/suppliers/${supplier.id}`} className="mt-3 flex">
+                  <Button variant="outline" size="sm" className="w-full">
+                    <Wallet className="h-3.5 w-3.5 ml-1" />
+                    תשלומים
+                  </Button>
+                </Link>
               </CardContent>
             </Card>
           ))}
@@ -326,6 +367,15 @@ export default function SuppliersPage() {
                 />
               </div>
               <div className="space-y-2">
+                <Label>טלפון נוסף</Label>
+                <Input
+                  value={editingSupplier.phone2 || ''}
+                  onChange={(e) => setEditingSupplier({ ...editingSupplier, phone2: e.target.value })}
+                  placeholder="050-0000000"
+                  dir="ltr"
+                />
+              </div>
+              <div className="space-y-2">
                 <Label>אימייל</Label>
                 <Input
                   type="email"
@@ -333,6 +383,25 @@ export default function SuppliersPage() {
                   onChange={(e) => setEditingSupplier({ ...editingSupplier, email: e.target.value })}
                   placeholder="supplier@example.com"
                   dir="ltr"
+                />
+              </div>
+              <div className="border-t pt-4 space-y-2">
+                <Label>מקדמה ששולמה לספק (₪)</Label>
+                <p className="text-xs text-gray-500">עבור מקרים בהם אנחנו נותנים לספק מקדמה על ביצוע עבודה</p>
+                <Input
+                  type="number"
+                  value={editingSupplier.advance_amount ?? ''}
+                  onChange={(e) => setEditingSupplier({ ...editingSupplier, advance_amount: parseFloat(e.target.value) || 0 })}
+                  placeholder="0"
+                  dir="ltr"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>הערה למקדמה</Label>
+                <Input
+                  value={editingSupplier.advance_note || ''}
+                  onChange={(e) => setEditingSupplier({ ...editingSupplier, advance_note: e.target.value })}
+                  placeholder="לדוגמה: מקדמה עבור התקנת רשתות"
                 />
               </div>
               <div className="flex gap-2 justify-end">

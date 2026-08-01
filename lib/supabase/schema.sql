@@ -47,9 +47,27 @@ CREATE TABLE suppliers (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   name TEXT NOT NULL,
   phone TEXT,
+  phone2 TEXT,                           -- טלפון נוסף
   email TEXT,
   category_id UUID REFERENCES categories(id) ON DELETE SET NULL,
+  advance_amount DECIMAL(10,2) DEFAULT 0, -- מקדמה ששילמנו לספק עבור ביצוע עבודה
+  advance_note TEXT,                      -- הערה על המקדמה
   created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Supplier <-> Project ledger (עמלת ספק ועמלת נציג מכירות, מפורק לפי פרויקט)
+CREATE TABLE supplier_project_ledger (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  supplier_id UUID REFERENCES suppliers(id) ON DELETE CASCADE,
+  project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
+  commission_paid DECIMAL(10,2) DEFAULT 0,  -- עמלה ששילם הספק לנו בפועל (עבור הפרויקט הזה)
+  rep_name TEXT,                            -- שם נציג המכירות של הפרויקט
+  rep_percent DECIMAL(5,2) DEFAULT 1.25,    -- אחוז עמלת הנציג
+  rep_paid DECIMAL(10,2) DEFAULT 0,         -- מה ששולם בפועל לנציג
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (supplier_id, project_id)
 );
 
 -- Orders table (a resident's interest/order in a specific product)
@@ -103,6 +121,7 @@ ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE residents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE categories ENABLE ROW LEVEL SECURITY;
 ALTER TABLE suppliers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE supplier_project_ledger ENABLE ROW LEVEL SECURITY;
 ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE order_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
@@ -132,6 +151,11 @@ CREATE POLICY "Authenticated users can view suppliers" ON suppliers FOR SELECT T
 CREATE POLICY "Authenticated users can insert suppliers" ON suppliers FOR INSERT TO authenticated WITH CHECK (true);
 CREATE POLICY "Authenticated users can update suppliers" ON suppliers FOR UPDATE TO authenticated USING (true);
 CREATE POLICY "Authenticated users can delete suppliers" ON suppliers FOR DELETE TO authenticated USING (true);
+
+CREATE POLICY "Authenticated users can view supplier_project_ledger" ON supplier_project_ledger FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Authenticated users can insert supplier_project_ledger" ON supplier_project_ledger FOR INSERT TO authenticated WITH CHECK (true);
+CREATE POLICY "Authenticated users can update supplier_project_ledger" ON supplier_project_ledger FOR UPDATE TO authenticated USING (true);
+CREATE POLICY "Authenticated users can delete supplier_project_ledger" ON supplier_project_ledger FOR DELETE TO authenticated USING (true);
 
 CREATE POLICY "Authenticated users can view orders" ON orders FOR SELECT TO authenticated USING (true);
 CREATE POLICY "Authenticated users can insert orders" ON orders FOR INSERT TO authenticated WITH CHECK (true);
@@ -187,6 +211,8 @@ CREATE INDEX idx_orders_category_id ON orders(category_id);
 CREATE INDEX idx_orders_status ON orders(status);
 CREATE INDEX idx_order_items_order_id ON order_items(order_id);
 CREATE INDEX idx_notifications_is_read ON notifications(is_read);
+CREATE INDEX idx_supplier_project_ledger_supplier_id ON supplier_project_ledger(supplier_id);
+CREATE INDEX idx_supplier_project_ledger_project_id ON supplier_project_ledger(project_id);
 
 -- =============================================================
 --  Seed: products/services offered by the purchase group

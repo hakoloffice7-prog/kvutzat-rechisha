@@ -58,3 +58,24 @@ export const PAYMENT_STATUS_COLORS: Record<string, string> = {
   advance: 'warning',
   paid_full: 'success',
 }
+
+// סטטוס תשלום חוב (ספק לנו / נציג) - מחושב, לא נשמר במסד הנתונים
+export type DebtStatus = 'not_paid' | 'partial' | 'paid_full'
+
+export function getDebtStatus(owed: number, paid: number): DebtStatus {
+  if (owed <= 0 || paid >= owed) return 'paid_full'
+  if (paid > 0) return 'partial'
+  return 'not_paid'
+}
+
+export const DEBT_STATUS_LABELS: Record<DebtStatus, string> = {
+  not_paid: 'לא שילם',
+  partial: 'שילם חלקית',
+  paid_full: 'שילם הכל',
+}
+
+export const DEBT_STATUS_COLORS: Record<DebtStatus, string> = {
+  not_paid: 'destructive',
+  partial: 'warning',
+  paid_full: 'success',
+}
