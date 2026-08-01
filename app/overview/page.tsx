@@ -162,21 +162,21 @@ export default function OverviewPage() {
     fetchData()
   }, [selectedProjectId, selectedCategoryId])
 
-  // Merge residents + orders
+  // Merge residents + orders — residents with no order (no status yet) in this
+  // category are left out entirely, instead of being treated as "לברר"
   const rows = useMemo<ResidentRow[]>(() => {
-    return residents.map((resident) => {
-      const order = orders.find((o) => o.resident_id === resident.id) || null
-      return { resident, order }
-    })
+    return residents
+      .map((resident) => {
+        const order = orders.find((o) => o.resident_id === resident.id) || null
+        return { resident, order }
+      })
+      .filter((row) => row.order !== null)
   }, [residents, orders])
 
   // Apply status filter
   const filteredRows = useMemo(() => {
     if (statusFilter === 'all') return rows
-    return rows.filter((row) => {
-      const effectiveStatus = row.order?.status || 'lead'
-      return effectiveStatus === statusFilter
-    })
+    return rows.filter((row) => row.order?.status === statusFilter)
   }, [rows, statusFilter])
 
   // Summary counts
@@ -186,7 +186,7 @@ export default function OverviewPage() {
     const quoted = rows.filter((r) => r.order?.status === 'quoted').length
     const interested = rows.filter((r) => r.order?.status === 'interested').length
     const considering = rows.filter((r) => r.order?.status === 'considering').length
-    const noContact = rows.filter((r) => !r.order || r.order.status === 'lead').length
+    const noContact = rows.filter((r) => r.order?.status === 'lead').length
     return { total, ordered, quoted, interested, considering, noContact }
   }, [rows])
 
@@ -300,6 +300,12 @@ export default function OverviewPage() {
             <p className="text-gray-500 text-lg">אין דיירים בפרויקט זה</p>
           </CardContent>
         </Card>
+      ) : rows.length === 0 ? (
+        <Card>
+          <CardContent className="text-center py-12">
+            <p className="text-gray-500 text-lg">אין דיירים עם סטטוס בקטגוריה זו</p>
+          </CardContent>
+        </Card>
       ) : (
         <>
           <Card>
@@ -322,7 +328,7 @@ export default function OverviewPage() {
                   </thead>
                   <tbody>
                     {filteredRows.map(({ resident, order }, idx) => {
-                      const effectiveStatus = order?.status || 'lead'
+                      const effectiveStatus = order!.status
                       const statusLabel = STATUS_LABELS[effectiveStatus] || effectiveStatus
                       const statusVariant = STATUS_COLORS[effectiveStatus] || 'outline'
 
