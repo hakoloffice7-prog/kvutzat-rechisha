@@ -40,8 +40,6 @@ type Order = {
   measurements: string | null
   total_price: number | null
   deposit: number | null
-  approved: boolean
-  installed: boolean
   details: Record<string, string>
   created_at: string
   residents: {
@@ -76,8 +74,6 @@ export default function OrderPage() {
     measurements: '',
     total_price: '',
     deposit: '',
-    approved: false,
-    installed: false,
   })
   const [detailsRows, setDetailsRows] = useState<{ key: string; value: string }[]>([])
   const [newItem, setNewItem] = useState({
@@ -134,8 +130,6 @@ export default function OrderPage() {
           ? String(itemsRevenue)
           : (orderData.total_price ? String(orderData.total_price) : ''),
         deposit: orderData.deposit ? String(orderData.deposit) : '',
-        approved: orderData.approved || false,
-        installed: orderData.installed || false,
       })
       updateTotalFromItemsRef.current = false
       setDetailsRows(Object.entries(orderData.details || {}).map(([key, value]) => ({ key, value: String(value) })))
@@ -161,8 +155,6 @@ export default function OrderPage() {
         measurements: editedOrder.measurements,
         total_price: parseFloat(editedOrder.total_price) || 0,
         deposit: parseFloat(editedOrder.deposit) || 0,
-        approved: editedOrder.approved,
-        installed: editedOrder.installed,
         details,
         updated_at: new Date().toISOString(),
       })
@@ -329,9 +321,9 @@ export default function OrderPage() {
                       value={editedOrder.payment_status}
                       onChange={(e) => setEditedOrder({ ...editedOrder, payment_status: e.target.value })}
                     >
-                      <option value="not_paid">לא שילם</option>
-                      <option value="advance">מקדמה</option>
-                      <option value="paid_full">שילם הכל</option>
+                      {Object.entries(PAYMENT_STATUS_LABELS).map(([value, label]) => (
+                        <option key={value} value={value}>{label}</option>
+                      ))}
                     </Select>
                   </div>
 
@@ -378,27 +370,6 @@ export default function OrderPage() {
                         dir="ltr"
                       />
                     </div>
-                  </div>
-
-                  <div className="flex items-center gap-6">
-                    <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={editedOrder.approved}
-                        onChange={(e) => setEditedOrder({ ...editedOrder, approved: e.target.checked })}
-                        className="h-4 w-4"
-                      />
-                      מאושר
-                    </label>
-                    <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={editedOrder.installed}
-                        onChange={(e) => setEditedOrder({ ...editedOrder, installed: e.target.checked })}
-                        className="h-4 w-4"
-                      />
-                      הותקן
-                    </label>
                   </div>
 
                   <div className="space-y-2">
@@ -464,7 +435,7 @@ export default function OrderPage() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-500">תשלום</span>
-                    <span className="font-medium">{editedOrder.payment_status === 'not_paid' ? 'לא שילם' : editedOrder.payment_status === 'advance' ? 'מקדמה' : 'שילם הכל'}</span>
+                    <span className="font-medium">{PAYMENT_STATUS_LABELS[editedOrder.payment_status]}</span>
                   </div>
                   {editedOrder.supplier_id && (
                     <div className="flex justify-between">
@@ -490,14 +461,6 @@ export default function OrderPage() {
                       <span className="font-medium">₪{parseFloat(editedOrder.deposit).toLocaleString('he-IL')}</span>
                     </div>
                   )}
-                  <div className="flex gap-4 pt-1">
-                    <span className={editedOrder.approved ? 'text-green-600 font-medium' : 'text-gray-400'}>
-                      {editedOrder.approved ? '✓ מאושר' : 'לא מאושר'}
-                    </span>
-                    <span className={editedOrder.installed ? 'text-green-600 font-medium' : 'text-gray-400'}>
-                      {editedOrder.installed ? '✓ הותקן' : 'לא הותקן'}
-                    </span>
-                  </div>
                   {editedOrder.notes && (
                     <div className="flex justify-between">
                       <span className="text-gray-500">הערות</span>

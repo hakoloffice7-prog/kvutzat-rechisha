@@ -76,16 +76,16 @@ CREATE TABLE orders (
   resident_id UUID REFERENCES residents(id) ON DELETE CASCADE,
   category_id UUID REFERENCES categories(id) ON DELETE SET NULL,
   supplier_id UUID REFERENCES suppliers(id) ON DELETE SET NULL,
-  -- Pipeline: לברר -> מעוניין / מתלבט -> נמדד -> הצעת מחיר -> הזמין -> בוטל
+  -- Pipeline: לברר -> לא עונה / ישלח מייל -> מעוניין / מתלבט -> תיאום מדידות -> נמדד -> הצעת מחיר -> הזמין -> תיאום הספקה -> בוצע -> בוטל
   status TEXT DEFAULT 'lead' CHECK (status IN
-    ('lead', 'interested', 'considering', 'measured', 'quoted', 'ordered', 'cancelled')),
+    ('lead', 'no_answer', 'will_email', 'interested', 'considering',
+     'measurement_scheduled', 'measured', 'quoted', 'ordered',
+     'delivery_scheduled', 'done', 'cancelled')),
   payment_status TEXT DEFAULT 'not_paid' CHECK (payment_status IN
-    ('not_paid', 'advance', 'paid_full')),
+    ('not_paid', 'advance', 'partial', 'paid_full')),
   measurements TEXT,           -- מדידות (טקסט חופשי, למשל "2 דלת 5 חלון")
   total_price DECIMAL(10,2) DEFAULT 0,   -- מחיר לתשלום / סיכום
   deposit DECIMAL(10,2) DEFAULT 0,       -- מקדמה
-  approved BOOLEAN DEFAULT FALSE,        -- מאשר / אישור
-  installed BOOLEAN DEFAULT FALSE,       -- התקנה
   details JSONB DEFAULT '{}'::jsonb,     -- שדות ספציפיים למוצר (הגבהה/נפתח/צורה/דגם וכו')
   notes TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
