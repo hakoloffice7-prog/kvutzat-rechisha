@@ -7,7 +7,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Loader2, ArrowRight, Phone, Mail, Save, X, Pencil } from 'lucide-react'
+import { Select } from '@/components/ui/select'
+import { Loader2, ArrowRight, Phone, Mail, Save, X, Pencil, Plus, Trash2 } from 'lucide-react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import {
@@ -46,14 +47,19 @@ type ProjectGroup = {
   ledger: Ledger
 }
 
+type ProjectOption = { id: string; name: string; cityName: string }
+
 export default function SupplierPaymentsPage() {
   const params = useParams()
   const supplierId = params.id as string
 
   const [supplier, setSupplier] = useState<Supplier | null>(null)
   const [groups, setGroups] = useState<ProjectGroup[]>([])
+  const [allProjects, setAllProjects] = useState<ProjectOption[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [addProjectId, setAddProjectId] = useState('')
+  const [addingProject, setAddingProject] = useState(false)
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState({
     commission_paid: '',
@@ -70,35 +76,42 @@ export default function SupplierPaymentsPage() {
 
   async function fetchData() {
     setLoading(true)
-    const [{ data: supplierData }, { data: ordersData }, { data: ledgerData }] = await Promise.all([
+    const [{ data: supplierData }, { data: ordersData }, { data: ledgerData }, { data: projectsData }] = await Promise.all([
       supabase.from('suppliers').select('*').eq('id', supplierId).single(),
       supabase
         .from('orders')
         .select('id, total_price, payment_status, order_items(customer_price, supplier_price), residents(projects(id, name))')
         .eq('supplier_id', supplierId),
       supabase.from('supplier_project_ledger').select('*').eq('supplier_id', supplierId),
+      supabase.from('projects').select('id, name, cities(name)').order('name'),
     ])
 
     if (supplierData) setSupplier(supplierData)
+
+    const projectNameById = new Map<string, string>()
+    const projectOptions: ProjectOption[] = (projectsData || []).map((p: any) => {
+      projectNameById.set(p.id, p.name)
+      return { id: p.id, name: p.name, cityName: p.cities?.name || '' }
+    })
+    setAllProjects(projectOptions)
 
     const ledgerByProject = new Map<string, Ledger>()
     ;(ledgerData || []).forEach((l: any) => ledgerByProject.set(l.project_id, l))
 
     const byProject = new Map<string, ProjectGroup>()
-    ;(ordersData || []).forEach((order: any) => {
-      const project = order.residents?.projects
-      if (!project) return
-      if (!byProject.has(project.id)) {
-        const existingLedger = ledgerByProject.get(project.id)
-        byProject.set(project.id, {
-          projectId: project.id,
-          projectName: project.name,
+
+    function ensureGroup(projectId: string, projectName: string) {
+      if (!byProject.has(projectId)) {
+        const existingLedger = ledgerByProject.get(projectId)
+        byProject.set(projectId, {
+          projectId,
+          projectName,
           totalCollected: 0,
           commissionOwed: 0,
           paidOrderCount: 0,
           ledger: existingLedger || {
             supplier_id: supplierId,
-            project_id: project.id,
+            project_id: projectId,
             commission_paid: 0,
             rep_name: '',
             rep_percent: 1.25,
@@ -106,8 +119,14 @@ export default function SupplierPaymentsPage() {
           },
         })
       }
+      return byProject.get(projectId)!
+    }
+
+    ;(ordersData || []).forEach((order: any) => {
+      const project = order.residents?.projects
+      if (!project) return
+      const group = ensureGroup(project.id, project.name)
       if (order.payment_status === 'paid_full') {
-        const group = byProject.get(project.id)!
         group.totalCollected += order.total_price || 0
         group.paidOrderCount += 1
         const itemsMargin = (order.order_items || []).reduce(
@@ -118,8 +137,41 @@ export default function SupplierPaymentsPage() {
       }
     })
 
+    // פרויקטים שנוספו ידנית לספק (עדיין ללא הזמנות בפועל)
+    ;(ledgerData || []).forEach((l: any) => {
+      const projectName = projectNameById.get(l.project_id)
+      if (projectName) ensureGroup(l.project_id, projectName)
+    })
+
     setGroups(Array.from(byProject.values()).sort((a, b) => a.projectName.localeCompare(b.projectName, 'he')))
     setLoading(false)
+  }
+
+  async function addProjectToSupplier() {
+    if (!addProjectId) return
+    setAddingProject(true)
+    const { error } = await supabase.from('supplier_project_ledger').upsert(
+      {
+        supplier_id: supplierId,
+        project_id: addProjectId,
+        commission_paid: 0,
+        rep_name: '',
+        rep_percent: 1.25,
+        rep_paid: 0,
+      },
+      { onConflict: 'supplier_id,project_id' }
+    )
+    if (!error) {
+      setAddProjectId('')
+      fetchData()
+    }
+    setAddingProject(false)
+  }
+
+  async function removeProjectFromSupplier(projectId: string) {
+    if (!confirm('להסיר את הפרויקט מרשימת התשלומים של הספק?')) return
+    await supabase.from('supplier_project_ledger').delete().eq('supplier_id', supplierId).eq('project_id', projectId)
+    fetchData()
   }
 
   function startEdit(group: ProjectGroup) {
@@ -171,6 +223,8 @@ export default function SupplierPaymentsPage() {
   const totalCollectedAll = groups.reduce((s, g) => s + g.totalCollected, 0)
   const totalCommissionOwedAll = groups.reduce((s, g) => s + g.commissionOwed, 0)
   const totalCommissionPaidAll = groups.reduce((s, g) => s + (g.ledger.commission_paid || 0), 0)
+  const groupedProjectIds = new Set(groups.map((g) => g.projectId))
+  const availableProjectsToAdd = allProjects.filter((p) => !groupedProjectIds.has(p.id))
 
   return (
     <div className="space-y-6">
@@ -233,10 +287,32 @@ export default function SupplierPaymentsPage() {
         </CardContent>
       </Card>
 
+      {/* Add project manually (before any orders exist) */}
+      {availableProjectsToAdd.length > 0 && (
+        <Card>
+          <CardContent className="p-4 flex flex-wrap items-end gap-3">
+            <div className="space-y-1 flex-1 min-w-[200px]">
+              <Label className="text-sm">הוסף פרויקט לספק (גם ללא הזמנות עדיין)</Label>
+              <Select value={addProjectId} onChange={(e) => setAddProjectId(e.target.value)}>
+                <option value="">בחר פרויקט</option>
+                {availableProjectsToAdd.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}{p.cityName ? ` (${p.cityName})` : ''}</option>
+                ))}
+              </Select>
+            </div>
+            <Button onClick={addProjectToSupplier} disabled={!addProjectId || addingProject}>
+              {addingProject ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4 ml-1" />}
+              הוסף
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {groups.length === 0 ? (
         <Card>
           <CardContent className="text-center py-12">
-            <p className="text-gray-500 text-lg">אין עדיין הזמנות משויכות לספק זה</p>
+            <p className="text-gray-500 text-lg">אין עדיין פרויקטים משויכים לספק זה</p>
+            <p className="text-gray-400 text-sm mt-1">שייך הזמנה לספק, או הוסף פרויקט ידנית למעלה</p>
           </CardContent>
         </Card>
       ) : (
@@ -258,10 +334,22 @@ export default function SupplierPaymentsPage() {
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-lg">{group.projectName}</CardTitle>
                     {!isEditing ? (
-                      <Button variant="outline" size="sm" onClick={() => startEdit(group)}>
-                        <Pencil className="h-3.5 w-3.5 ml-1" />
-                        ערוך תשלומים
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button variant="outline" size="sm" onClick={() => startEdit(group)}>
+                          <Pencil className="h-3.5 w-3.5 ml-1" />
+                          ערוך תשלומים
+                        </Button>
+                        {group.paidOrderCount === 0 && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeProjectFromSupplier(group.projectId)}
+                            className="text-red-400 hover:text-red-600"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </div>
                     ) : (
                       <div className="flex gap-2">
                         <Button size="sm" onClick={() => saveLedger(group)} disabled={saving}>
@@ -275,7 +363,11 @@ export default function SupplierPaymentsPage() {
                       </div>
                     )}
                   </div>
-                  <p className="text-xs text-gray-400">{group.paidOrderCount} הזמנות בסטטוס "שילם הכל"</p>
+                  <p className="text-xs text-gray-400">
+                    {group.paidOrderCount > 0
+                      ? `${group.paidOrderCount} הזמנות בסטטוס "שילם הכל"`
+                      : 'טרם קיימות הזמנות משויכות (נוסף ידנית)'}
+                  </p>
                 </CardHeader>
                 <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Supplier commission */}
