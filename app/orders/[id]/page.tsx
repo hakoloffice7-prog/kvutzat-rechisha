@@ -40,6 +40,8 @@ type Order = {
   measurements: string | null
   total_price: number | null
   deposit: number | null
+  is_global_price: boolean
+  global_supplier_price: number | null
   details: Record<string, string>
   created_at: string
   residents: {
@@ -74,6 +76,8 @@ export default function OrderPage() {
     measurements: '',
     total_price: '',
     deposit: '',
+    is_global_price: false,
+    global_supplier_price: '',
   })
   const [detailsRows, setDetailsRows] = useState<{ key: string; value: string }[]>([])
   const [newItem, setNewItem] = useState({
@@ -126,10 +130,12 @@ export default function OrderPage() {
         supplier_id: orderData.suppliers?.id || '',
         notes: orderData.notes || '',
         measurements: orderData.measurements || '',
-        total_price: updateTotalFromItemsRef.current
+        total_price: (updateTotalFromItemsRef.current && !orderData.is_global_price)
           ? String(itemsRevenue)
           : (orderData.total_price ? String(orderData.total_price) : ''),
         deposit: orderData.deposit ? String(orderData.deposit) : '',
+        is_global_price: orderData.is_global_price || false,
+        global_supplier_price: orderData.global_supplier_price ? String(orderData.global_supplier_price) : '',
       })
       updateTotalFromItemsRef.current = false
       setDetailsRows(Object.entries(orderData.details || {}).map(([key, value]) => ({ key, value: String(value) })))
@@ -155,6 +161,8 @@ export default function OrderPage() {
         measurements: editedOrder.measurements,
         total_price: parseFloat(editedOrder.total_price) || 0,
         deposit: parseFloat(editedOrder.deposit) || 0,
+        is_global_price: editedOrder.is_global_price,
+        global_supplier_price: parseFloat(editedOrder.global_supplier_price) || 0,
         details,
         updated_at: new Date().toISOString(),
       })
@@ -229,8 +237,12 @@ export default function OrderPage() {
     setSaving(false)
   }
 
-  const totalRevenue = order?.order_items?.reduce((sum, item) => sum + (item.customer_price || 0), 0) || 0
-  const totalCost = order?.order_items?.reduce((sum, item) => sum + (item.supplier_price || 0), 0) || 0
+  const totalRevenue = order?.is_global_price
+    ? (order.total_price || 0)
+    : (order?.order_items?.reduce((sum, item) => sum + (item.customer_price || 0), 0) || 0)
+  const totalCost = order?.is_global_price
+    ? (order.global_supplier_price || 0)
+    : (order?.order_items?.reduce((sum, item) => sum + (item.supplier_price || 0), 0) || 0)
   const totalProfit = totalRevenue - totalCost
 
   const filteredSuppliers = order?.categories?.id
@@ -372,6 +384,33 @@ export default function OrderPage() {
                     </div>
                   </div>
 
+                  <div className="space-y-2 border-t pt-3">
+                    <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editedOrder.is_global_price}
+                        onChange={(e) => setEditedOrder({ ...editedOrder, is_global_price: e.target.checked })}
+                        className="h-4 w-4"
+                      />
+                      מחיר גלובלי להזמנה (לא לפי פריטים)
+                    </label>
+                    {editedOrder.is_global_price && (
+                      <div className="space-y-2 pt-1">
+                        <Label>מחיר ספק גלובלי (₪)</Label>
+                        <Input
+                          type="number"
+                          value={editedOrder.global_supplier_price}
+                          onChange={(e) => setEditedOrder({ ...editedOrder, global_supplier_price: e.target.value })}
+                          placeholder="0"
+                          dir="ltr"
+                        />
+                        <p className="text-xs text-gray-500">
+                          "מחיר לתשלום" למעלה ישמש כמחיר הלקוח הגלובלי. פריטי ההזמנה ישמשו לתיאור בלבד, ללא מחיר ליחידה.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
                   <div className="space-y-2">
                     <Label>הערות</Label>
                     <Input
@@ -505,11 +544,11 @@ export default function OrderPage() {
                 </>
               ) : null}
               <div className="flex justify-between">
-                <span className="text-gray-500">מחיר לקוח (פריטים)</span>
+                <span className="text-gray-500">{order.is_global_price ? 'מחיר לקוח (גלובלי)' : 'מחיר לקוח (פריטים)'}</span>
                 <span className="font-medium">{formatCurrency(totalRevenue)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">מחיר ספק (סך)</span>
+                <span className="text-gray-500">{order.is_global_price ? 'מחיר ספק (גלובלי)' : 'מחיר ספק (סך)'}</span>
                 <span className="font-medium">{formatCurrency(totalCost)}</span>
               </div>
               <div className="border-t pt-3 flex justify-between">
@@ -564,54 +603,62 @@ export default function OrderPage() {
                           placeholder="מספר דגם"
                         />
                       </div>
-                      <div className="space-y-2">
-                        <Label>כמות יחידות</Label>
-                        <Input
-                          type="number"
-                          min="1"
-                          value={newItem.quantity}
-                          onChange={(e) => setNewItem({ ...newItem, quantity: e.target.value })}
-                          placeholder="1"
-                          dir="ltr"
-                        />
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label>מחיר לקוח ליחידה (₪)</Label>
-                          <Input
-                            type="number"
-                            value={newItem.customer_price}
-                            onChange={(e) => setNewItem({ ...newItem, customer_price: e.target.value })}
-                            placeholder="0"
-                            dir="ltr"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>מחיר ספק ליחידה (₪)</Label>
-                          <Input
-                            type="number"
-                            value={newItem.supplier_price}
-                            onChange={(e) => setNewItem({ ...newItem, supplier_price: e.target.value })}
-                            placeholder="0"
-                            dir="ltr"
-                          />
-                        </div>
-                      </div>
-                      {newItem.customer_price && newItem.supplier_price && (
-                        <div className="bg-gray-50 p-3 rounded-lg text-sm text-gray-600 space-y-1">
-                          {parseInt(newItem.quantity) > 1 && (
-                            <p>סה"כ לקוח: <strong>{formatCurrency((parseFloat(newItem.customer_price) || 0) * (parseInt(newItem.quantity) || 1))}</strong></p>
+                      {order.is_global_price ? (
+                        <p className="text-xs text-gray-500">
+                          ההזמנה במחיר גלובלי — הפריט ישמש לתיאור בלבד, ללא מחיר ליחידה.
+                        </p>
+                      ) : (
+                        <>
+                          <div className="space-y-2">
+                            <Label>כמות יחידות</Label>
+                            <Input
+                              type="number"
+                              min="1"
+                              value={newItem.quantity}
+                              onChange={(e) => setNewItem({ ...newItem, quantity: e.target.value })}
+                              placeholder="1"
+                              dir="ltr"
+                            />
+                          </div>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <Label>מחיר לקוח ליחידה (₪)</Label>
+                              <Input
+                                type="number"
+                                value={newItem.customer_price}
+                                onChange={(e) => setNewItem({ ...newItem, customer_price: e.target.value })}
+                                placeholder="0"
+                                dir="ltr"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>מחיר ספק ליחידה (₪)</Label>
+                              <Input
+                                type="number"
+                                value={newItem.supplier_price}
+                                onChange={(e) => setNewItem({ ...newItem, supplier_price: e.target.value })}
+                                placeholder="0"
+                                dir="ltr"
+                              />
+                            </div>
+                          </div>
+                          {newItem.customer_price && newItem.supplier_price && (
+                            <div className="bg-gray-50 p-3 rounded-lg text-sm text-gray-600 space-y-1">
+                              {parseInt(newItem.quantity) > 1 && (
+                                <p>סה"כ לקוח: <strong>{formatCurrency((parseFloat(newItem.customer_price) || 0) * (parseInt(newItem.quantity) || 1))}</strong></p>
+                              )}
+                              <p>
+                                רווח צפוי:{' '}
+                                <span className={`font-bold ${
+                                  (parseFloat(newItem.customer_price) - parseFloat(newItem.supplier_price)) >= 0
+                                    ? 'text-green-600' : 'text-red-600'
+                                }`}>
+                                  {formatCurrency((parseFloat(newItem.customer_price) - parseFloat(newItem.supplier_price)) * (parseInt(newItem.quantity) || 1))}
+                                </span>
+                              </p>
+                            </div>
                           )}
-                          <p>
-                            רווח צפוי:{' '}
-                            <span className={`font-bold ${
-                              (parseFloat(newItem.customer_price) - parseFloat(newItem.supplier_price)) >= 0
-                                ? 'text-green-600' : 'text-red-600'
-                            }`}>
-                              {formatCurrency((parseFloat(newItem.customer_price) - parseFloat(newItem.supplier_price)) * (parseInt(newItem.quantity) || 1))}
-                            </span>
-                          </p>
-                        </div>
+                        </>
                       )}
                       <div className="flex gap-2 justify-end">
                         <Button variant="outline" onClick={() => setItemDialogOpen(false)}>ביטול</Button>
@@ -638,9 +685,13 @@ export default function OrderPage() {
                       <tr className="border-b">
                         <th className="text-right pb-3 font-semibold text-gray-600">תיאור</th>
                         <th className="text-right pb-3 font-semibold text-gray-600">דגם</th>
-                        <th className="text-right pb-3 font-semibold text-gray-600">מחיר לקוח</th>
-                        <th className="text-right pb-3 font-semibold text-gray-600">מחיר ספק</th>
-                        <th className="text-right pb-3 font-semibold text-gray-600">רווח</th>
+                        {!order.is_global_price && (
+                          <>
+                            <th className="text-right pb-3 font-semibold text-gray-600">מחיר לקוח</th>
+                            <th className="text-right pb-3 font-semibold text-gray-600">מחיר ספק</th>
+                            <th className="text-right pb-3 font-semibold text-gray-600">רווח</th>
+                          </>
+                        )}
                         <th className="pb-3"></th>
                       </tr>
                     </thead>
@@ -667,30 +718,34 @@ export default function OrderPage() {
                                     placeholder="-"
                                   />
                                 </td>
-                                <td className="py-2">
-                                  <Input
-                                    type="number"
-                                    value={editingItemData.customer_price}
-                                    onChange={(e) => setEditingItemData({ ...editingItemData, customer_price: e.target.value })}
-                                    className="h-8 text-sm"
-                                    dir="ltr"
-                                  />
-                                </td>
-                                <td className="py-2">
-                                  <Input
-                                    type="number"
-                                    value={editingItemData.supplier_price}
-                                    onChange={(e) => setEditingItemData({ ...editingItemData, supplier_price: e.target.value })}
-                                    className="h-8 text-sm"
-                                    dir="ltr"
-                                  />
-                                </td>
-                                <td className="py-2 font-medium text-gray-400 text-sm">
-                                  {formatCurrency(
-                                    (parseFloat(editingItemData.customer_price) || 0) -
-                                    (parseFloat(editingItemData.supplier_price) || 0)
-                                  )}
-                                </td>
+                                {!order.is_global_price && (
+                                  <>
+                                    <td className="py-2">
+                                      <Input
+                                        type="number"
+                                        value={editingItemData.customer_price}
+                                        onChange={(e) => setEditingItemData({ ...editingItemData, customer_price: e.target.value })}
+                                        className="h-8 text-sm"
+                                        dir="ltr"
+                                      />
+                                    </td>
+                                    <td className="py-2">
+                                      <Input
+                                        type="number"
+                                        value={editingItemData.supplier_price}
+                                        onChange={(e) => setEditingItemData({ ...editingItemData, supplier_price: e.target.value })}
+                                        className="h-8 text-sm"
+                                        dir="ltr"
+                                      />
+                                    </td>
+                                    <td className="py-2 font-medium text-gray-400 text-sm">
+                                      {formatCurrency(
+                                        (parseFloat(editingItemData.customer_price) || 0) -
+                                        (parseFloat(editingItemData.supplier_price) || 0)
+                                      )}
+                                    </td>
+                                  </>
+                                )}
                                 <td className="py-2">
                                   <div className="flex gap-1">
                                     <Button
@@ -716,11 +771,15 @@ export default function OrderPage() {
                               <>
                                 <td className="py-3">{item.description}</td>
                                 <td className="py-3 text-gray-500">{item.model || '-'}</td>
-                                <td className="py-3">{formatCurrency(item.customer_price || 0)}</td>
-                                <td className="py-3">{formatCurrency(item.supplier_price || 0)}</td>
-                                <td className={`py-3 font-medium ${itemProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                  {formatCurrency(itemProfit)}
-                                </td>
+                                {!order.is_global_price && (
+                                  <>
+                                    <td className="py-3">{formatCurrency(item.customer_price || 0)}</td>
+                                    <td className="py-3">{formatCurrency(item.supplier_price || 0)}</td>
+                                    <td className={`py-3 font-medium ${itemProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                      {formatCurrency(itemProfit)}
+                                    </td>
+                                  </>
+                                )}
                                 <td className="py-3">
                                   <div className="flex gap-1">
                                     <Button
@@ -747,17 +806,19 @@ export default function OrderPage() {
                         )
                       })}
                     </tbody>
-                    <tfoot>
-                      <tr className="border-t-2">
-                        <td colSpan={2} className="pt-3 font-semibold">סך הכל</td>
-                        <td className="pt-3 font-semibold">{formatCurrency(totalRevenue)}</td>
-                        <td className="pt-3 font-semibold">{formatCurrency(totalCost)}</td>
-                        <td className={`pt-3 font-bold ${totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {formatCurrency(totalProfit)}
-                        </td>
-                        <td></td>
-                      </tr>
-                    </tfoot>
+                    {!order.is_global_price && (
+                      <tfoot>
+                        <tr className="border-t-2">
+                          <td colSpan={2} className="pt-3 font-semibold">סך הכל</td>
+                          <td className="pt-3 font-semibold">{formatCurrency(totalRevenue)}</td>
+                          <td className="pt-3 font-semibold">{formatCurrency(totalCost)}</td>
+                          <td className={`pt-3 font-bold ${totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {formatCurrency(totalProfit)}
+                          </td>
+                          <td></td>
+                        </tr>
+                      </tfoot>
+                    )}
                   </table>
                 </div>
               )}
