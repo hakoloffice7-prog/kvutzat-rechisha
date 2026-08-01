@@ -820,13 +820,9 @@ export default function OrderPage() {
                       <tr className="border-b">
                         <th className="text-right pb-3 font-semibold text-gray-600">תיאור</th>
                         <th className="text-right pb-3 font-semibold text-gray-600">דגם</th>
-                        {!order.is_global_price && (
-                          <>
-                            <th className="text-right pb-3 font-semibold text-gray-600">מחיר לקוח</th>
-                            <th className="text-right pb-3 font-semibold text-gray-600">מחיר ספק</th>
-                            <th className="text-right pb-3 font-semibold text-gray-600">רווח</th>
-                          </>
-                        )}
+                        <th className="text-right pb-3 font-semibold text-gray-600">מחיר לקוח</th>
+                        <th className="text-right pb-3 font-semibold text-gray-600">מחיר ספק</th>
+                        <th className="text-right pb-3 font-semibold text-gray-600">רווח</th>
                         <th className="pb-3"></th>
                       </tr>
                     </thead>
@@ -853,7 +849,13 @@ export default function OrderPage() {
                                     placeholder="-"
                                   />
                                 </td>
-                                {!order.is_global_price && (
+                                {order.is_global_price ? (
+                                  <>
+                                    <td className="py-2 text-gray-400">-</td>
+                                    <td className="py-2 text-gray-400">-</td>
+                                    <td className="py-2 text-gray-400">-</td>
+                                  </>
+                                ) : (
                                   <>
                                     <td className="py-2">
                                       <Input
@@ -906,7 +908,13 @@ export default function OrderPage() {
                               <>
                                 <td className="py-3">{item.description}</td>
                                 <td className="py-3 text-gray-500">{item.model || '-'}</td>
-                                {!order.is_global_price && (
+                                {order.is_global_price ? (
+                                  <>
+                                    <td className="py-3 text-gray-400">-</td>
+                                    <td className="py-3 text-gray-400">-</td>
+                                    <td className="py-3 text-gray-400">-</td>
+                                  </>
+                                ) : (
                                   <>
                                     <td className="py-3">{formatCurrency(item.customer_price || 0)}</td>
                                     <td className="py-3">{formatCurrency(item.supplier_price || 0)}</td>
@@ -941,19 +949,17 @@ export default function OrderPage() {
                         )
                       })}
                     </tbody>
-                    {!order.is_global_price && (
-                      <tfoot>
-                        <tr className="border-t-2">
-                          <td colSpan={2} className="pt-3 font-semibold">סך הכל</td>
-                          <td className="pt-3 font-semibold">{formatCurrency(totalRevenue)}</td>
-                          <td className="pt-3 font-semibold">{formatCurrency(totalCost)}</td>
-                          <td className={`pt-3 font-bold ${totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            {formatCurrency(totalProfit)}
-                          </td>
-                          <td></td>
-                        </tr>
-                      </tfoot>
-                    )}
+                    <tfoot>
+                      <tr className="border-t-2">
+                        <td colSpan={2} className="pt-3 font-semibold">סך הכל</td>
+                        <td className="pt-3 font-semibold">{formatCurrency(totalRevenue)}</td>
+                        <td className="pt-3 font-semibold">{formatCurrency(totalCost)}</td>
+                        <td className={`pt-3 font-bold ${totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {formatCurrency(totalProfit)}
+                        </td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
                   </table>
                 </div>
               )}
