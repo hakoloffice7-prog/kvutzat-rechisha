@@ -21,7 +21,7 @@ import { useParams, useRouter } from 'next/navigation'
 import {
   STATUS_LABELS, STATUS_COLORS, STATUS_ORDER,
   PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS,
-  formatCurrency, formatDate
+  formatCurrency, formatDate, getDebtStatus
 } from '@/lib/utils'
 
 type OrderItem = {
@@ -165,15 +165,16 @@ export default function OrderPage() {
       return acc
     }, {} as Record<string, string>)
 
+    const newTotalPrice = parseFloat(editedOrder.total_price) || 0
     const { error } = await supabase
       .from('orders')
       .update({
         status: editedOrder.status,
-        payment_status: editedOrder.payment_status,
+        payment_status: getDebtStatus(newTotalPrice, totalPaid),
         supplier_id: editedOrder.supplier_id || null,
         notes: editedOrder.notes,
         measurements: editedOrder.measurements,
-        total_price: parseFloat(editedOrder.total_price) || 0,
+        total_price: newTotalPrice,
         is_global_price: editedOrder.is_global_price,
         global_supplier_price: parseFloat(editedOrder.global_supplier_price) || 0,
         details,
@@ -263,6 +264,7 @@ export default function OrderPage() {
     })
 
     if (!error) {
+      await syncPaymentStatus(totalPaid + amount)
       setNewPayment({ amount: '', paid_at: new Date().toISOString().slice(0, 10), note: '' })
       setPaymentDialogOpen(false)
       fetchData()
@@ -271,8 +273,18 @@ export default function OrderPage() {
   }
 
   async function deletePayment(paymentId: string) {
+    const removedAmount = order?.order_payments.find(p => p.id === paymentId)?.amount || 0
     await supabase.from('order_payments').delete().eq('id', paymentId)
+    await syncPaymentStatus(totalPaid - removedAmount)
     fetchData()
+  }
+
+  async function syncPaymentStatus(newTotalPaid: number) {
+    const newStatus = getDebtStatus(order?.total_price || 0, newTotalPaid)
+    await supabase
+      .from('orders')
+      .update({ payment_status: newStatus, updated_at: new Date().toISOString() })
+      .eq('id', orderId)
   }
 
   const sortedPayments = [...(order?.order_payments || [])].sort(
@@ -280,6 +292,7 @@ export default function OrderPage() {
   )
   const totalPaid = sortedPayments.reduce((sum, p) => sum + (p.amount || 0), 0)
   const balanceDue = (order?.total_price || 0) - totalPaid
+  const computedPaymentStatus = getDebtStatus(order?.total_price || 0, totalPaid)
 
   const totalRevenue = order?.is_global_price
     ? (order.total_price || 0)
@@ -335,8 +348,8 @@ export default function OrderPage() {
           <Badge variant={STATUS_COLORS[order.status] as any} className="text-sm px-3 py-1">
             {STATUS_LABELS[order.status]}
           </Badge>
-          <Badge variant={PAYMENT_STATUS_COLORS[order.payment_status] as any} className="text-sm px-3 py-1">
-            {PAYMENT_STATUS_LABELS[order.payment_status]}
+          <Badge variant={PAYMENT_STATUS_COLORS[computedPaymentStatus] as any} className="text-sm px-3 py-1">
+            {PAYMENT_STATUS_LABELS[computedPaymentStatus]}
           </Badge>
           <Button
             variant={editMode ? 'default' : 'outline'}
@@ -373,14 +386,12 @@ export default function OrderPage() {
 
                   <div className="space-y-2">
                     <Label>סטטוס תשלום</Label>
-                    <Select
-                      value={editedOrder.payment_status}
-                      onChange={(e) => setEditedOrder({ ...editedOrder, payment_status: e.target.value })}
-                    >
-                      {Object.entries(PAYMENT_STATUS_LABELS).map(([value, label]) => (
-                        <option key={value} value={value}>{label}</option>
-                      ))}
-                    </Select>
+                    <div>
+                      <Badge variant={PAYMENT_STATUS_COLORS[computedPaymentStatus] as any}>
+                        {PAYMENT_STATUS_LABELS[computedPaymentStatus]}
+                      </Badge>
+                      <p className="text-xs text-gray-500 mt-1">מחושב אוטומטית לפי סכום התשלומים בפועל</p>
+                    </div>
                   </div>
 
                   <div className="space-y-2">
@@ -405,17 +416,6 @@ export default function OrderPage() {
                     />
                   </div>
 
-                  <div className="space-y-2">
-                    <Label>מחיר לתשלום (₪)</Label>
-                    <Input
-                      type="number"
-                      value={editedOrder.total_price}
-                      onChange={(e) => setEditedOrder({ ...editedOrder, total_price: e.target.value })}
-                      placeholder="0"
-                      dir="ltr"
-                    />
-                  </div>
-
                   <div className="space-y-2 border-t pt-3">
                     <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
                       <input
@@ -427,17 +427,29 @@ export default function OrderPage() {
                       מחיר גלובלי להזמנה (לא לפי פריטים)
                     </label>
                     {editedOrder.is_global_price && (
-                      <div className="space-y-2 pt-1">
-                        <Label>מחיר ספק גלובלי (₪)</Label>
-                        <Input
-                          type="number"
-                          value={editedOrder.global_supplier_price}
-                          onChange={(e) => setEditedOrder({ ...editedOrder, global_supplier_price: e.target.value })}
-                          placeholder="0"
-                          dir="ltr"
-                        />
-                        <p className="text-xs text-gray-500">
-                          "מחיר לתשלום" למעלה ישמש כמחיר הלקוח הגלובלי. פריטי ההזמנה ישמשו לתיאור בלבד, ללא מחיר ליחידה.
+                      <div className="grid grid-cols-2 gap-4 pt-1">
+                        <div className="space-y-2">
+                          <Label>מחיר לתשלום ללקוח (₪)</Label>
+                          <Input
+                            type="number"
+                            value={editedOrder.total_price}
+                            onChange={(e) => setEditedOrder({ ...editedOrder, total_price: e.target.value })}
+                            placeholder="0"
+                            dir="ltr"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>מחיר לתשלום לספק (₪)</Label>
+                          <Input
+                            type="number"
+                            value={editedOrder.global_supplier_price}
+                            onChange={(e) => setEditedOrder({ ...editedOrder, global_supplier_price: e.target.value })}
+                            placeholder="0"
+                            dir="ltr"
+                          />
+                        </div>
+                        <p className="text-xs text-gray-500 col-span-2">
+                          פריטי ההזמנה ישמשו לתיאור בלבד, ללא מחיר ליחידה — הסכום הכולל מחושב מהשדות למעלה.
                         </p>
                       </div>
                     )}
@@ -506,7 +518,7 @@ export default function OrderPage() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-500">תשלום</span>
-                    <span className="font-medium">{PAYMENT_STATUS_LABELS[editedOrder.payment_status]}</span>
+                    <span className="font-medium">{PAYMENT_STATUS_LABELS[computedPaymentStatus]}</span>
                   </div>
                   {editedOrder.supplier_id && (
                     <div className="flex justify-between">
