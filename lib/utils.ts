@@ -77,7 +77,8 @@ export const PAYMENT_STATUS_COLORS: Record<string, string> = {
 export type DebtStatus = 'not_paid' | 'partial' | 'paid_full'
 
 export function getDebtStatus(owed: number, paid: number): DebtStatus {
-  if (owed <= 0 || paid >= owed) return 'paid_full'
+  if (owed <= 0) return 'not_paid'
+  if (paid >= owed) return 'paid_full'
   if (paid > 0) return 'partial'
   return 'not_paid'
 }

@@ -45,6 +45,7 @@ type Order = {
   payment_status: string
   notes: string
   measurements: string | null
+  measured_at: string | null
   total_price: number | null
   is_global_price: boolean
   global_supplier_price: number | null
@@ -81,6 +82,7 @@ export default function OrderPage() {
     supplier_id: '',
     notes: '',
     measurements: '',
+    measured_at: '',
     total_price: '',
     is_global_price: false,
     global_supplier_price: '',
@@ -145,6 +147,7 @@ export default function OrderPage() {
         supplier_id: orderData.suppliers?.id || '',
         notes: orderData.notes || '',
         measurements: orderData.measurements || '',
+        measured_at: orderData.measured_at || '',
         total_price: (updateTotalFromItemsRef.current && !orderData.is_global_price)
           ? String(itemsRevenue)
           : (orderData.total_price ? String(orderData.total_price) : ''),
@@ -174,6 +177,7 @@ export default function OrderPage() {
         supplier_id: editedOrder.supplier_id || null,
         notes: editedOrder.notes,
         measurements: editedOrder.measurements,
+        measured_at: editedOrder.measured_at || null,
         total_price: newTotalPrice,
         is_global_price: editedOrder.is_global_price,
         global_supplier_price: parseFloat(editedOrder.global_supplier_price) || 0,
@@ -376,13 +380,34 @@ export default function OrderPage() {
                     <Label>סטטוס</Label>
                     <Select
                       value={editedOrder.status}
-                      onChange={(e) => setEditedOrder({ ...editedOrder, status: e.target.value })}
+                      onChange={(e) => {
+                        const newStatus = e.target.value
+                        setEditedOrder(prev => ({
+                          ...prev,
+                          status: newStatus,
+                          measured_at: (newStatus === 'measured' && !prev.measured_at)
+                            ? new Date().toISOString().slice(0, 10)
+                            : prev.measured_at,
+                        }))
+                      }}
                     >
                       {STATUS_ORDER.map(s => (
                         <option key={s} value={s}>{STATUS_LABELS[s]}</option>
                       ))}
                     </Select>
                   </div>
+
+                  {editedOrder.status === 'measured' && (
+                    <div className="space-y-2">
+                      <Label>תאריך מדידה</Label>
+                      <Input
+                        type="date"
+                        value={editedOrder.measured_at}
+                        onChange={(e) => setEditedOrder({ ...editedOrder, measured_at: e.target.value })}
+                        dir="ltr"
+                      />
+                    </div>
+                  )}
 
                   <div className="space-y-2">
                     <Label>סטטוס תשלום</Label>
@@ -530,6 +555,12 @@ export default function OrderPage() {
                     <div className="flex justify-between">
                       <span className="text-gray-500">מדידות</span>
                       <span className="font-medium">{editedOrder.measurements}</span>
+                    </div>
+                  )}
+                  {editedOrder.measured_at && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">תאריך מדידה</span>
+                      <span className="font-medium">{formatDate(editedOrder.measured_at)}</span>
                     </div>
                   )}
                   {editedOrder.total_price && (

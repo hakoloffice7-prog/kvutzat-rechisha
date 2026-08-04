@@ -4,8 +4,9 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Building2, MapPin, Users, Loader2, ChevronLeft } from 'lucide-react'
+import { Building2, MapPin, Users, Loader2, ChevronLeft, TrendingUp } from 'lucide-react'
 import Link from 'next/link'
+import { formatCurrency } from '@/lib/utils'
 
 type Project = {
   id: string
@@ -17,16 +18,34 @@ type Project = {
 
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([])
+  const [revenueByProject, setRevenueByProject] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
 
   useEffect(() => {
     async function fetchProjects() {
-      const { data } = await supabase
-        .from('projects')
-        .select('*, cities(name), residents(count)')
-        .order('name')
+      const [{ data }, { data: ordersData }] = await Promise.all([
+        supabase
+          .from('projects')
+          .select('*, cities(name), residents(count)')
+          .order('name'),
+        supabase
+          .from('orders')
+          .select('total_price, is_global_price, order_items(customer_price), residents!inner(project_id)'),
+      ])
       if (data) setProjects(data as any)
+
+      const revenue: Record<string, number> = {}
+      ;(ordersData || []).forEach((order: any) => {
+        const projectId = order.residents?.project_id
+        if (!projectId) return
+        const orderRevenue = order.is_global_price
+          ? (order.total_price || 0)
+          : (order.order_items || []).reduce((sum: number, item: any) => sum + (item.customer_price || 0), 0)
+        revenue[projectId] = (revenue[projectId] || 0) + orderRevenue
+      })
+      setRevenueByProject(revenue)
+
       setLoading(false)
     }
     fetchProjects()
@@ -90,6 +109,10 @@ export default function ProjectsPage() {
                       <p className="text-sm text-gray-500 flex items-center gap-1.5">
                         <Users className="h-3.5 w-3.5 flex-shrink-0" />
                         {residentCount} דיירים
+                      </p>
+                      <p className="text-sm text-gray-500 flex items-center gap-1.5">
+                        <TrendingUp className="h-3.5 w-3.5 flex-shrink-0" />
+                        סך הכנסות: <span className="font-medium text-gray-700">{formatCurrency(revenueByProject[project.id] || 0)}</span>
                       </p>
                     </div>
                   </CardContent>

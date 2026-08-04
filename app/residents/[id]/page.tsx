@@ -63,6 +63,7 @@ export default function ResidentPage() {
     status: 'lead',
     payment_status: 'not_paid',
     notes: '',
+    measured_at: '',
   })
   const [saving, setSaving] = useState(false)
   const [newOrderItems, setNewOrderItems] = useState<NewOrderItem[]>([])
@@ -122,6 +123,7 @@ export default function ResidentPage() {
       status: newOrder.status,
       payment_status: newOrder.payment_status,
       notes: newOrder.notes,
+      measured_at: newOrder.status === 'measured' ? (newOrder.measured_at || new Date().toISOString().slice(0, 10)) : null,
     }).select('id').single()
 
     if (!error && orderData) {
@@ -239,7 +241,7 @@ export default function ResidentPage() {
             <Dialog open={dialogOpen} onOpenChange={(open) => {
               setDialogOpen(open)
               if (!open) {
-                setNewOrder({ category_id: '', supplier_id: '', status: 'lead', payment_status: 'not_paid', notes: '' })
+                setNewOrder({ category_id: '', supplier_id: '', status: 'lead', payment_status: 'not_paid', notes: '', measured_at: '' })
                 setNewOrderItems([])
               }
             }}>
@@ -290,6 +292,17 @@ export default function ResidentPage() {
                         ))}
                       </Select>
                     </div>
+                    {newOrder.status === 'measured' && (
+                      <div className="space-y-2">
+                        <Label>תאריך מדידה</Label>
+                        <Input
+                          type="date"
+                          value={newOrder.measured_at}
+                          onChange={(e) => setNewOrder({ ...newOrder, measured_at: e.target.value })}
+                          dir="ltr"
+                        />
+                      </div>
+                    )}
                     <div className="space-y-2">
                       <Label>סטטוס תשלום</Label>
                       <Select

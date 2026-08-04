@@ -84,6 +84,7 @@ CREATE TABLE orders (
   payment_status TEXT DEFAULT 'not_paid' CHECK (payment_status IN
     ('not_paid', 'advance', 'partial', 'paid_full')),
   measurements TEXT,           -- מדידות (טקסט חופשי, למשל "2 דלת 5 חלון")
+  measured_at DATE,            -- תאריך המדידה (מוזן כשהסטטוס עובר ל"נמדד")
   total_price DECIMAL(10,2) DEFAULT 0,   -- מחיר לתשלום / סיכום (גם המחיר הגלובלי ללקוח כשis_global_price=TRUE)
   is_global_price BOOLEAN DEFAULT FALSE, -- מחיר גלובלי לכל ההזמנה במקום לפי פריטים
   global_supplier_price DECIMAL(10,2) DEFAULT 0, -- מחיר ספק גלובלי (כש-is_global_price=TRUE)

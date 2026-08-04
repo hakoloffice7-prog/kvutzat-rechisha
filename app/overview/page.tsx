@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
 import { Loader2, BarChart2, Phone } from 'lucide-react'
+import Link from 'next/link'
 import { STATUS_LABELS, STATUS_ORDER, STATUS_COLORS, PAYMENT_STATUS_LABELS } from '@/lib/utils'
 
 type City = { id: string; name: string }
@@ -20,6 +21,7 @@ type Order = {
   category_id: string
   status: string
   payment_status: string
+  measured_at: string | null
 }
 
 type ResidentRow = {
@@ -53,6 +55,7 @@ export default function OverviewPage() {
   const [selectedProjectId, setSelectedProjectId] = useState('')
   const [selectedCategoryId, setSelectedCategoryId] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [measuredDateFilter, setMeasuredDateFilter] = useState('')
 
   const [residents, setResidents] = useState<Resident[]>([])
   const [orders, setOrders] = useState<Order[]>([])
@@ -77,6 +80,7 @@ export default function OverviewPage() {
           const f = JSON.parse(saved)
           if (f.categoryId) setSelectedCategoryId(f.categoryId)
           if (f.statusFilter) setStatusFilter(f.statusFilter)
+          if (f.measuredDateFilter) setMeasuredDateFilter(f.measuredDateFilter)
           if (f.cityId) {
             pendingProjectIdRef.current = f.projectId || ''
             setSelectedCityId(f.cityId)
@@ -120,9 +124,17 @@ export default function OverviewPage() {
         projectId: selectedProjectId,
         categoryId: selectedCategoryId,
         statusFilter,
+        measuredDateFilter,
       }))
     } catch {}
-  }, [selectedCityId, selectedProjectId, selectedCategoryId, statusFilter])
+  }, [selectedCityId, selectedProjectId, selectedCategoryId, statusFilter, measuredDateFilter])
+
+  // Reset measured-date filter whenever status filter isn't "measured"
+  useEffect(() => {
+    if (statusFilter !== 'measured' && measuredDateFilter) {
+      setMeasuredDateFilter('')
+    }
+  }, [statusFilter])
 
   // Load residents + orders when project + category selected
   useEffect(() => {
@@ -147,7 +159,7 @@ export default function OverviewPage() {
         const residentIds = residentsList.map((r) => r.id)
         const { data: ordersData } = await supabase
           .from('orders')
-          .select('id, resident_id, category_id, status, payment_status')
+          .select('id, resident_id, category_id, status, payment_status, measured_at')
           .in('resident_id', residentIds)
           .eq('category_id', selectedCategoryId)
 
@@ -175,9 +187,15 @@ export default function OverviewPage() {
 
   // Apply status filter
   const filteredRows = useMemo(() => {
-    if (statusFilter === 'all') return rows
-    return rows.filter((row) => row.order?.status === statusFilter)
-  }, [rows, statusFilter])
+    let result = rows
+    if (statusFilter !== 'all') {
+      result = result.filter((row) => row.order?.status === statusFilter)
+    }
+    if (statusFilter === 'measured' && measuredDateFilter) {
+      result = result.filter((row) => row.order?.measured_at === measuredDateFilter)
+    }
+    return result
+  }, [rows, statusFilter, measuredDateFilter])
 
   // Summary counts
   const summary = useMemo(() => {
@@ -213,7 +231,7 @@ export default function OverviewPage() {
               טוען נתונים...
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
               {/* City */}
               <div className="space-y-2">
                 <Label htmlFor="citySelect">בחר עיר</Label>
@@ -277,6 +295,20 @@ export default function OverviewPage() {
                   ))}
                 </select>
               </div>
+
+              {/* Measured date filter - only usable when filtering by "measured" status */}
+              <div className="space-y-2">
+                <Label htmlFor="measuredDateFilter">תאריך מדידה</Label>
+                <input
+                  id="measuredDateFilter"
+                  type="date"
+                  value={measuredDateFilter}
+                  onChange={(e) => setMeasuredDateFilter(e.target.value)}
+                  disabled={statusFilter !== 'measured'}
+                  dir="ltr"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                />
+              </div>
             </div>
           )}
         </CardContent>
@@ -336,7 +368,7 @@ export default function OverviewPage() {
                         <tr key={resident.id} className="border-b hover:bg-gray-50 transition-colors">
                           <td className="py-3 px-4 text-gray-400">{idx + 1}</td>
                           <td className="py-3 px-4 font-medium">
-                            <a href={`/residents/${resident.id}`} className="text-blue-700 hover:underline">{resident.name}</a>
+                            <Link href={`/residents/${resident.id}`} className="text-blue-700 hover:underline">{resident.name}</Link>
                           </td>
                           <td className="py-3 px-4 text-left">
                             {resident.phone
