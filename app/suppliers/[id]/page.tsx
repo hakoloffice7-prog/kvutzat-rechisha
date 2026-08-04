@@ -44,8 +44,13 @@ type ProjectGroup = {
   totalCollected: number
   commissionOwed: number
   paidOrderCount: number
+  owedToSupplier: number
+  unpaidOrderCount: number
   ledger: Ledger
 }
+
+// הזמנות שנחשבות "בוצעו" מול הספק (לא רק לברר/מעוניין/הצעת מחיר וכו')
+const FULFILLED_STATUSES = new Set(['ordered', 'delivery_scheduled', 'done'])
 
 type ProjectOption = { id: string; name: string; cityName: string }
 
@@ -84,7 +89,7 @@ export default function SupplierPaymentsPage() {
       supabase.from('suppliers').select('*').eq('id', supplierId).single(),
       supabase
         .from('orders')
-        .select('id, total_price, payment_status, categories(name), order_items(description, customer_price, supplier_price), residents(projects(id, name))')
+        .select('id, status, total_price, payment_status, is_global_price, global_supplier_price, categories(name), order_items(description, customer_price, supplier_price), residents(projects(id, name))')
         .eq('supplier_id', supplierId),
       supabase.from('supplier_project_ledger').select('*').eq('supplier_id', supplierId),
       supabase.from('projects').select('id, name, cities(name)').order('name'),
@@ -113,6 +118,8 @@ export default function SupplierPaymentsPage() {
           totalCollected: 0,
           commissionOwed: 0,
           paidOrderCount: 0,
+          owedToSupplier: 0,
+          unpaidOrderCount: 0,
           ledger: existingLedger || {
             supplier_id: supplierId,
             project_id: projectId,
@@ -138,6 +145,14 @@ export default function SupplierPaymentsPage() {
           0
         )
         group.commissionOwed += itemsMargin
+      }
+      // הזמנות שבוצעו מול הספק אבל הלקוח עוד לא שילם עליהן במלואן - כמה כסף אנחנו חייבים לספק
+      if (FULFILLED_STATUSES.has(order.status) && order.payment_status !== 'paid_full') {
+        const supplierCost = order.is_global_price
+          ? (order.global_supplier_price || 0)
+          : (order.order_items || []).reduce((sum: number, item: any) => sum + (item.supplier_price || 0), 0)
+        group.owedToSupplier += supplierCost
+        group.unpaidOrderCount += 1
       }
     })
 
@@ -250,6 +265,7 @@ export default function SupplierPaymentsPage() {
   const totalCollectedAll = groups.reduce((s, g) => s + g.totalCollected, 0)
   const totalCommissionOwedAll = groups.reduce((s, g) => s + g.commissionOwed, 0)
   const totalCommissionPaidAll = groups.reduce((s, g) => s + (g.ledger.commission_paid || 0), 0)
+  const totalOwedToSupplierAll = groups.reduce((s, g) => s + g.owedToSupplier, 0)
   const groupedProjectIds = new Set(groups.map((g) => g.projectId))
   const availableProjectsToAdd = allProjects.filter((p) => !groupedProjectIds.has(p.id))
 
@@ -298,7 +314,7 @@ export default function SupplierPaymentsPage() {
 
       {/* Overall summary */}
       <Card>
-        <CardContent className="p-4 grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+        <CardContent className="p-4 grid grid-cols-1 sm:grid-cols-4 gap-4 text-sm">
           <div>
             <p className="text-gray-500">סה"כ נאסף מלקוחות (הזמנות ששולמו)</p>
             <p className="text-xl font-bold text-gray-900">{formatCurrency(totalCollectedAll)}</p>
@@ -310,6 +326,10 @@ export default function SupplierPaymentsPage() {
           <div>
             <p className="text-gray-500">מזה שולם</p>
             <p className="text-xl font-bold text-green-600">{formatCurrency(totalCommissionPaidAll)}</p>
+          </div>
+          <div>
+            <p className="text-gray-500">חייבים לספק (הזמנות שבוצעו, עדיין לא שולם)</p>
+            <p className="text-xl font-bold text-red-600">{formatCurrency(totalOwedToSupplierAll)}</p>
           </div>
         </CardContent>
       </Card>
@@ -424,6 +444,11 @@ export default function SupplierPaymentsPage() {
                       ? `${group.paidOrderCount} הזמנות בסטטוס "שילם הכל"`
                       : 'טרם קיימות הזמנות משויכות (נוסף ידנית)'}
                   </p>
+                  {group.owedToSupplier > 0 && (
+                    <p className="text-xs text-red-600 font-medium mt-1">
+                      חייבים לספק {formatCurrency(group.owedToSupplier)} על {group.unpaidOrderCount} הזמנות שבוצעו ועדיין לא שולמו במלואן
+                    </p>
+                  )}
                 </CardHeader>
                 <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Supplier commission */}

@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { ChevronDown } from 'lucide-react'
+import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -31,7 +33,7 @@ type ResidentRow = {
   order: Order | null
 }
 
-type StatusFilter = 'all' | typeof STATUS_ORDER[number]
+type StatusValue = typeof STATUS_ORDER[number]
 type PaymentStatusFilter = 'all' | DebtStatus
 
 const PAYMENT_STATUS_FILTER_OPTIONS: { value: PaymentStatusFilter; label: string }[] = [
@@ -48,26 +50,44 @@ function getEffectivePaymentStatus(order: Order) {
   return getDebtStatus(order.total_price || 0, totalPaid)
 }
 
-const STATUS_FILTER_OPTIONS: { value: StatusFilter; label: string }[] = [
-  { value: 'all', label: 'הכל' },
-  ...STATUS_ORDER.map((value) => ({ value, label: STATUS_LABELS[value] })),
-]
+const STATUS_FILTER_OPTIONS: { value: StatusValue; label: string }[] =
+  STATUS_ORDER.map((value) => ({ value, label: STATUS_LABELS[value] }))
+
+const STATUS_FILTER_VALUES = new Set<string>(STATUS_ORDER)
+const PAYMENT_STATUS_FILTER_VALUES = new Set<string>(['all', 'not_paid', 'partial', 'paid_full'])
 
 export default function OverviewPage() {
   const supabase = createClient()
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+
+  // הפילטרים נשמרים ב-URL (לא רק ב-state) כדי שכפתור "חזור" בדפדפן (למשל
+  // מתוך עמוד דייר) יחזיר את המסך הזה מדויק כמו שהיה, גם אם הוא נטען מחדש
+  const initialCityId = searchParams.get('city') || ''
+  const initialProjectId = searchParams.get('project') || ''
+  const initialCategoryId = searchParams.get('category') || ''
+  const initialStatusFilters = (searchParams.get('status') || '')
+    .split(',')
+    .filter((s) => STATUS_FILTER_VALUES.has(s)) as StatusValue[]
+  const initialPaymentParam = searchParams.get('payment') || 'all'
+  const initialPaymentStatusFilter = (PAYMENT_STATUS_FILTER_VALUES.has(initialPaymentParam) ? initialPaymentParam : 'all') as PaymentStatusFilter
+  const initialMeasuredDateFilter = searchParams.get('measuredDate') || ''
 
   const [cities, setCities] = useState<City[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [categories, setCategories] = useState<Category[]>([])
 
-  const pendingProjectIdRef = useRef('')
+  const pendingProjectIdRef = useRef(initialProjectId)
 
-  const [selectedCityId, setSelectedCityId] = useState('')
-  const [selectedProjectId, setSelectedProjectId] = useState('')
-  const [selectedCategoryId, setSelectedCategoryId] = useState('')
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
-  const [paymentStatusFilter, setPaymentStatusFilter] = useState<PaymentStatusFilter>('all')
-  const [measuredDateFilter, setMeasuredDateFilter] = useState('')
+  const [selectedCityId, setSelectedCityId] = useState(initialCityId)
+  const [selectedProjectId, setSelectedProjectId] = useState(initialProjectId)
+  const [selectedCategoryId, setSelectedCategoryId] = useState(initialCategoryId)
+  const [statusFilters, setStatusFilters] = useState<StatusValue[]>(initialStatusFilters)
+  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false)
+  const statusDropdownRef = useRef<HTMLDivElement>(null)
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState<PaymentStatusFilter>(initialPaymentStatusFilter)
+  const [measuredDateFilter, setMeasuredDateFilter] = useState(initialMeasuredDateFilter)
 
   const [residents, setResidents] = useState<Resident[]>([])
   const [orders, setOrders] = useState<Order[]>([])
@@ -75,7 +95,7 @@ export default function OverviewPage() {
   const [loadingInit, setLoadingInit] = useState(true)
   const [loadingData, setLoadingData] = useState(false)
 
-  // Load cities + categories on mount, restore saved filters
+  // Load cities + categories on mount
   useEffect(() => {
     async function init() {
       const [{ data: citiesData }, { data: catsData }] = await Promise.all([
@@ -85,26 +105,12 @@ export default function OverviewPage() {
       setCities(citiesData || [])
       setCategories(catsData || [])
       setLoadingInit(false)
-
-      try {
-        const saved = sessionStorage.getItem('overview-filters')
-        if (saved) {
-          const f = JSON.parse(saved)
-          if (f.categoryId) setSelectedCategoryId(f.categoryId)
-          if (f.statusFilter) setStatusFilter(f.statusFilter)
-          if (f.paymentStatusFilter) setPaymentStatusFilter(f.paymentStatusFilter)
-          if (f.measuredDateFilter) setMeasuredDateFilter(f.measuredDateFilter)
-          if (f.cityId) {
-            pendingProjectIdRef.current = f.projectId || ''
-            setSelectedCityId(f.cityId)
-          }
-        }
-      } catch {}
     }
     init()
   }, [])
 
-  // Load projects when city changes, restore saved project if any
+  // Load projects when city changes; restore the project coming from the URL
+  // (on first load) if it actually belongs to that city, otherwise clear it
   useEffect(() => {
     if (!selectedCityId) {
       setProjects([])
@@ -129,26 +135,42 @@ export default function OverviewPage() {
       })
   }, [selectedCityId])
 
-  // Save filters to sessionStorage
+  // Keep the current filters reflected in the URL (replacing, not pushing, so
+  // it doesn't pollute browser history) so that navigating back to this page
+  // restores the exact same filters instead of resetting them
   useEffect(() => {
-    try {
-      sessionStorage.setItem('overview-filters', JSON.stringify({
-        cityId: selectedCityId,
-        projectId: selectedProjectId,
-        categoryId: selectedCategoryId,
-        statusFilter,
-        paymentStatusFilter,
-        measuredDateFilter,
-      }))
-    } catch {}
-  }, [selectedCityId, selectedProjectId, selectedCategoryId, statusFilter, paymentStatusFilter, measuredDateFilter])
+    const params = new URLSearchParams()
+    if (selectedCityId) params.set('city', selectedCityId)
+    if (selectedProjectId) params.set('project', selectedProjectId)
+    if (selectedCategoryId) params.set('category', selectedCategoryId)
+    if (statusFilters.length > 0) params.set('status', statusFilters.join(','))
+    if (paymentStatusFilter !== 'all') params.set('payment', paymentStatusFilter)
+    if (measuredDateFilter) params.set('measuredDate', measuredDateFilter)
+    const query = params.toString()
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
+  }, [selectedCityId, selectedProjectId, selectedCategoryId, statusFilters, paymentStatusFilter, measuredDateFilter, pathname, router])
 
-  // Reset measured-date filter whenever status filter isn't "measured"
+  // Reset measured-date filter whenever "measured" isn't one of the selected statuses
   useEffect(() => {
-    if (statusFilter !== 'measured' && measuredDateFilter) {
+    if (!statusFilters.includes('measured') && measuredDateFilter) {
       setMeasuredDateFilter('')
     }
-  }, [statusFilter])
+  }, [statusFilters])
+
+  // Close the status multi-select dropdown when clicking outside of it
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (statusDropdownRef.current && !statusDropdownRef.current.contains(e.target as Node)) {
+        setStatusDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  function toggleStatusFilter(value: StatusValue) {
+    setStatusFilters((prev) => prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value])
+  }
 
   // Load residents + orders when project + category selected
   useEffect(() => {
@@ -199,20 +221,21 @@ export default function OverviewPage() {
       .filter((row) => row.order !== null)
   }, [residents, orders])
 
-  // Apply status filter
+  // Apply status filter (multi-select — empty selection means "all")
   const filteredRows = useMemo(() => {
     let result = rows
-    if (statusFilter !== 'all') {
-      result = result.filter((row) => row.order?.status === statusFilter)
+    if (statusFilters.length > 0) {
+      result = result.filter((row) => row.order && statusFilters.includes(row.order.status as StatusValue))
     }
     if (paymentStatusFilter !== 'all') {
       result = result.filter((row) => row.order && getEffectivePaymentStatus(row.order) === paymentStatusFilter)
     }
-    if (statusFilter === 'measured' && measuredDateFilter) {
-      result = result.filter((row) => row.order?.measured_at === measuredDateFilter)
+    if (measuredDateFilter && statusFilters.includes('measured')) {
+      // הסינון לפי תאריך מדידה חל רק על שורות בסטטוס "נמדד"; שאר הסטטוסים הנבחרים לא מוסתרים
+      result = result.filter((row) => row.order?.status !== 'measured' || row.order?.measured_at === measuredDateFilter)
     }
     return result
-  }, [rows, statusFilter, paymentStatusFilter, measuredDateFilter])
+  }, [rows, statusFilters, paymentStatusFilter, measuredDateFilter])
 
   // Summary counts
   const summary = useMemo(() => {
@@ -298,19 +321,47 @@ export default function OverviewPage() {
                 </select>
               </div>
 
-              {/* Status filter */}
-              <div className="space-y-2">
-                <Label htmlFor="statusFilter">סנן לפי סטטוס</Label>
-                <select
-                  id="statusFilter"
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  {STATUS_FILTER_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
+              {/* Status filter (multi-select) */}
+              <div className="space-y-2" ref={statusDropdownRef}>
+                <Label>סנן לפי סטטוס</Label>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setStatusDropdownOpen((v) => !v)}
+                    className="w-full flex items-center justify-between border border-gray-300 rounded-md px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <span className="truncate">
+                      {statusFilters.length === 0
+                        ? 'הכל'
+                        : statusFilters.length === 1
+                          ? STATUS_LABELS[statusFilters[0]]
+                          : `${statusFilters.length} סטטוסים נבחרו`}
+                    </span>
+                    <ChevronDown className="h-4 w-4 text-gray-400 shrink-0" />
+                  </button>
+                  {statusDropdownOpen && (
+                    <div className="absolute z-10 mt-1 w-full max-h-64 overflow-y-auto bg-white border border-gray-300 rounded-md shadow-lg py-1">
+                      <button
+                        type="button"
+                        onClick={() => setStatusFilters([])}
+                        className="w-full text-right px-3 py-1.5 text-sm hover:bg-gray-50 text-blue-600"
+                      >
+                        נקה בחירה (הכל)
+                      </button>
+                      {STATUS_FILTER_OPTIONS.map((opt) => (
+                        <label key={opt.value} className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={statusFilters.includes(opt.value)}
+                            onChange={() => toggleStatusFilter(opt.value)}
+                            className="h-4 w-4"
+                          />
+                          {opt.label}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Payment status filter */}
@@ -328,8 +379,8 @@ export default function OverviewPage() {
                 </select>
               </div>
 
-              {/* Measured date filter - shown only when filtering by "measured" status */}
-              {statusFilter === 'measured' && (
+              {/* Measured date filter - shown only when "measured" is one of the selected statuses */}
+              {statusFilters.includes('measured') && (
                 <div className="space-y-2">
                   <Label htmlFor="measuredDateFilter">תאריך מדידה</Label>
                   <input
@@ -376,7 +427,7 @@ export default function OverviewPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">
-                דיירים ({filteredRows.length}{statusFilter !== 'all' ? ` מתוך ${rows.length}` : ''})
+                דיירים ({filteredRows.length}{statusFilters.length > 0 ? ` מתוך ${rows.length}` : ''})
               </CardTitle>
             </CardHeader>
             <CardContent>

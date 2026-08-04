@@ -11,10 +11,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Plus, Users, ChevronLeft, Loader2, Trash2, Phone, MapPin, ArrowRight } from 'lucide-react'
+import { Plus, Users, ChevronLeft, Loader2, Trash2, Phone, MapPin, ArrowRight, TrendingUp } from 'lucide-react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
-import { STATUS_LABELS, STATUS_COLORS, STATUS_ORDER } from '@/lib/utils'
+import { STATUS_LABELS, STATUS_COLORS, STATUS_ORDER, formatCurrency } from '@/lib/utils'
 
 type Project = {
   id: string
@@ -38,6 +38,7 @@ export default function ProjectPage() {
   const projectId = params.id as string
   const [project, setProject] = useState<Project | null>(null)
   const [residents, setResidents] = useState<Resident[]>([])
+  const [totalRevenue, setTotalRevenue] = useState(0)
   const [loading, setLoading] = useState(true)
   const [deleteConfirm, setDeleteConfirm] = useState<{ open: boolean; id: string; name: string }>({ open: false, id: '', name: '' })
   const supabase = createClient()
@@ -48,7 +49,7 @@ export default function ProjectPage() {
 
   async function fetchData() {
     setLoading(true)
-    const [{ data: projectData }, { data: residentsData }] = await Promise.all([
+    const [{ data: projectData }, { data: residentsData }, { data: ordersData }] = await Promise.all([
       supabase
         .from('projects')
         .select('*, cities(name)')
@@ -59,10 +60,21 @@ export default function ProjectPage() {
         .select('*, orders(status)')
         .eq('project_id', projectId)
         .order('name'),
+      supabase
+        .from('orders')
+        .select('total_price, is_global_price, order_items(customer_price), residents!inner(project_id)')
+        .eq('residents.project_id', projectId),
     ])
 
     if (projectData) setProject(projectData)
     if (residentsData) setResidents(residentsData)
+    const revenue = (ordersData || []).reduce((sum: number, order: any) => {
+      const orderRevenue = order.is_global_price
+        ? (order.total_price || 0)
+        : (order.order_items || []).reduce((s: number, item: any) => s + (item.customer_price || 0), 0)
+      return sum + orderRevenue
+    }, 0)
+    setTotalRevenue(revenue)
     setLoading(false)
   }
 
@@ -141,6 +153,10 @@ export default function ProjectPage() {
             </p>
           )}
           <p className="text-sm text-gray-400 mt-1">{residents.length} דיירים</p>
+          <p className="text-sm text-gray-500 mt-1 flex items-center gap-1.5">
+            <TrendingUp className="h-4 w-4" />
+            סך הכנסות: <span className="font-semibold text-gray-800">{formatCurrency(totalRevenue)}</span>
+          </p>
         </div>
 
         <Button onClick={goToAddResident}>
