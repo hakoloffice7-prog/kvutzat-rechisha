@@ -13,6 +13,11 @@ export function formatCurrency(amount: number): string {
   }).format(amount)
 }
 
+// מחיר ספק מחושב ממחיר לקוח לפי אחוז רווח (ברירת מחדל 10%): מחיר לקוח 100 + רווח 10% => מחיר ספק 90
+export function calcSupplierPrice(customerPrice: number, profitPercent: number): number {
+  return Math.round(customerPrice * (1 - profitPercent / 100) * 100) / 100
+}
+
 export function formatDate(dateString: string): string {
   return new Intl.DateTimeFormat('he-IL', {
     year: 'numeric',

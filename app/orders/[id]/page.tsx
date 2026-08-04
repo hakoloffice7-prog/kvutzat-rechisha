@@ -21,7 +21,7 @@ import { useParams, useRouter } from 'next/navigation'
 import {
   STATUS_LABELS, STATUS_COLORS, STATUS_ORDER,
   PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS,
-  formatCurrency, formatDate, getDebtStatus
+  formatCurrency, formatDate, getDebtStatus, calcSupplierPrice
 } from '@/lib/utils'
 
 type OrderItem = {
@@ -86,7 +86,9 @@ export default function OrderPage() {
     total_price: '',
     is_global_price: false,
     global_supplier_price: '',
+    global_profit_percent: '10',
   })
+  const globalSupplierPriceTouchedRef = useRef(false)
   const [detailsRows, setDetailsRows] = useState<{ key: string; value: string }[]>([])
   const [newItem, setNewItem] = useState({
     description: '',
@@ -94,7 +96,9 @@ export default function OrderPage() {
     quantity: '1',
     customer_price: '',
     supplier_price: '',
+    profit_percent: '10',
   })
+  const newItemSupplierPriceTouchedRef = useRef(false)
   const [deleteItemConfirmId, setDeleteItemConfirmId] = useState<string | null>(null)
   const [editingItemId, setEditingItemId] = useState<string | null>(null)
   const [editingItemData, setEditingItemData] = useState<{
@@ -153,7 +157,9 @@ export default function OrderPage() {
           : (orderData.total_price ? String(orderData.total_price) : ''),
         is_global_price: orderData.is_global_price || false,
         global_supplier_price: orderData.global_supplier_price ? String(orderData.global_supplier_price) : '',
+        global_profit_percent: '10',
       })
+      globalSupplierPriceTouchedRef.current = false
       updateTotalFromItemsRef.current = false
       setDetailsRows(Object.entries(orderData.details || {}).map(([key, value]) => ({ key, value: String(value) })))
     }
@@ -209,7 +215,8 @@ export default function OrderPage() {
     })
 
     if (!error) {
-      setNewItem({ description: '', model: '', quantity: '1', customer_price: '', supplier_price: '' })
+      setNewItem({ description: '', model: '', quantity: '1', customer_price: '', supplier_price: '', profit_percent: '10' })
+      newItemSupplierPriceTouchedRef.current = false
       setItemDialogOpen(false)
       updateTotalFromItemsRef.current = true
       fetchData()
@@ -446,7 +453,24 @@ export default function OrderPage() {
                       <input
                         type="checkbox"
                         checked={editedOrder.is_global_price}
-                        onChange={(e) => setEditedOrder({ ...editedOrder, is_global_price: e.target.checked })}
+                        onChange={(e) => {
+                          const checked = e.target.checked
+                          const itemsRevenue = (order.order_items || []).reduce((s, i) => s + (i.customer_price || 0), 0)
+                          const itemsCost = (order.order_items || []).reduce((s, i) => s + (i.supplier_price || 0), 0)
+                          setEditedOrder(prev => ({
+                            ...prev,
+                            is_global_price: checked,
+                            // כשעוברים בין מצב גלובלי לפריטים, מסנכרנים את הסכומים לפי פריטי ההזמנה
+                            // כדי שמחיר הלקוח/ספק לא יישארו "תקועים" על ערך ישן מהמצב הקודם
+                            total_price: checked
+                              ? (prev.total_price || String(itemsRevenue))
+                              : String(itemsRevenue),
+                            global_supplier_price: checked
+                              ? (prev.global_supplier_price || String(itemsCost))
+                              : prev.global_supplier_price,
+                          }))
+                          globalSupplierPriceTouchedRef.current = false
+                        }}
                         className="h-4 w-4"
                       />
                       מחיר גלובלי להזמנה (לא לפי פריטים)
@@ -458,23 +482,56 @@ export default function OrderPage() {
                           <Input
                             type="number"
                             value={editedOrder.total_price}
-                            onChange={(e) => setEditedOrder({ ...editedOrder, total_price: e.target.value })}
+                            onChange={(e) => {
+                              const customer = parseFloat(e.target.value) || 0
+                              const percent = parseFloat(editedOrder.global_profit_percent) || 0
+                              setEditedOrder(prev => ({
+                                ...prev,
+                                total_price: e.target.value,
+                                global_supplier_price: globalSupplierPriceTouchedRef.current
+                                  ? prev.global_supplier_price
+                                  : String(calcSupplierPrice(customer, percent)),
+                              }))
+                            }}
                             placeholder="0"
                             dir="ltr"
                           />
                         </div>
                         <div className="space-y-2">
+                          <Label>אחוז רווח (%)</Label>
+                          <Input
+                            type="number"
+                            value={editedOrder.global_profit_percent}
+                            onChange={(e) => {
+                              const percent = parseFloat(e.target.value) || 0
+                              const customer = parseFloat(editedOrder.total_price) || 0
+                              setEditedOrder(prev => ({
+                                ...prev,
+                                global_profit_percent: e.target.value,
+                                global_supplier_price: globalSupplierPriceTouchedRef.current
+                                  ? prev.global_supplier_price
+                                  : String(calcSupplierPrice(customer, percent)),
+                              }))
+                            }}
+                            placeholder="10"
+                            dir="ltr"
+                          />
+                        </div>
+                        <div className="space-y-2 col-span-2">
                           <Label>מחיר לתשלום לספק (₪)</Label>
                           <Input
                             type="number"
                             value={editedOrder.global_supplier_price}
-                            onChange={(e) => setEditedOrder({ ...editedOrder, global_supplier_price: e.target.value })}
+                            onChange={(e) => {
+                              globalSupplierPriceTouchedRef.current = true
+                              setEditedOrder({ ...editedOrder, global_supplier_price: e.target.value })
+                            }}
                             placeholder="0"
                             dir="ltr"
                           />
                         </div>
                         <p className="text-xs text-gray-500 col-span-2">
-                          פריטי ההזמנה ישמשו לתיאור בלבד, ללא מחיר ליחידה — הסכום הכולל מחושב מהשדות למעלה.
+                          פריטי ההזמנה ישמשו לתיאור בלבד, ללא מחיר ליחידה — הסכום הכולל מחושב מהשדות למעלה. מחיר הספק מחושב אוטומטית לפי אחוז הרווח, וניתן לשנותו ידנית.
                         </p>
                       </div>
                     )}
@@ -557,7 +614,7 @@ export default function OrderPage() {
                       <span className="font-medium">{editedOrder.measurements}</span>
                     </div>
                   )}
-                  {editedOrder.measured_at && (
+                  {editedOrder.status === 'measured' && editedOrder.measured_at && (
                     <div className="flex justify-between">
                       <span className="text-gray-500">תאריך מדידה</span>
                       <span className="font-medium">{formatDate(editedOrder.measured_at)}</span>
@@ -741,7 +798,10 @@ export default function OrderPage() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle>פריטי הזמנה ({order.order_items?.length || 0})</CardTitle>
-                <Dialog open={itemDialogOpen} onOpenChange={setItemDialogOpen}>
+                <Dialog open={itemDialogOpen} onOpenChange={(open) => {
+                  setItemDialogOpen(open)
+                  if (open) newItemSupplierPriceTouchedRef.current = false
+                }}>
                   <DialogTrigger asChild>
                     <Button size="sm">
                       <Plus className="h-4 w-4 ml-1" />
@@ -786,14 +846,44 @@ export default function OrderPage() {
                               dir="ltr"
                             />
                           </div>
-                          <div className="grid grid-cols-2 gap-4">
+                          <div className="grid grid-cols-3 gap-4">
                             <div className="space-y-2">
                               <Label>מחיר לקוח ליחידה (₪)</Label>
                               <Input
                                 type="number"
                                 value={newItem.customer_price}
-                                onChange={(e) => setNewItem({ ...newItem, customer_price: e.target.value })}
+                                onChange={(e) => {
+                                  const customer = parseFloat(e.target.value) || 0
+                                  const percent = parseFloat(newItem.profit_percent) || 0
+                                  setNewItem(prev => ({
+                                    ...prev,
+                                    customer_price: e.target.value,
+                                    supplier_price: newItemSupplierPriceTouchedRef.current
+                                      ? prev.supplier_price
+                                      : String(calcSupplierPrice(customer, percent)),
+                                  }))
+                                }}
                                 placeholder="0"
+                                dir="ltr"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>אחוז רווח (%)</Label>
+                              <Input
+                                type="number"
+                                value={newItem.profit_percent}
+                                onChange={(e) => {
+                                  const percent = parseFloat(e.target.value) || 0
+                                  const customer = parseFloat(newItem.customer_price) || 0
+                                  setNewItem(prev => ({
+                                    ...prev,
+                                    profit_percent: e.target.value,
+                                    supplier_price: newItemSupplierPriceTouchedRef.current
+                                      ? prev.supplier_price
+                                      : String(calcSupplierPrice(customer, percent)),
+                                  }))
+                                }}
+                                placeholder="10"
                                 dir="ltr"
                               />
                             </div>
@@ -802,7 +892,10 @@ export default function OrderPage() {
                               <Input
                                 type="number"
                                 value={newItem.supplier_price}
-                                onChange={(e) => setNewItem({ ...newItem, supplier_price: e.target.value })}
+                                onChange={(e) => {
+                                  newItemSupplierPriceTouchedRef.current = true
+                                  setNewItem({ ...newItem, supplier_price: e.target.value })
+                                }}
                                 placeholder="0"
                                 dir="ltr"
                               />

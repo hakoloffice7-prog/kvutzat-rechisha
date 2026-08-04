@@ -49,12 +49,16 @@ type ProjectGroup = {
 
 type ProjectOption = { id: string; name: string; cityName: string }
 
+type ItemSummaryRow = { description: string; count: number }
+type CategorySummary = { categoryName: string; items: ItemSummaryRow[]; totalCount: number }
+
 export default function SupplierPaymentsPage() {
   const params = useParams()
   const supplierId = params.id as string
 
   const [supplier, setSupplier] = useState<Supplier | null>(null)
   const [groups, setGroups] = useState<ProjectGroup[]>([])
+  const [itemSummary, setItemSummary] = useState<CategorySummary[]>([])
   const [allProjects, setAllProjects] = useState<ProjectOption[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -80,7 +84,7 @@ export default function SupplierPaymentsPage() {
       supabase.from('suppliers').select('*').eq('id', supplierId).single(),
       supabase
         .from('orders')
-        .select('id, total_price, payment_status, order_items(customer_price, supplier_price), residents(projects(id, name))')
+        .select('id, total_price, payment_status, categories(name), order_items(description, customer_price, supplier_price), residents(projects(id, name))')
         .eq('supplier_id', supplierId),
       supabase.from('supplier_project_ledger').select('*').eq('supplier_id', supplierId),
       supabase.from('projects').select('id, name, cities(name)').order('name'),
@@ -144,6 +148,29 @@ export default function SupplierPaymentsPage() {
     })
 
     setGroups(Array.from(byProject.values()).sort((a, b) => a.projectName.localeCompare(b.projectName, 'he')))
+
+    // סיכום פריטים שהוזמנו מהספק, לפי קטגוריה ותיאור פריט, לאורך כל הפרויקטים
+    const byCategory = new Map<string, Map<string, number>>()
+    ;(ordersData || []).forEach((order: any) => {
+      const categoryName = order.categories?.name || 'ללא קטגוריה'
+      if (!byCategory.has(categoryName)) byCategory.set(categoryName, new Map())
+      const descCounts = byCategory.get(categoryName)!
+      ;(order.order_items || []).forEach((item: any) => {
+        const desc = (item.description || '').trim() || 'ללא תיאור'
+        descCounts.set(desc, (descCounts.get(desc) || 0) + 1)
+      })
+    })
+    const summary: CategorySummary[] = Array.from(byCategory.entries())
+      .map(([categoryName, descCounts]) => {
+        const items = Array.from(descCounts.entries())
+          .map(([description, count]) => ({ description, count }))
+          .sort((a, b) => b.count - a.count)
+        return { categoryName, items, totalCount: items.reduce((s, i) => s + i.count, 0) }
+      })
+      .filter((c) => c.totalCount > 0)
+      .sort((a, b) => a.categoryName.localeCompare(b.categoryName, 'he'))
+    setItemSummary(summary)
+
     setLoading(false)
   }
 
@@ -286,6 +313,35 @@ export default function SupplierPaymentsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Items ordered from this supplier, across all categories */}
+      {itemSummary.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">
+              סיכום פריטים שהוזמנו מהספק ({itemSummary.reduce((s, c) => s + c.totalCount, 0)} פריטים)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {itemSummary.map((cat) => (
+              <div key={cat.categoryName} className="border rounded-lg p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-semibold text-gray-700">{cat.categoryName}</h4>
+                  <span className="text-sm text-gray-500">{cat.totalCount} פריטים</span>
+                </div>
+                <div className="space-y-1 text-sm">
+                  {cat.items.map((row) => (
+                    <div key={row.description} className="flex justify-between">
+                      <span className="text-gray-600">{row.description}</span>
+                      <span className="font-medium">{row.count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Add project manually (before any orders exist) */}
       {availableProjectsToAdd.length > 0 && (

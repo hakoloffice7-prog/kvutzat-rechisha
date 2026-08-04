@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
 import { Loader2, BarChart2, Phone } from 'lucide-react'
 import Link from 'next/link'
-import { STATUS_LABELS, STATUS_ORDER, STATUS_COLORS, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, getDebtStatus } from '@/lib/utils'
+import { STATUS_LABELS, STATUS_ORDER, STATUS_COLORS, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, getDebtStatus, type DebtStatus } from '@/lib/utils'
 
 type City = { id: string; name: string }
 type Project = { id: string; city_id: string; name: string }
@@ -32,6 +32,14 @@ type ResidentRow = {
 }
 
 type StatusFilter = 'all' | typeof STATUS_ORDER[number]
+type PaymentStatusFilter = 'all' | DebtStatus
+
+const PAYMENT_STATUS_FILTER_OPTIONS: { value: PaymentStatusFilter; label: string }[] = [
+  { value: 'all', label: 'הכל' },
+  { value: 'not_paid', label: PAYMENT_STATUS_LABELS.not_paid },
+  { value: 'partial', label: PAYMENT_STATUS_LABELS.partial },
+  { value: 'paid_full', label: PAYMENT_STATUS_LABELS.paid_full },
+]
 
 // סטטוס התשלום מחושב תמיד מחדש ממחיר ותשלומים בפועל, ולא נלקח מהעמודה
 // השמורה (order.payment_status) — היא יכולה להתיישן אם ההזמנה לא נשמרה מחדש.
@@ -58,6 +66,7 @@ export default function OverviewPage() {
   const [selectedProjectId, setSelectedProjectId] = useState('')
   const [selectedCategoryId, setSelectedCategoryId] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState<PaymentStatusFilter>('all')
   const [measuredDateFilter, setMeasuredDateFilter] = useState('')
 
   const [residents, setResidents] = useState<Resident[]>([])
@@ -83,6 +92,7 @@ export default function OverviewPage() {
           const f = JSON.parse(saved)
           if (f.categoryId) setSelectedCategoryId(f.categoryId)
           if (f.statusFilter) setStatusFilter(f.statusFilter)
+          if (f.paymentStatusFilter) setPaymentStatusFilter(f.paymentStatusFilter)
           if (f.measuredDateFilter) setMeasuredDateFilter(f.measuredDateFilter)
           if (f.cityId) {
             pendingProjectIdRef.current = f.projectId || ''
@@ -127,10 +137,11 @@ export default function OverviewPage() {
         projectId: selectedProjectId,
         categoryId: selectedCategoryId,
         statusFilter,
+        paymentStatusFilter,
         measuredDateFilter,
       }))
     } catch {}
-  }, [selectedCityId, selectedProjectId, selectedCategoryId, statusFilter, measuredDateFilter])
+  }, [selectedCityId, selectedProjectId, selectedCategoryId, statusFilter, paymentStatusFilter, measuredDateFilter])
 
   // Reset measured-date filter whenever status filter isn't "measured"
   useEffect(() => {
@@ -194,11 +205,14 @@ export default function OverviewPage() {
     if (statusFilter !== 'all') {
       result = result.filter((row) => row.order?.status === statusFilter)
     }
+    if (paymentStatusFilter !== 'all') {
+      result = result.filter((row) => row.order && getEffectivePaymentStatus(row.order) === paymentStatusFilter)
+    }
     if (statusFilter === 'measured' && measuredDateFilter) {
       result = result.filter((row) => row.order?.measured_at === measuredDateFilter)
     }
     return result
-  }, [rows, statusFilter, measuredDateFilter])
+  }, [rows, statusFilter, paymentStatusFilter, measuredDateFilter])
 
   // Summary counts
   const summary = useMemo(() => {
@@ -234,7 +248,7 @@ export default function OverviewPage() {
               טוען נתונים...
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
               {/* City */}
               <div className="space-y-2">
                 <Label htmlFor="citySelect">בחר עיר</Label>
@@ -299,19 +313,35 @@ export default function OverviewPage() {
                 </select>
               </div>
 
-              {/* Measured date filter - only usable when filtering by "measured" status */}
+              {/* Payment status filter */}
               <div className="space-y-2">
-                <Label htmlFor="measuredDateFilter">תאריך מדידה</Label>
-                <input
-                  id="measuredDateFilter"
-                  type="date"
-                  value={measuredDateFilter}
-                  onChange={(e) => setMeasuredDateFilter(e.target.value)}
-                  disabled={statusFilter !== 'measured'}
-                  dir="ltr"
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                />
+                <Label htmlFor="paymentStatusFilter">סנן לפי סטטוס תשלום</Label>
+                <select
+                  id="paymentStatusFilter"
+                  value={paymentStatusFilter}
+                  onChange={(e) => setPaymentStatusFilter(e.target.value as PaymentStatusFilter)}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {PAYMENT_STATUS_FILTER_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
               </div>
+
+              {/* Measured date filter - shown only when filtering by "measured" status */}
+              {statusFilter === 'measured' && (
+                <div className="space-y-2">
+                  <Label htmlFor="measuredDateFilter">תאריך מדידה</Label>
+                  <input
+                    id="measuredDateFilter"
+                    type="date"
+                    value={measuredDateFilter}
+                    onChange={(e) => setMeasuredDateFilter(e.target.value)}
+                    dir="ltr"
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              )}
             </div>
           )}
         </CardContent>

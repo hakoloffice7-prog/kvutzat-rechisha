@@ -18,7 +18,7 @@ import {
 import { Plus, ShoppingCart, Loader2, Trash2, Phone, MapPin, ArrowLeft, Edit2, Mail, KeyRound, X } from 'lucide-react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
-import { STATUS_LABELS, STATUS_COLORS, STATUS_ORDER, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, formatCurrency, getDebtStatus } from '@/lib/utils'
+import { STATUS_LABELS, STATUS_COLORS, STATUS_ORDER, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, formatCurrency, getDebtStatus, calcSupplierPrice } from '@/lib/utils'
 
 type Resident = {
   id: string
@@ -46,7 +46,14 @@ type Order = {
 
 type Category = { id: string; name: string }
 type Supplier = { id: string; name: string; category_id: string }
-type NewOrderItem = { description: string; model: string; customer_price: string; supplier_price: string }
+type NewOrderItem = {
+  description: string
+  model: string
+  customer_price: string
+  supplier_price: string
+  profit_percent: string
+  supplier_price_touched: boolean
+}
 
 export default function ResidentPage() {
   const params = useParams()
@@ -72,10 +79,28 @@ export default function ResidentPage() {
   const supabase = createClient()
 
   function addNewOrderItem() {
-    setNewOrderItems(prev => [...prev, { description: '', model: '', customer_price: '', supplier_price: '' }])
+    setNewOrderItems(prev => [...prev, {
+      description: '', model: '', customer_price: '', supplier_price: '',
+      profit_percent: '10', supplier_price_touched: false,
+    }])
   }
   function updateNewOrderItem(idx: number, field: keyof NewOrderItem, value: string) {
-    setNewOrderItems(prev => prev.map((item, i) => i === idx ? { ...item, [field]: value } : item))
+    setNewOrderItems(prev => prev.map((item, i) => {
+      if (i !== idx) return item
+      if (field === 'supplier_price') {
+        return { ...item, supplier_price: value, supplier_price_touched: true }
+      }
+      if (field === 'customer_price' || field === 'profit_percent') {
+        const updated = { ...item, [field]: value }
+        if (!item.supplier_price_touched) {
+          const customer = parseFloat(field === 'customer_price' ? value : item.customer_price) || 0
+          const percent = parseFloat(field === 'profit_percent' ? value : item.profit_percent) || 0
+          updated.supplier_price = String(calcSupplierPrice(customer, percent))
+        }
+        return updated
+      }
+      return { ...item, [field]: value }
+    }))
   }
   function removeNewOrderItem(idx: number) {
     setNewOrderItems(prev => prev.filter((_, i) => i !== idx))
@@ -344,14 +369,15 @@ export default function ResidentPage() {
                     </div>
                     {newOrderItems.length > 0 && (
                       <div className="space-y-2">
-                        <div className="grid grid-cols-[2fr_1fr_1fr_auto] gap-2 text-xs text-gray-500 px-1">
+                        <div className="grid grid-cols-[2fr_1fr_0.7fr_1fr_auto] gap-2 text-xs text-gray-500 px-1">
                           <span>תיאור</span>
                           <span>מחיר לקוח ₪</span>
+                          <span>רווח %</span>
                           <span>מחיר ספק ₪</span>
                           <span></span>
                         </div>
                         {newOrderItems.map((item, idx) => (
-                          <div key={idx} className="grid grid-cols-[2fr_1fr_1fr_auto] gap-2 items-center">
+                          <div key={idx} className="grid grid-cols-[2fr_1fr_0.7fr_1fr_auto] gap-2 items-center">
                             <Input
                               value={item.description}
                               onChange={(e) => updateNewOrderItem(idx, 'description', e.target.value)}
@@ -363,6 +389,14 @@ export default function ResidentPage() {
                               value={item.customer_price}
                               onChange={(e) => updateNewOrderItem(idx, 'customer_price', e.target.value)}
                               placeholder="0"
+                              className="h-8 text-sm"
+                              dir="ltr"
+                            />
+                            <Input
+                              type="number"
+                              value={item.profit_percent}
+                              onChange={(e) => updateNewOrderItem(idx, 'profit_percent', e.target.value)}
+                              placeholder="10"
                               className="h-8 text-sm"
                               dir="ltr"
                             />
