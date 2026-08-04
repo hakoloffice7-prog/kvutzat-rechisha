@@ -15,7 +15,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { Plus, ShoppingCart, Loader2, Trash2, Phone, MapPin, ArrowLeft, Edit2, Mail, KeyRound, X } from 'lucide-react'
+import { Plus, ShoppingCart, Loader2, Trash2, Phone, MapPin, ArrowLeft, Edit2, Mail, KeyRound, X, Pencil } from 'lucide-react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { STATUS_LABELS, STATUS_COLORS, STATUS_ORDER, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, formatCurrency, getDebtStatus, calcSupplierPrice } from '@/lib/utils'
@@ -76,6 +76,9 @@ export default function ResidentPage() {
   })
   const [saving, setSaving] = useState(false)
   const [newOrderItems, setNewOrderItems] = useState<NewOrderItem[]>([])
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [editingResident, setEditingResident] = useState<Resident | null>(null)
+  const [savingResident, setSavingResident] = useState(false)
   const supabase = createClient()
 
   function addNewOrderItem() {
@@ -169,6 +172,28 @@ export default function ResidentPage() {
       router.push(`/orders/${orderData.id}`)
     }
     setSaving(false)
+  }
+
+  async function saveEditResident() {
+    if (!editingResident || !editingResident.name.trim()) return
+    setSavingResident(true)
+    const { error } = await supabase
+      .from('residents')
+      .update({
+        name: editingResident.name.trim(),
+        address: (editingResident.address || '').trim(),
+        phone: (editingResident.phone || '').trim(),
+        phone2: (editingResident.phone2 || '').trim(),
+        email: (editingResident.email || '').trim(),
+        key_location: (editingResident.key_location || '').trim(),
+      })
+      .eq('id', editingResident.id)
+    if (!error) {
+      setEditDialogOpen(false)
+      setEditingResident(null)
+      fetchData()
+    }
+    setSavingResident(false)
   }
 
   async function deleteOrder(orderId: string) {
@@ -272,20 +297,32 @@ export default function ResidentPage() {
               </div>
             </div>
 
-            <Dialog open={dialogOpen} onOpenChange={(open) => {
-              setDialogOpen(open)
-              if (!open) {
-                setNewOrder({ category_id: '', supplier_id: '', status: 'lead', payment_status: 'not_paid', notes: '', measured_at: '' })
-                setNewOrderItems([])
-              }
-            }}>
-              <DialogTrigger asChild>
-                <Button>
-                  <Plus className="h-4 w-4 ml-2" />
-                  הוסף הזמנה
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto" dir="rtl">
+            <div className="flex flex-col gap-2 items-end">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setEditingResident({ ...resident })
+                  setEditDialogOpen(true)
+                }}
+              >
+                <Pencil className="h-4 w-4 ml-2" />
+                עריכת פרטי דייר
+              </Button>
+
+              <Dialog open={dialogOpen} onOpenChange={(open) => {
+                setDialogOpen(open)
+                if (!open) {
+                  setNewOrder({ category_id: '', supplier_id: '', status: 'lead', payment_status: 'not_paid', notes: '', measured_at: '' })
+                  setNewOrderItems([])
+                }
+              }}>
+                <DialogTrigger asChild>
+                  <Button>
+                    <Plus className="h-4 w-4 ml-2" />
+                    הוסף הזמנה
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto" dir="rtl">
                 <DialogHeader>
                   <DialogTitle>הוספת הזמנה חדשה</DialogTitle>
                 </DialogHeader>
@@ -431,10 +468,81 @@ export default function ResidentPage() {
                   </div>
                 </div>
               </DialogContent>
-            </Dialog>
+              </Dialog>
+            </div>
           </div>
         </CardContent>
       </Card>
+
+      {/* Edit Resident Dialog */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent dir="rtl">
+          <DialogHeader>
+            <DialogTitle>עריכת פרטי דייר</DialogTitle>
+          </DialogHeader>
+          {editingResident && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="editResidentName">שם הדייר</Label>
+                <Input
+                  id="editResidentName"
+                  value={editingResident.name}
+                  onChange={(e) => setEditingResident({ ...editingResident, name: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="editResidentAddress">כתובת</Label>
+                <Input
+                  id="editResidentAddress"
+                  value={editingResident.address}
+                  onChange={(e) => setEditingResident({ ...editingResident, address: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="editResidentPhone">טלפון</Label>
+                <Input
+                  id="editResidentPhone"
+                  value={editingResident.phone}
+                  onChange={(e) => setEditingResident({ ...editingResident, phone: e.target.value })}
+                  dir="ltr"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="editResidentPhone2">נייד נוסף</Label>
+                <Input
+                  id="editResidentPhone2"
+                  value={editingResident.phone2 || ''}
+                  onChange={(e) => setEditingResident({ ...editingResident, phone2: e.target.value })}
+                  dir="ltr"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="editResidentEmail">מייל</Label>
+                <Input
+                  id="editResidentEmail"
+                  value={editingResident.email || ''}
+                  onChange={(e) => setEditingResident({ ...editingResident, email: e.target.value })}
+                  dir="ltr"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="editResidentKeyLocation">מיקום מפתח</Label>
+                <Input
+                  id="editResidentKeyLocation"
+                  value={editingResident.key_location || ''}
+                  onChange={(e) => setEditingResident({ ...editingResident, key_location: e.target.value })}
+                />
+              </div>
+              <div className="flex gap-2 justify-end">
+                <Button variant="outline" onClick={() => setEditDialogOpen(false)}>ביטול</Button>
+                <Button onClick={saveEditResident} disabled={savingResident || !editingResident.name.trim()}>
+                  {savingResident ? <Loader2 className="h-4 w-4 animate-spin" /> : 'שמור שינויים'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Orders by Category */}
       <div>
