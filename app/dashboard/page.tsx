@@ -4,7 +4,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Building2, Users, ShoppingCart, Bell, TrendingUp } from 'lucide-react'
-import { formatCurrency, STATUS_LABELS, PAYMENT_STATUS_LABELS } from '@/lib/utils'
+import { formatCurrency, STATUS_LABELS, PAYMENT_STATUS_LABELS, getDebtStatus } from '@/lib/utils'
 import Link from 'next/link'
 
 export default async function DashboardPage() {
@@ -33,9 +33,10 @@ export default async function DashboardPage() {
     supabase.from('notifications').select('*', { count: 'exact', head: true }).eq('is_read', false),
     supabase.from('orders')
       .select(`
-        id, status, payment_status, created_at,
+        id, status, payment_status, created_at, total_price,
         residents(name),
-        categories(name)
+        categories(name),
+        order_payments(amount)
       `)
       .order('created_at', { ascending: false })
       .limit(5),
@@ -188,28 +189,32 @@ export default async function DashboardPage() {
         <CardContent>
           {recentOrders && recentOrders.length > 0 ? (
             <div className="space-y-3">
-              {recentOrders.map((order: any) => (
-                <Link key={order.id} href={`/orders/${order.id}`}>
-                  <div className="flex items-center justify-between p-3 rounded-lg border hover:bg-gray-50 transition-colors">
-                    <div>
-                      <p className="font-medium text-gray-900">
-                        {order.residents?.name || 'לא ידוע'}
-                      </p>
-                      <p className="text-sm text-gray-500">
-                        {order.categories?.name || 'ללא קטגוריה'}
-                      </p>
+              {recentOrders.map((order: any) => {
+                const totalPaid = (order.order_payments || []).reduce((sum: number, p: any) => sum + (p.amount || 0), 0)
+                const effectivePaymentStatus = getDebtStatus(order.total_price || 0, totalPaid)
+                return (
+                  <Link key={order.id} href={`/orders/${order.id}`}>
+                    <div className="flex items-center justify-between p-3 rounded-lg border hover:bg-gray-50 transition-colors">
+                      <div>
+                        <p className="font-medium text-gray-900">
+                          {order.residents?.name || 'לא ידוע'}
+                        </p>
+                        <p className="text-sm text-gray-500">
+                          {order.categories?.name || 'ללא קטגוריה'}
+                        </p>
+                      </div>
+                      <div className="text-left">
+                        <span className="text-sm font-medium">
+                          {STATUS_LABELS[order.status] || order.status}
+                        </span>
+                        <p className={`text-xs mt-1 ${paymentColors[effectivePaymentStatus]}`}>
+                          {PAYMENT_STATUS_LABELS[effectivePaymentStatus]}
+                        </p>
+                      </div>
                     </div>
-                    <div className="text-left">
-                      <span className="text-sm font-medium">
-                        {STATUS_LABELS[order.status] || order.status}
-                      </span>
-                      <p className={`text-xs mt-1 ${paymentColors[order.payment_status]}`}>
-                        {PAYMENT_STATUS_LABELS[order.payment_status] || order.payment_status}
-                      </p>
-                    </div>
-                  </div>
-                </Link>
-              ))}
+                  </Link>
+                )
+              })}
             </div>
           ) : (
             <p className="text-gray-500 text-center py-8">אין הזמנות עדיין</p>

@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
 import { Loader2, BarChart2, Phone } from 'lucide-react'
 import Link from 'next/link'
-import { STATUS_LABELS, STATUS_ORDER, STATUS_COLORS, PAYMENT_STATUS_LABELS } from '@/lib/utils'
+import { STATUS_LABELS, STATUS_ORDER, STATUS_COLORS, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, getDebtStatus } from '@/lib/utils'
 
 type City = { id: string; name: string }
 type Project = { id: string; city_id: string; name: string }
@@ -22,6 +22,8 @@ type Order = {
   status: string
   payment_status: string
   measured_at: string | null
+  total_price: number | null
+  order_payments: { amount: number }[]
 }
 
 type ResidentRow = {
@@ -31,10 +33,11 @@ type ResidentRow = {
 
 type StatusFilter = 'all' | typeof STATUS_ORDER[number]
 
-const PAYMENT_BADGE_VARIANT: Record<string, 'destructive' | 'warning' | 'success'> = {
-  not_paid: 'destructive',
-  advance: 'warning',
-  paid_full: 'success',
+// סטטוס התשלום מחושב תמיד מחדש ממחיר ותשלומים בפועל, ולא נלקח מהעמודה
+// השמורה (order.payment_status) — היא יכולה להתיישן אם ההזמנה לא נשמרה מחדש.
+function getEffectivePaymentStatus(order: Order) {
+  const totalPaid = (order.order_payments || []).reduce((sum, p) => sum + (p.amount || 0), 0)
+  return getDebtStatus(order.total_price || 0, totalPaid)
 }
 
 const STATUS_FILTER_OPTIONS: { value: StatusFilter; label: string }[] = [
@@ -159,7 +162,7 @@ export default function OverviewPage() {
         const residentIds = residentsList.map((r) => r.id)
         const { data: ordersData } = await supabase
           .from('orders')
-          .select('id, resident_id, category_id, status, payment_status, measured_at')
+          .select('id, resident_id, category_id, status, payment_status, measured_at, total_price, order_payments(amount)')
           .in('resident_id', residentIds)
           .eq('category_id', selectedCategoryId)
 
@@ -385,8 +388,8 @@ export default function OverviewPage() {
                           </td>
                           <td className="py-3 px-4">
                             {order ? (
-                              <Badge variant={PAYMENT_BADGE_VARIANT[order.payment_status] || 'outline'}>
-                                {PAYMENT_STATUS_LABELS[order.payment_status] || order.payment_status}
+                              <Badge variant={PAYMENT_STATUS_COLORS[getEffectivePaymentStatus(order)] as any}>
+                                {PAYMENT_STATUS_LABELS[getEffectivePaymentStatus(order)]}
                               </Badge>
                             ) : (
                               <span className="text-gray-400">—</span>

@@ -18,7 +18,7 @@ import {
 import { Plus, ShoppingCart, Loader2, Trash2, Phone, MapPin, ArrowLeft, Edit2, Mail, KeyRound, X } from 'lucide-react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
-import { STATUS_LABELS, STATUS_COLORS, STATUS_ORDER, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, formatCurrency } from '@/lib/utils'
+import { STATUS_LABELS, STATUS_COLORS, STATUS_ORDER, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, formatCurrency, getDebtStatus } from '@/lib/utils'
 
 type Resident = {
   id: string
@@ -37,9 +37,11 @@ type Order = {
   payment_status: string
   created_at: string
   notes: string
+  total_price: number | null
   categories: { id: string; name: string }
   suppliers: { id: string; name: string } | null
   order_items: { customer_price: number; supplier_price: number }[]
+  order_payments: { amount: number }[]
 }
 
 type Category = { id: string; name: string }
@@ -98,7 +100,7 @@ export default function ResidentPage() {
         .single(),
       supabase
         .from('orders')
-        .select('*, categories(id, name), suppliers(id, name), order_items(customer_price, supplier_price)')
+        .select('*, categories(id, name), suppliers(id, name), order_items(customer_price, supplier_price), order_payments(amount)')
         .eq('resident_id', residentId)
         .order('created_at', { ascending: false }),
       supabase.from('categories').select('*').order('name'),
@@ -155,6 +157,13 @@ export default function ResidentPage() {
     const revenue = items.reduce((sum, item) => sum + (item.customer_price || 0), 0)
     const cost = items.reduce((sum, item) => sum + (item.supplier_price || 0), 0)
     return { revenue, profit: revenue - cost }
+  }
+
+  // סטטוס התשלום מחושב תמיד מחדש ממחיר ותשלומים בפועל, ולא נלקח מהעמודה
+  // השמורה (order.payment_status) — היא יכולה להתיישן אם ההזמנה לא נשמרה מחדש.
+  const getEffectivePaymentStatus = (order: Order) => {
+    const totalPaid = (order.order_payments || []).reduce((sum, p) => sum + (p.amount || 0), 0)
+    return getDebtStatus(order.total_price || 0, totalPaid)
   }
 
   const filteredSuppliers = newOrder.category_id
@@ -424,8 +433,8 @@ export default function ResidentPage() {
                             <Badge variant={STATUS_COLORS[order.status] as any}>
                               {STATUS_LABELS[order.status]}
                             </Badge>
-                            <Badge variant={PAYMENT_STATUS_COLORS[order.payment_status] as any}>
-                              {PAYMENT_STATUS_LABELS[order.payment_status]}
+                            <Badge variant={PAYMENT_STATUS_COLORS[getEffectivePaymentStatus(order)] as any}>
+                              {PAYMENT_STATUS_LABELS[getEffectivePaymentStatus(order)]}
                             </Badge>
                           </div>
                           {order.suppliers && (
