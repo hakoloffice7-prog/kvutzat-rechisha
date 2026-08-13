@@ -90,6 +90,8 @@ CREATE TABLE orders (
   global_supplier_price DECIMAL(10,2) DEFAULT 0, -- מחיר ספק גלובלי (כש-is_global_price=TRUE)
   details JSONB DEFAULT '{}'::jsonb,     -- שדות ספציפיים למוצר (הגבהה/נפתח/צורה/דגם וכו')
   notes TEXT,
+  satisfaction_rating SMALLINT CHECK (satisfaction_rating BETWEEN 1 AND 5), -- דירוג שביעות רצון (1-5), ממולא ע"י צוות המשרד, מעקב בלבד
+  satisfaction_note TEXT,                -- נימוק חופשי לדירוג
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );

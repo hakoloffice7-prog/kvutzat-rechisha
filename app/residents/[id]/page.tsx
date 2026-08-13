@@ -15,7 +15,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { Plus, ShoppingCart, Loader2, Trash2, Phone, MapPin, ArrowLeft, Edit2, Mail, KeyRound, X, Pencil } from 'lucide-react'
+import { Plus, ShoppingCart, Loader2, Trash2, Phone, MapPin, ArrowLeft, Edit2, Mail, KeyRound, X, Pencil, Star } from 'lucide-react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { STATUS_LABELS, STATUS_COLORS, STATUS_ORDER, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, formatCurrency, getDebtStatus, calcSupplierPrice } from '@/lib/utils'
@@ -38,6 +38,7 @@ type Order = {
   created_at: string
   notes: string
   total_price: number | null
+  satisfaction_rating: number | null
   categories: { id: string; name: string }
   suppliers: { id: string; name: string } | null
   order_items: { customer_price: number; supplier_price: number }[]
@@ -578,6 +579,20 @@ export default function ResidentPage() {
                             <Badge variant={PAYMENT_STATUS_COLORS[getEffectivePaymentStatus(order)] as any}>
                               {PAYMENT_STATUS_LABELS[getEffectivePaymentStatus(order)]}
                             </Badge>
+                            {order.satisfaction_rating && (
+                              <div className="flex items-center gap-0.5" dir="ltr" title={`שביעות רצון: ${order.satisfaction_rating}/5`}>
+                                {[1, 2, 3, 4, 5].map((star) => (
+                                  <Star
+                                    key={star}
+                                    className={`h-3.5 w-3.5 ${
+                                      star <= (order.satisfaction_rating || 0)
+                                        ? 'fill-yellow-400 text-yellow-400'
+                                        : 'text-gray-300'
+                                    }`}
+                                  />
+                                ))}
+                              </div>
+                            )}
                           </div>
                           {order.suppliers && (
                             <p className="text-sm text-gray-500">

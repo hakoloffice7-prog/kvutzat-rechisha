@@ -15,7 +15,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { Plus, Loader2, Trash2, ArrowLeft, Save, X, Pencil } from 'lucide-react'
+import { Plus, Loader2, Trash2, ArrowLeft, Save, X, Pencil, Star } from 'lucide-react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import {
@@ -50,6 +50,8 @@ type Order = {
   is_global_price: boolean
   global_supplier_price: number | null
   details: Record<string, string>
+  satisfaction_rating: number | null
+  satisfaction_note: string | null
   created_at: string
   residents: {
     id: string
@@ -87,6 +89,8 @@ export default function OrderPage() {
     is_global_price: false,
     global_supplier_price: '',
     global_profit_percent: '10',
+    satisfaction_rating: 0,
+    satisfaction_note: '',
   })
   const globalSupplierPriceTouchedRef = useRef(false)
   const [detailsRows, setDetailsRows] = useState<{ key: string; value: string }[]>([])
@@ -158,6 +162,8 @@ export default function OrderPage() {
         is_global_price: orderData.is_global_price || false,
         global_supplier_price: orderData.global_supplier_price ? String(orderData.global_supplier_price) : '',
         global_profit_percent: '10',
+        satisfaction_rating: orderData.satisfaction_rating || 0,
+        satisfaction_note: orderData.satisfaction_note || '',
       })
       globalSupplierPriceTouchedRef.current = false
       updateTotalFromItemsRef.current = false
@@ -188,6 +194,8 @@ export default function OrderPage() {
         is_global_price: editedOrder.is_global_price,
         global_supplier_price: parseFloat(editedOrder.global_supplier_price) || 0,
         details,
+        satisfaction_rating: editedOrder.satisfaction_rating || null,
+        satisfaction_note: editedOrder.satisfaction_note.trim() || null,
         updated_at: new Date().toISOString(),
       })
       .eq('id', orderId)
@@ -643,6 +651,69 @@ export default function OrderPage() {
                     </div>
                   )}
                 </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Satisfaction Rating */}
+          <Card>
+            <CardHeader>
+              <CardTitle>שביעות רצון</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {editMode ? (
+                <>
+                  <div className="flex items-center gap-1" dir="ltr">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button
+                        key={star}
+                        type="button"
+                        onClick={() => setEditedOrder(prev => ({
+                          ...prev,
+                          satisfaction_rating: prev.satisfaction_rating === star ? 0 : star,
+                        }))}
+                        className="p-0.5"
+                        title={`${star} כוכבים`}
+                      >
+                        <Star
+                          className={`h-6 w-6 ${
+                            star <= editedOrder.satisfaction_rating
+                              ? 'fill-yellow-400 text-yellow-400'
+                              : 'text-gray-300'
+                          }`}
+                        />
+                      </button>
+                    ))}
+                  </div>
+                  <div className="space-y-2">
+                    <Label>נימוק</Label>
+                    <Input
+                      value={editedOrder.satisfaction_note}
+                      onChange={(e) => setEditedOrder({ ...editedOrder, satisfaction_note: e.target.value })}
+                      placeholder="הערה לגבי שביעות הרצון..."
+                    />
+                  </div>
+                </>
+              ) : editedOrder.satisfaction_rating ? (
+                <>
+                  <div className="flex items-center gap-1" dir="ltr">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <Star
+                        key={star}
+                        className={`h-5 w-5 ${
+                          star <= editedOrder.satisfaction_rating
+                            ? 'fill-yellow-400 text-yellow-400'
+                            : 'text-gray-300'
+                        }`}
+                      />
+                    ))}
+                  </div>
+                  {editedOrder.satisfaction_note && (
+                    <p className="text-sm text-gray-600">{editedOrder.satisfaction_note}</p>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-gray-400">טרם דורג</p>
               )}
             </CardContent>
           </Card>
