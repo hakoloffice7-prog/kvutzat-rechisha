@@ -17,6 +17,7 @@ import {
   X,
   BarChart2,
   ShieldCheck,
+  UserCircle,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
@@ -33,7 +34,7 @@ const navItems = [
   { href: '/notifications', label: 'התראות', icon: Bell },
 ]
 
-export default function Sidebar({ role }: { role: Role }) {
+export default function Sidebar({ role, name }: { role: Role; name: string | null }) {
   const pathname = usePathname()
   const supabase = createClient()
   const [isOpen, setIsOpen] = useState(false)
@@ -79,6 +80,12 @@ export default function Sidebar({ role }: { role: Role }) {
         <div className="p-6 border-b border-gray-200">
           <h1 className="text-xl font-bold text-blue-700">קבוצות רכישה</h1>
           <p className="text-sm text-gray-500 mt-1">מערכת ניהול</p>
+          {name && (
+            <div className="flex items-center gap-2 mt-3 pt-3 border-t border-gray-100 text-sm text-gray-700">
+              <UserCircle className="h-5 w-5 text-gray-400 shrink-0" />
+              <span className="truncate">מחובר בתור: <strong>{name}</strong></span>
+            </div>
+          )}
         </div>
 
         <nav className="flex-1 p-4 space-y-1">

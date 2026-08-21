@@ -4,16 +4,22 @@ import { createContext, useContext } from 'react'
 
 export type Role = 'admin' | 'user' | null
 
-const RoleContext = createContext<Role>(null)
+type ProfileContextValue = { role: Role; name: string | null }
 
-export function RoleProvider({ role, children }: { role: Role; children: React.ReactNode }) {
-  return <RoleContext.Provider value={role}>{children}</RoleContext.Provider>
+const ProfileContext = createContext<ProfileContextValue>({ role: null, name: null })
+
+export function RoleProvider({ role, name, children }: { role: Role; name: string | null; children: React.ReactNode }) {
+  return <ProfileContext.Provider value={{ role, name }}>{children}</ProfileContext.Provider>
 }
 
 export function useRole() {
-  return useContext(RoleContext)
+  return useContext(ProfileContext).role
 }
 
 export function useIsAdmin() {
-  return useContext(RoleContext) === 'admin'
+  return useContext(ProfileContext).role === 'admin'
+}
+
+export function useDisplayName() {
+  return useContext(ProfileContext).name
 }

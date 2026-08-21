@@ -16,7 +16,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { Plus, Loader2, Trash2, Edit2, ShieldCheck, User as UserIcon } from 'lucide-react'
-import { createUser, updateUserRole, updateUserAssignments, deleteUser } from './actions'
+import { createUser, updateUserRole, updateUserFullName, updateUserAssignments, deleteUser } from './actions'
 
 // חשבון מנהל המערכת - לא ניתן להוריד אותו מ-admin (גם ה-DB חוסם את זה)
 const PROTECTED_OWNER_EMAIL = 'hakol.office7@gmail.com'
@@ -27,6 +27,7 @@ type City = { id: string; name: string; projects: Project[] }
 type UserRow = {
   id: string
   email: string | null
+  full_name: string | null
   role: 'admin' | 'user'
   created_at: string
   user_city_access: { city_id: string; cities: { id: string; name: string } | null }[]
@@ -107,9 +108,11 @@ export default function UsersManager({
   const [creating, setCreating] = useState(false)
   const [newEmail, setNewEmail] = useState('')
   const [newPassword, setNewPassword] = useState('')
+  const [newFullName, setNewFullName] = useState('')
   const [newAssignments, setNewAssignments] = useState<Assignments>({ role: 'user', cityIds: new Set(), projectIds: new Set() })
 
   const [editUser, setEditUser] = useState<UserRow | null>(null)
+  const [editFullName, setEditFullName] = useState('')
   const [editAssignments, setEditAssignments] = useState<Assignments>({ role: 'user', cityIds: new Set(), projectIds: new Set() })
   const [saving, setSaving] = useState(false)
 
@@ -119,6 +122,7 @@ export default function UsersManager({
   function resetCreateForm() {
     setNewEmail('')
     setNewPassword('')
+    setNewFullName('')
     setNewAssignments({ role: 'user', cityIds: new Set(), projectIds: new Set() })
   }
 
@@ -134,6 +138,7 @@ export default function UsersManager({
       await createUser({
         email: newEmail.trim(),
         password: newPassword,
+        fullName: newFullName,
         role: newAssignments.role,
         cityIds: Array.from(newAssignments.cityIds),
         projectIds: Array.from(newAssignments.projectIds),
@@ -149,6 +154,7 @@ export default function UsersManager({
 
   function openEdit(user: UserRow) {
     setEditUser(user)
+    setEditFullName(user.full_name || '')
     setEditAssignments({
       role: user.role,
       cityIds: new Set(user.user_city_access.map((a) => a.city_id)),
@@ -161,6 +167,7 @@ export default function UsersManager({
     setSaving(true)
     setError('')
     try {
+      await updateUserFullName(editUser.id, editFullName)
       await updateUserRole(editUser.id, editAssignments.role)
       await updateUserAssignments(editUser.id, Array.from(editAssignments.cityIds), Array.from(editAssignments.projectIds))
       setEditUser(null)
@@ -202,6 +209,10 @@ export default function UsersManager({
               <DialogTitle>הוספת משתמש חדש</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="newFullName">שם משתמש (לתצוגה במערכת)</Label>
+                <Input id="newFullName" value={newFullName} onChange={(e) => setNewFullName(e.target.value)} placeholder="לדוגמה: דני כהן" />
+              </div>
               <div className="space-y-2">
                 <Label htmlFor="newEmail">אימייל</Label>
                 <Input id="newEmail" type="email" dir="ltr" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
@@ -247,7 +258,8 @@ export default function UsersManager({
               <div key={user.id} className="flex items-center justify-between p-4 gap-4">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <p className="font-medium text-gray-900 truncate" dir="ltr">{user.email}</p>
+                    <p className="font-medium text-gray-900 truncate">{user.full_name || user.email}</p>
+                    {user.full_name && <p className="text-xs text-gray-400 truncate" dir="ltr">{user.email}</p>}
                     <Badge variant={user.role === 'admin' ? 'info' : 'secondary'}>
                       {user.role === 'admin' ? (
                         <span className="flex items-center gap-1"><ShieldCheck className="h-3 w-3" /> מנהל</span>
@@ -294,9 +306,13 @@ export default function UsersManager({
       <Dialog open={!!editUser} onOpenChange={(open) => !open && setEditUser(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>עריכת {editUser?.email}</DialogTitle>
+            <DialogTitle>עריכת {editUser?.full_name || editUser?.email}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="editFullName">שם משתמש (לתצוגה במערכת)</Label>
+              <Input id="editFullName" value={editFullName} onChange={(e) => setEditFullName(e.target.value)} placeholder="לדוגמה: דני כהן" />
+            </div>
             <div className="space-y-2">
               <Label>תפקיד</Label>
               {editUser?.email === PROTECTED_OWNER_EMAIL ? (

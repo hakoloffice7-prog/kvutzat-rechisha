@@ -30,7 +30,7 @@ export async function listUsersWithAccess() {
   const { data, error } = await supabase
     .from('profiles')
     .select(`
-      id, email, role, created_at,
+      id, email, full_name, role, created_at,
       user_city_access ( city_id, cities ( id, name ) ),
       user_project_access ( project_id, projects ( id, name, city_id ) )
     `)
@@ -46,6 +46,7 @@ export async function listUsersWithAccess() {
 export async function createUser(input: {
   email: string
   password: string
+  fullName: string
   role: 'admin' | 'user'
   cityIds: string[]
   projectIds: string[]
@@ -57,6 +58,7 @@ export async function createUser(input: {
     email: input.email,
     password: input.password,
     email_confirm: true,
+    user_metadata: { full_name: input.fullName.trim() || null },
   })
   if (createError || !created.user) {
     throw new Error(createError?.message || 'יצירת המשתמש נכשלה')
@@ -93,6 +95,13 @@ export async function updateUserRole(userId: string, role: 'admin' | 'user') {
   const { supabase } = await requireAdmin()
 
   const { error } = await supabase.from('profiles').update({ role }).eq('id', userId)
+  if (error) throw new Error(error.message)
+}
+
+export async function updateUserFullName(userId: string, fullName: string) {
+  const { supabase } = await requireAdmin()
+
+  const { error } = await supabase.from('profiles').update({ full_name: fullName.trim() || null }).eq('id', userId)
   if (error) throw new Error(error.message)
 }
 
