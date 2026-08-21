@@ -16,10 +16,40 @@ type OrderRow = {
   id: string
   payment_status: string
   supplier_id: string | null
+  is_global_price: boolean
+  total_price: number | null
+  global_supplier_price: number | null
   categories: { name: string } | null
   suppliers: { name: string } | null
   residents: { name: string; address: string; phone: string; project_id: string } | null
   order_items: { description: string; model: string | null; customer_price: number; supplier_price: number }[]
+}
+
+type DisplayRow = { description: string; model: string; customerPrice: number | null; supplierPrice: number | null; empty?: boolean }
+
+// הזמנה במחיר גלובלי שומרת את הסכום האמיתי ב-total_price/global_supplier_price,
+// לא בפריטים (הפריטים משמשים רק לתיאור, ללא מחיר ליחידה) - לכן שורות הפריטים
+// מוצגות בלי מחיר, ומתווספת שורת "תשלום כולל" נפרדת עם הסכום האמיתי של ההזמנה
+function getOrderDisplayRows(order: OrderRow): DisplayRow[] {
+  const rows: DisplayRow[] = (order.order_items || []).map((item) => ({
+    description: item.description,
+    model: item.model || '',
+    customerPrice: order.is_global_price ? null : (item.customer_price || 0),
+    supplierPrice: order.is_global_price ? null : (item.supplier_price || 0),
+  }))
+
+  if (order.is_global_price) {
+    rows.push({
+      description: 'תשלום כולל',
+      model: '',
+      customerPrice: order.total_price || 0,
+      supplierPrice: order.global_supplier_price || 0,
+    })
+  } else if (rows.length === 0) {
+    rows.push({ description: '', model: '', customerPrice: null, supplierPrice: null, empty: true })
+  }
+
+  return rows
 }
 
 export default function ReportsPage() {
@@ -65,15 +95,19 @@ export default function ReportsPage() {
         id,
         payment_status,
         supplier_id,
+        is_global_price,
+        total_price,
         residents!inner(name, address, phone, project_id),
         categories(name),
         suppliers(name),
-        order_items(description, model, customer_price, order_item_costs(supplier_price))
+        order_items(description, model, customer_price, order_item_costs(supplier_price)),
+        order_costs(global_supplier_price)
       `)
       .eq('residents.project_id', selectedProject)
 
     const flattened = ((data as any) || []).map((order: any) => ({
       ...order,
+      global_supplier_price: order.order_costs?.global_supplier_price ?? 0,
       order_items: (order.order_items || []).map((item: any) => ({
         ...item,
         supplier_price: item.order_item_costs?.supplier_price ?? 0,
@@ -114,10 +148,9 @@ export default function ReportsPage() {
 
       filteredOrders.forEach(order => {
         const resident = order.residents
-        const items = order.order_items
         const paymentStatus = PAYMENT_STATUS_LABELS[order.payment_status] || order.payment_status
 
-        if (!items || items.length === 0) {
+        getOrderDisplayRows(order).forEach(row => {
           rows.push({
             'שם דייר': resident?.name || '',
             'כתובת': resident?.address || '',
@@ -125,27 +158,12 @@ export default function ReportsPage() {
             'קטגוריה': order.categories?.name || '',
             'ספק': order.suppliers?.name || '',
             'סטטוס תשלום': paymentStatus,
-            'תיאור פריט': '',
-            'דגם': '',
-            'מחיר לקוח': '',
-            ...(isAdmin ? { 'מחיר ספק': '' } : {}),
+            'תיאור פריט': row.description,
+            'דגם': row.model,
+            'מחיר לקוח': row.customerPrice ?? '',
+            ...(isAdmin ? { 'מחיר ספק': row.supplierPrice ?? '' } : {}),
           })
-        } else {
-          items.forEach(item => {
-            rows.push({
-              'שם דייר': resident?.name || '',
-              'כתובת': resident?.address || '',
-              'טלפון': resident?.phone || '',
-              'קטגוריה': order.categories?.name || '',
-              'ספק': order.suppliers?.name || '',
-              'סטטוס תשלום': paymentStatus,
-              'תיאור פריט': item.description,
-              'דגם': item.model || '',
-              'מחיר לקוח': item.customer_price || 0,
-              ...(isAdmin ? { 'מחיר ספק': item.supplier_price || 0 } : {}),
-            })
-          })
-        }
+        })
       })
 
       const ws = XLSX.utils.json_to_sheet(rows)
@@ -287,36 +305,29 @@ export default function ReportsPage() {
                   <tbody>
                     {filteredOrders.map((order) => {
                       const resident = order.residents
-                      const items = order.order_items
-                      if (!items || items.length === 0) {
-                        return (
-                          <tr key={order.id} className="border-b hover:bg-gray-50">
-                            <td className="py-2 px-3 font-medium">{resident?.name}</td>
-                            <td className="py-2 px-3">{resident?.address}</td>
-                            <td className="py-2 px-3">{resident?.phone}</td>
-                            <td className="py-2 px-3">{order.categories?.name || '-'}</td>
-                            <td className="py-2 px-3">{order.suppliers?.name || '-'}</td>
-                            <td className="py-2 px-3">{PAYMENT_STATUS_LABELS[order.payment_status]}</td>
-                            <td className="py-2 px-3 text-gray-400" colSpan={isAdmin ? 4 : 3}>אין פריטים</td>
-                          </tr>
-                        )
-                      }
-                      return items.map((item, idx) => (
+                      const displayRows = getOrderDisplayRows(order)
+                      return displayRows.map((row, idx) => (
                         <tr key={`${order.id}-${idx}`} className="border-b hover:bg-gray-50">
                           {idx === 0 ? (
                             <>
-                              <td className="py-2 px-3 font-medium" rowSpan={items.length}>{resident?.name}</td>
-                              <td className="py-2 px-3" rowSpan={items.length}>{resident?.address}</td>
-                              <td className="py-2 px-3" rowSpan={items.length}>{resident?.phone}</td>
-                              <td className="py-2 px-3" rowSpan={items.length}>{order.categories?.name || '-'}</td>
-                              <td className="py-2 px-3" rowSpan={items.length}>{order.suppliers?.name || '-'}</td>
-                              <td className="py-2 px-3" rowSpan={items.length}>{PAYMENT_STATUS_LABELS[order.payment_status]}</td>
+                              <td className="py-2 px-3 font-medium" rowSpan={displayRows.length}>{resident?.name}</td>
+                              <td className="py-2 px-3" rowSpan={displayRows.length}>{resident?.address}</td>
+                              <td className="py-2 px-3" rowSpan={displayRows.length}>{resident?.phone}</td>
+                              <td className="py-2 px-3" rowSpan={displayRows.length}>{order.categories?.name || '-'}</td>
+                              <td className="py-2 px-3" rowSpan={displayRows.length}>{order.suppliers?.name || '-'}</td>
+                              <td className="py-2 px-3" rowSpan={displayRows.length}>{PAYMENT_STATUS_LABELS[order.payment_status]}</td>
                             </>
                           ) : null}
-                          <td className="py-2 px-3">{item.description}</td>
-                          <td className="py-2 px-3">{item.model || '-'}</td>
-                          <td className="py-2 px-3 font-medium">{formatCurrency(item.customer_price || 0)}</td>
-                          {isAdmin && <td className="py-2 px-3 font-medium">{formatCurrency(item.supplier_price || 0)}</td>}
+                          {row.empty ? (
+                            <td className="py-2 px-3 text-gray-400" colSpan={isAdmin ? 4 : 3}>אין פריטים</td>
+                          ) : (
+                            <>
+                              <td className="py-2 px-3">{row.description}</td>
+                              <td className="py-2 px-3">{row.model || '-'}</td>
+                              <td className="py-2 px-3 font-medium">{row.customerPrice !== null ? formatCurrency(row.customerPrice) : '-'}</td>
+                              {isAdmin && <td className="py-2 px-3 font-medium">{row.supplierPrice !== null ? formatCurrency(row.supplierPrice) : '-'}</td>}
+                            </>
+                          )}
                         </tr>
                       ))
                     })}
