@@ -18,6 +18,9 @@ import {
 import { Plus, Loader2, Trash2, Edit2, ShieldCheck, User as UserIcon } from 'lucide-react'
 import { createUser, updateUserRole, updateUserAssignments, deleteUser } from './actions'
 
+// חשבון מנהל המערכת - לא ניתן להוריד אותו מ-admin (גם ה-DB חוסם את זה)
+const PROTECTED_OWNER_EMAIL = 'hakol.office7@gmail.com'
+
 type Project = { id: string; name: string }
 type City = { id: string; name: string; projects: Project[] }
 
@@ -296,13 +299,20 @@ export default function UsersManager({
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>תפקיד</Label>
-              <Select
-                value={editAssignments.role}
-                onChange={(e) => setEditAssignments({ ...editAssignments, role: e.target.value as 'admin' | 'user' })}
-              >
-                <option value="user">משתמש</option>
-                <option value="admin">מנהל</option>
-              </Select>
+              {editUser?.email === PROTECTED_OWNER_EMAIL ? (
+                <div>
+                  <Badge variant="info">מנהל (קבוע)</Badge>
+                  <p className="text-xs text-gray-400 mt-1">חשבון מנהל המערכת - לא ניתן להוריד אותו מתפקיד admin</p>
+                </div>
+              ) : (
+                <Select
+                  value={editAssignments.role}
+                  onChange={(e) => setEditAssignments({ ...editAssignments, role: e.target.value as 'admin' | 'user' })}
+                >
+                  <option value="user">משתמש</option>
+                  <option value="admin">מנהל</option>
+                </Select>
+              )}
             </div>
             {editAssignments.role === 'user' && (
               <div className="space-y-2">
