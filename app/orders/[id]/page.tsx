@@ -18,6 +18,7 @@ import {
 import { Plus, Loader2, Trash2, ArrowLeft, Save, X, Pencil, Star } from 'lucide-react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
+import { useIsAdmin } from '@/components/RoleProvider'
 import {
   STATUS_LABELS, STATUS_COLORS, STATUS_ORDER,
   PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS,
@@ -70,6 +71,7 @@ export default function OrderPage() {
   const params = useParams()
   const router = useRouter()
   const orderId = params.id as string
+  const isAdmin = useIsAdmin()
 
   const updateTotalFromItemsRef = useRef(false)
   const [editMode, setEditMode] = useState(false)
@@ -136,8 +138,9 @@ export default function OrderPage() {
           residents(id, name, projects(id, name, cities(name))),
           categories(id, name),
           suppliers(id, name),
-          order_items(*),
-          order_payments(*)
+          order_items(*, order_item_costs(supplier_price)),
+          order_payments(*),
+          order_costs(global_supplier_price)
         `)
         .eq('id', orderId)
         .single(),
@@ -145,29 +148,37 @@ export default function OrderPage() {
     ])
 
     if (orderData) {
-      setOrder(orderData)
-      const itemsRevenue = (orderData.order_items || []).reduce(
+      const flattened = {
+        ...orderData,
+        global_supplier_price: (orderData as any).order_costs?.global_supplier_price ?? null,
+        order_items: (orderData.order_items || []).map((item: any) => ({
+          ...item,
+          supplier_price: item.order_item_costs?.supplier_price ?? 0,
+        })),
+      }
+      setOrder(flattened)
+      const itemsRevenue = (flattened.order_items || []).reduce(
         (sum: number, item: OrderItem) => sum + (item.customer_price || 0), 0
       )
       setEditedOrder({
-        status: orderData.status,
-        payment_status: orderData.payment_status,
-        supplier_id: orderData.suppliers?.id || '',
-        notes: orderData.notes || '',
-        measurements: orderData.measurements || '',
-        measured_at: orderData.measured_at || '',
-        total_price: (updateTotalFromItemsRef.current && !orderData.is_global_price)
+        status: flattened.status,
+        payment_status: flattened.payment_status,
+        supplier_id: flattened.suppliers?.id || '',
+        notes: flattened.notes || '',
+        measurements: flattened.measurements || '',
+        measured_at: flattened.measured_at || '',
+        total_price: (updateTotalFromItemsRef.current && !flattened.is_global_price)
           ? String(itemsRevenue)
-          : (orderData.total_price ? String(orderData.total_price) : ''),
-        is_global_price: orderData.is_global_price || false,
-        global_supplier_price: orderData.global_supplier_price ? String(orderData.global_supplier_price) : '',
+          : (flattened.total_price ? String(flattened.total_price) : ''),
+        is_global_price: flattened.is_global_price || false,
+        global_supplier_price: flattened.global_supplier_price ? String(flattened.global_supplier_price) : '',
         global_profit_percent: '10',
-        satisfaction_rating: orderData.satisfaction_rating || 0,
-        satisfaction_note: orderData.satisfaction_note || '',
+        satisfaction_rating: flattened.satisfaction_rating || 0,
+        satisfaction_note: flattened.satisfaction_note || '',
       })
       globalSupplierPriceTouchedRef.current = false
       updateTotalFromItemsRef.current = false
-      setDetailsRows(Object.entries(orderData.details || {}).map(([key, value]) => ({ key, value: String(value) })))
+      setDetailsRows(Object.entries(flattened.details || {}).map(([key, value]) => ({ key, value: String(value) })))
     }
     if (suppliersData) setSuppliers(suppliersData)
     setLoading(false)
@@ -192,13 +203,19 @@ export default function OrderPage() {
         measured_at: editedOrder.measured_at || null,
         total_price: newTotalPrice,
         is_global_price: editedOrder.is_global_price,
-        global_supplier_price: parseFloat(editedOrder.global_supplier_price) || 0,
         details,
         satisfaction_rating: editedOrder.satisfaction_rating || null,
         satisfaction_note: editedOrder.satisfaction_note.trim() || null,
         updated_at: new Date().toISOString(),
       })
       .eq('id', orderId)
+
+    if (!error && isAdmin) {
+      await supabase.from('order_costs').upsert({
+        order_id: orderId,
+        global_supplier_price: parseFloat(editedOrder.global_supplier_price) || 0,
+      })
+    }
 
     if (!error) {
       fetchData()
@@ -214,13 +231,19 @@ export default function OrderPage() {
     const unitCustomer = parseFloat(newItem.customer_price) || 0
     const unitSupplier = parseFloat(newItem.supplier_price) || 0
 
-    const { error } = await supabase.from('order_items').insert({
+    const { data: insertedItem, error } = await supabase.from('order_items').insert({
       order_id: orderId,
       description: newItem.description.trim(),
       model: newItem.model.trim(),
       customer_price: unitCustomer * qty,
-      supplier_price: unitSupplier * qty,
-    })
+    }).select('id').single()
+
+    if (!error && insertedItem && isAdmin) {
+      await supabase.from('order_item_costs').upsert({
+        order_item_id: insertedItem.id,
+        supplier_price: unitSupplier * qty,
+      })
+    }
 
     if (!error) {
       setNewItem({ description: '', model: '', quantity: '1', customer_price: '', supplier_price: '', profit_percent: '10' })
@@ -258,9 +281,15 @@ export default function OrderPage() {
         description: editingItemData.description.trim(),
         model: editingItemData.model.trim(),
         customer_price: parseFloat(editingItemData.customer_price) || 0,
-        supplier_price: parseFloat(editingItemData.supplier_price) || 0,
       })
       .eq('id', itemId)
+
+    if (!error && isAdmin) {
+      await supabase.from('order_item_costs').upsert({
+        order_item_id: itemId,
+        supplier_price: parseFloat(editingItemData.supplier_price) || 0,
+      })
+    }
 
     if (!error) {
       setEditingItemId(null)
@@ -485,7 +514,7 @@ export default function OrderPage() {
                     </label>
                     {editedOrder.is_global_price && (
                       <div className="grid grid-cols-2 gap-4 pt-1">
-                        <div className="space-y-2">
+                        <div className={isAdmin ? 'space-y-2' : 'space-y-2 col-span-2'}>
                           <Label>מחיר לתשלום ללקוח (₪)</Label>
                           <Input
                             type="number"
@@ -505,42 +534,46 @@ export default function OrderPage() {
                             dir="ltr"
                           />
                         </div>
-                        <div className="space-y-2">
-                          <Label>אחוז רווח (%)</Label>
-                          <Input
-                            type="number"
-                            value={editedOrder.global_profit_percent}
-                            onChange={(e) => {
-                              const percent = parseFloat(e.target.value) || 0
-                              const customer = parseFloat(editedOrder.total_price) || 0
-                              setEditedOrder(prev => ({
-                                ...prev,
-                                global_profit_percent: e.target.value,
-                                global_supplier_price: globalSupplierPriceTouchedRef.current
-                                  ? prev.global_supplier_price
-                                  : String(calcSupplierPrice(customer, percent)),
-                              }))
-                            }}
-                            placeholder="10"
-                            dir="ltr"
-                          />
-                        </div>
-                        <div className="space-y-2 col-span-2">
-                          <Label>מחיר לתשלום לספק (₪)</Label>
-                          <Input
-                            type="number"
-                            value={editedOrder.global_supplier_price}
-                            onChange={(e) => {
-                              globalSupplierPriceTouchedRef.current = true
-                              setEditedOrder({ ...editedOrder, global_supplier_price: e.target.value })
-                            }}
-                            placeholder="0"
-                            dir="ltr"
-                          />
-                        </div>
-                        <p className="text-xs text-gray-500 col-span-2">
-                          פריטי ההזמנה ישמשו לתיאור בלבד, ללא מחיר ליחידה — הסכום הכולל מחושב מהשדות למעלה. מחיר הספק מחושב אוטומטית לפי אחוז הרווח, וניתן לשנותו ידנית.
-                        </p>
+                        {isAdmin && (
+                          <>
+                            <div className="space-y-2">
+                              <Label>אחוז רווח (%)</Label>
+                              <Input
+                                type="number"
+                                value={editedOrder.global_profit_percent}
+                                onChange={(e) => {
+                                  const percent = parseFloat(e.target.value) || 0
+                                  const customer = parseFloat(editedOrder.total_price) || 0
+                                  setEditedOrder(prev => ({
+                                    ...prev,
+                                    global_profit_percent: e.target.value,
+                                    global_supplier_price: globalSupplierPriceTouchedRef.current
+                                      ? prev.global_supplier_price
+                                      : String(calcSupplierPrice(customer, percent)),
+                                  }))
+                                }}
+                                placeholder="10"
+                                dir="ltr"
+                              />
+                            </div>
+                            <div className="space-y-2 col-span-2">
+                              <Label>מחיר לתשלום לספק (₪)</Label>
+                              <Input
+                                type="number"
+                                value={editedOrder.global_supplier_price}
+                                onChange={(e) => {
+                                  globalSupplierPriceTouchedRef.current = true
+                                  setEditedOrder({ ...editedOrder, global_supplier_price: e.target.value })
+                                }}
+                                placeholder="0"
+                                dir="ltr"
+                              />
+                            </div>
+                            <p className="text-xs text-gray-500 col-span-2">
+                              פריטי ההזמנה ישמשו לתיאור בלבד, ללא מחיר ליחידה — הסכום הכולל מחושב מהשדות למעלה. מחיר הספק מחושב אוטומטית לפי אחוז הרווח, וניתן לשנותו ידנית.
+                            </p>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>
@@ -746,23 +779,27 @@ export default function OrderPage() {
                 <span className="text-gray-500">{order.is_global_price ? 'מחיר לקוח (גלובלי)' : 'מחיר לקוח (פריטים)'}</span>
                 <span className="font-medium">{formatCurrency(totalRevenue)}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">{order.is_global_price ? 'מחיר ספק (גלובלי)' : 'מחיר ספק (סך)'}</span>
-                <span className="font-medium">{formatCurrency(totalCost)}</span>
-              </div>
-              <div className="border-t pt-3 flex justify-between">
-                <span className="font-semibold">רווח</span>
-                <span className={`font-bold text-lg ${totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {formatCurrency(totalProfit)}
-                </span>
-              </div>
-              {totalRevenue > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">שולי רווח</span>
-                  <span className="text-gray-700">
-                    {((totalProfit / totalRevenue) * 100).toFixed(1)}%
-                  </span>
-                </div>
+              {isAdmin && (
+                <>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">{order.is_global_price ? 'מחיר ספק (גלובלי)' : 'מחיר ספק (סך)'}</span>
+                    <span className="font-medium">{formatCurrency(totalCost)}</span>
+                  </div>
+                  <div className="border-t pt-3 flex justify-between">
+                    <span className="font-semibold">רווח</span>
+                    <span className={`font-bold text-lg ${totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {formatCurrency(totalProfit)}
+                    </span>
+                  </div>
+                  {totalRevenue > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">שולי רווח</span>
+                      <span className="text-gray-700">
+                        {((totalProfit / totalRevenue) * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
@@ -917,7 +954,7 @@ export default function OrderPage() {
                               dir="ltr"
                             />
                           </div>
-                          <div className="grid grid-cols-3 gap-4">
+                          <div className={isAdmin ? 'grid grid-cols-3 gap-4' : ''}>
                             <div className="space-y-2">
                               <Label>מחיר לקוח ליחידה (₪)</Label>
                               <Input
@@ -938,41 +975,45 @@ export default function OrderPage() {
                                 dir="ltr"
                               />
                             </div>
-                            <div className="space-y-2">
-                              <Label>אחוז רווח (%)</Label>
-                              <Input
-                                type="number"
-                                value={newItem.profit_percent}
-                                onChange={(e) => {
-                                  const percent = parseFloat(e.target.value) || 0
-                                  const customer = parseFloat(newItem.customer_price) || 0
-                                  setNewItem(prev => ({
-                                    ...prev,
-                                    profit_percent: e.target.value,
-                                    supplier_price: newItemSupplierPriceTouchedRef.current
-                                      ? prev.supplier_price
-                                      : String(calcSupplierPrice(customer, percent)),
-                                  }))
-                                }}
-                                placeholder="10"
-                                dir="ltr"
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <Label>מחיר ספק ליחידה (₪)</Label>
-                              <Input
-                                type="number"
-                                value={newItem.supplier_price}
-                                onChange={(e) => {
-                                  newItemSupplierPriceTouchedRef.current = true
-                                  setNewItem({ ...newItem, supplier_price: e.target.value })
-                                }}
-                                placeholder="0"
-                                dir="ltr"
-                              />
-                            </div>
+                            {isAdmin && (
+                              <>
+                                <div className="space-y-2">
+                                  <Label>אחוז רווח (%)</Label>
+                                  <Input
+                                    type="number"
+                                    value={newItem.profit_percent}
+                                    onChange={(e) => {
+                                      const percent = parseFloat(e.target.value) || 0
+                                      const customer = parseFloat(newItem.customer_price) || 0
+                                      setNewItem(prev => ({
+                                        ...prev,
+                                        profit_percent: e.target.value,
+                                        supplier_price: newItemSupplierPriceTouchedRef.current
+                                          ? prev.supplier_price
+                                          : String(calcSupplierPrice(customer, percent)),
+                                      }))
+                                    }}
+                                    placeholder="10"
+                                    dir="ltr"
+                                  />
+                                </div>
+                                <div className="space-y-2">
+                                  <Label>מחיר ספק ליחידה (₪)</Label>
+                                  <Input
+                                    type="number"
+                                    value={newItem.supplier_price}
+                                    onChange={(e) => {
+                                      newItemSupplierPriceTouchedRef.current = true
+                                      setNewItem({ ...newItem, supplier_price: e.target.value })
+                                    }}
+                                    placeholder="0"
+                                    dir="ltr"
+                                  />
+                                </div>
+                              </>
+                            )}
                           </div>
-                          {newItem.customer_price && newItem.supplier_price && (
+                          {isAdmin && newItem.customer_price && newItem.supplier_price && (
                             <div className="bg-gray-50 p-3 rounded-lg text-sm text-gray-600 space-y-1">
                               {parseInt(newItem.quantity) > 1 && (
                                 <p>סה"כ לקוח: <strong>{formatCurrency((parseFloat(newItem.customer_price) || 0) * (parseInt(newItem.quantity) || 1))}</strong></p>
@@ -1016,8 +1057,8 @@ export default function OrderPage() {
                         <th className="text-right pb-3 font-semibold text-gray-600">תיאור</th>
                         <th className="text-right pb-3 font-semibold text-gray-600">דגם</th>
                         <th className="text-right pb-3 font-semibold text-gray-600">מחיר לקוח</th>
-                        <th className="text-right pb-3 font-semibold text-gray-600">מחיר ספק</th>
-                        <th className="text-right pb-3 font-semibold text-gray-600">רווח</th>
+                        {isAdmin && <th className="text-right pb-3 font-semibold text-gray-600">מחיר ספק</th>}
+                        {isAdmin && <th className="text-right pb-3 font-semibold text-gray-600">רווח</th>}
                         <th className="pb-3"></th>
                       </tr>
                     </thead>
@@ -1047,8 +1088,8 @@ export default function OrderPage() {
                                 {order.is_global_price ? (
                                   <>
                                     <td className="py-2 text-gray-400">-</td>
-                                    <td className="py-2 text-gray-400">-</td>
-                                    <td className="py-2 text-gray-400">-</td>
+                                    {isAdmin && <td className="py-2 text-gray-400">-</td>}
+                                    {isAdmin && <td className="py-2 text-gray-400">-</td>}
                                   </>
                                 ) : (
                                   <>
@@ -1061,21 +1102,25 @@ export default function OrderPage() {
                                         dir="ltr"
                                       />
                                     </td>
-                                    <td className="py-2">
-                                      <Input
-                                        type="number"
-                                        value={editingItemData.supplier_price}
-                                        onChange={(e) => setEditingItemData({ ...editingItemData, supplier_price: e.target.value })}
-                                        className="h-8 text-sm"
-                                        dir="ltr"
-                                      />
-                                    </td>
-                                    <td className="py-2 font-medium text-gray-400 text-sm">
-                                      {formatCurrency(
-                                        (parseFloat(editingItemData.customer_price) || 0) -
-                                        (parseFloat(editingItemData.supplier_price) || 0)
-                                      )}
-                                    </td>
+                                    {isAdmin && (
+                                      <>
+                                        <td className="py-2">
+                                          <Input
+                                            type="number"
+                                            value={editingItemData.supplier_price}
+                                            onChange={(e) => setEditingItemData({ ...editingItemData, supplier_price: e.target.value })}
+                                            className="h-8 text-sm"
+                                            dir="ltr"
+                                          />
+                                        </td>
+                                        <td className="py-2 font-medium text-gray-400 text-sm">
+                                          {formatCurrency(
+                                            (parseFloat(editingItemData.customer_price) || 0) -
+                                            (parseFloat(editingItemData.supplier_price) || 0)
+                                          )}
+                                        </td>
+                                      </>
+                                    )}
                                   </>
                                 )}
                                 <td className="py-2">
@@ -1106,16 +1151,18 @@ export default function OrderPage() {
                                 {order.is_global_price ? (
                                   <>
                                     <td className="py-3 text-gray-400">-</td>
-                                    <td className="py-3 text-gray-400">-</td>
-                                    <td className="py-3 text-gray-400">-</td>
+                                    {isAdmin && <td className="py-3 text-gray-400">-</td>}
+                                    {isAdmin && <td className="py-3 text-gray-400">-</td>}
                                   </>
                                 ) : (
                                   <>
                                     <td className="py-3">{formatCurrency(item.customer_price || 0)}</td>
-                                    <td className="py-3">{formatCurrency(item.supplier_price || 0)}</td>
-                                    <td className={`py-3 font-medium ${itemProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                      {formatCurrency(itemProfit)}
-                                    </td>
+                                    {isAdmin && <td className="py-3">{formatCurrency(item.supplier_price || 0)}</td>}
+                                    {isAdmin && (
+                                      <td className={`py-3 font-medium ${itemProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                        {formatCurrency(itemProfit)}
+                                      </td>
+                                    )}
                                   </>
                                 )}
                                 <td className="py-3">
@@ -1148,10 +1195,12 @@ export default function OrderPage() {
                       <tr className="border-t-2">
                         <td colSpan={2} className="pt-3 font-semibold">סך הכל</td>
                         <td className="pt-3 font-semibold">{formatCurrency(totalRevenue)}</td>
-                        <td className="pt-3 font-semibold">{formatCurrency(totalCost)}</td>
-                        <td className={`pt-3 font-bold ${totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {formatCurrency(totalProfit)}
-                        </td>
+                        {isAdmin && <td className="pt-3 font-semibold">{formatCurrency(totalCost)}</td>}
+                        {isAdmin && (
+                          <td className={`pt-3 font-bold ${totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {formatCurrency(totalProfit)}
+                          </td>
+                        )}
                         <td></td>
                       </tr>
                     </tfoot>

@@ -16,9 +16,11 @@ import {
   Menu,
   X,
   BarChart2,
+  ShieldCheck,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
+import type { Role } from '@/components/RoleProvider'
 
 const navItems = [
   { href: '/dashboard', label: 'דשבורד', icon: LayoutDashboard },
@@ -31,10 +33,14 @@ const navItems = [
   { href: '/notifications', label: 'התראות', icon: Bell },
 ]
 
-export default function Sidebar() {
+export default function Sidebar({ role }: { role: Role }) {
   const pathname = usePathname()
   const supabase = createClient()
   const [isOpen, setIsOpen] = useState(false)
+
+  const items = role === 'admin'
+    ? [...navItems, { href: '/admin/users', label: 'ניהול משתמשים', icon: ShieldCheck }]
+    : navItems
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -76,7 +82,7 @@ export default function Sidebar() {
         </div>
 
         <nav className="flex-1 p-4 space-y-1">
-          {navItems.map((item) => {
+          {items.map((item) => {
             const Icon = item.icon
             const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
             return (

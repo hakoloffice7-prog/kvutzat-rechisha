@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { FileSpreadsheet, Download, Loader2 } from 'lucide-react'
 import { formatCurrency, PAYMENT_STATUS_LABELS } from '@/lib/utils'
+import { useIsAdmin } from '@/components/RoleProvider'
 
 type Project = { id: string; name: string; cities: { name: string } }
 
@@ -22,6 +23,7 @@ type OrderRow = {
 }
 
 export default function ReportsPage() {
+  const isAdmin = useIsAdmin()
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProject, setSelectedProject] = useState('')
   const [selectedSupplierId, setSelectedSupplierId] = useState('')
@@ -66,11 +68,18 @@ export default function ReportsPage() {
         residents!inner(name, address, phone, project_id),
         categories(name),
         suppliers(name),
-        order_items(description, model, customer_price, supplier_price)
+        order_items(description, model, customer_price, order_item_costs(supplier_price))
       `)
       .eq('residents.project_id', selectedProject)
 
-    setOrders((data as any) || [])
+    const flattened = ((data as any) || []).map((order: any) => ({
+      ...order,
+      order_items: (order.order_items || []).map((item: any) => ({
+        ...item,
+        supplier_price: item.order_item_costs?.supplier_price ?? 0,
+      })),
+    }))
+    setOrders(flattened)
     setOrdersLoading(false)
   }
 
@@ -119,7 +128,7 @@ export default function ReportsPage() {
             'תיאור פריט': '',
             'דגם': '',
             'מחיר לקוח': '',
-            'מחיר ספק': '',
+            ...(isAdmin ? { 'מחיר ספק': '' } : {}),
           })
         } else {
           items.forEach(item => {
@@ -133,7 +142,7 @@ export default function ReportsPage() {
               'תיאור פריט': item.description,
               'דגם': item.model || '',
               'מחיר לקוח': item.customer_price || 0,
-              'מחיר ספק': item.supplier_price || 0,
+              ...(isAdmin ? { 'מחיר ספק': item.supplier_price || 0 } : {}),
             })
           })
         }
@@ -148,7 +157,7 @@ export default function ReportsPage() {
         { width: 20 }, { width: 25 }, { width: 15 },
         { width: 15 }, { width: 18 }, { width: 15 },
         { width: 25 }, { width: 15 }, { width: 12 },
-        { width: 12 },
+        ...(isAdmin ? [{ width: 12 }] : []),
       ]
 
       const namePart = supplierName ? `_${supplierName}` : ''
@@ -239,7 +248,7 @@ export default function ReportsPage() {
               <li>שם דייר, כתובת וטלפון</li>
               <li>קטגוריה, ספק וסטטוס תשלום</li>
               <li>תיאור ודגם לכל פריט</li>
-              <li>מחיר לקוח ומחיר ספק</li>
+              <li>{isAdmin ? 'מחיר לקוח ומחיר ספק' : 'מחיר לקוח'}</li>
             </ul>
           </div>
         </CardContent>
@@ -272,7 +281,7 @@ export default function ReportsPage() {
                       <th className="text-right py-2 px-3 font-semibold">תיאור פריט</th>
                       <th className="text-right py-2 px-3 font-semibold">דגם</th>
                       <th className="text-right py-2 px-3 font-semibold">מחיר לקוח</th>
-                      <th className="text-right py-2 px-3 font-semibold">מחיר ספק</th>
+                      {isAdmin && <th className="text-right py-2 px-3 font-semibold">מחיר ספק</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -288,7 +297,7 @@ export default function ReportsPage() {
                             <td className="py-2 px-3">{order.categories?.name || '-'}</td>
                             <td className="py-2 px-3">{order.suppliers?.name || '-'}</td>
                             <td className="py-2 px-3">{PAYMENT_STATUS_LABELS[order.payment_status]}</td>
-                            <td className="py-2 px-3 text-gray-400" colSpan={4}>אין פריטים</td>
+                            <td className="py-2 px-3 text-gray-400" colSpan={isAdmin ? 4 : 3}>אין פריטים</td>
                           </tr>
                         )
                       }
@@ -307,7 +316,7 @@ export default function ReportsPage() {
                           <td className="py-2 px-3">{item.description}</td>
                           <td className="py-2 px-3">{item.model || '-'}</td>
                           <td className="py-2 px-3 font-medium">{formatCurrency(item.customer_price || 0)}</td>
-                          <td className="py-2 px-3 font-medium">{formatCurrency(item.supplier_price || 0)}</td>
+                          {isAdmin && <td className="py-2 px-3 font-medium">{formatCurrency(item.supplier_price || 0)}</td>}
                         </tr>
                       ))
                     })}

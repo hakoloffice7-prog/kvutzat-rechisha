@@ -19,6 +19,7 @@ import { Plus, ShoppingCart, Loader2, Trash2, Phone, MapPin, ArrowLeft, Edit2, M
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { STATUS_LABELS, STATUS_COLORS, STATUS_ORDER, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, formatCurrency, getDebtStatus, calcSupplierPrice } from '@/lib/utils'
+import { useIsAdmin } from '@/components/RoleProvider'
 
 type Resident = {
   id: string
@@ -60,6 +61,7 @@ export default function ResidentPage() {
   const params = useParams()
   const router = useRouter()
   const residentId = params.id as string
+  const isAdmin = useIsAdmin()
 
   const [resident, setResident] = useState<Resident | null>(null)
   const [orders, setOrders] = useState<Order[]>([])
@@ -129,7 +131,7 @@ export default function ResidentPage() {
         .single(),
       supabase
         .from('orders')
-        .select('*, categories(id, name), suppliers(id, name), order_items(customer_price, supplier_price), order_payments(amount)')
+        .select('*, categories(id, name), suppliers(id, name), order_items(customer_price, order_item_costs(supplier_price)), order_payments(amount)')
         .eq('resident_id', residentId)
         .order('created_at', { ascending: false }),
       supabase.from('categories').select('*').order('name'),
@@ -137,7 +139,15 @@ export default function ResidentPage() {
     ])
 
     if (residentData) setResident(residentData)
-    if (ordersData) setOrders(ordersData)
+    if (ordersData) {
+      setOrders(ordersData.map((order: any) => ({
+        ...order,
+        order_items: (order.order_items || []).map((item: any) => ({
+          ...item,
+          supplier_price: item.order_item_costs?.supplier_price ?? 0,
+        })),
+      })))
+    }
     if (categoriesData) setCategories(categoriesData)
     if (suppliersData) setSuppliers(suppliersData)
     setLoading(false)
@@ -160,15 +170,23 @@ export default function ResidentPage() {
     if (!error && orderData) {
       const validItems = newOrderItems.filter(i => i.description.trim())
       if (validItems.length > 0) {
-        await supabase.from('order_items').insert(
+        const { data: insertedItems } = await supabase.from('order_items').insert(
           validItems.map(i => ({
             order_id: orderData.id,
             description: i.description.trim(),
             model: i.model.trim(),
             customer_price: parseFloat(i.customer_price) || 0,
-            supplier_price: parseFloat(i.supplier_price) || 0,
           }))
-        )
+        ).select('id')
+
+        if (isAdmin && insertedItems) {
+          await supabase.from('order_item_costs').insert(
+            insertedItems.map((row, idx) => ({
+              order_item_id: row.id,
+              supplier_price: parseFloat(validItems[idx].supplier_price) || 0,
+            }))
+          )
+        }
       }
       router.push(`/orders/${orderData.id}`)
     }
@@ -407,15 +425,15 @@ export default function ResidentPage() {
                     </div>
                     {newOrderItems.length > 0 && (
                       <div className="space-y-2">
-                        <div className="grid grid-cols-[2fr_1fr_0.7fr_1fr_auto] gap-2 text-xs text-gray-500 px-1">
+                        <div className={`grid ${isAdmin ? 'grid-cols-[2fr_1fr_0.7fr_1fr_auto]' : 'grid-cols-[2fr_1fr_auto]'} gap-2 text-xs text-gray-500 px-1`}>
                           <span>תיאור</span>
                           <span>מחיר לקוח ₪</span>
-                          <span>רווח %</span>
-                          <span>מחיר ספק ₪</span>
+                          {isAdmin && <span>רווח %</span>}
+                          {isAdmin && <span>מחיר ספק ₪</span>}
                           <span></span>
                         </div>
                         {newOrderItems.map((item, idx) => (
-                          <div key={idx} className="grid grid-cols-[2fr_1fr_0.7fr_1fr_auto] gap-2 items-center">
+                          <div key={idx} className={`grid ${isAdmin ? 'grid-cols-[2fr_1fr_0.7fr_1fr_auto]' : 'grid-cols-[2fr_1fr_auto]'} gap-2 items-center`}>
                             <Input
                               value={item.description}
                               onChange={(e) => updateNewOrderItem(idx, 'description', e.target.value)}
@@ -430,22 +448,26 @@ export default function ResidentPage() {
                               className="h-8 text-sm"
                               dir="ltr"
                             />
-                            <Input
-                              type="number"
-                              value={item.profit_percent}
-                              onChange={(e) => updateNewOrderItem(idx, 'profit_percent', e.target.value)}
-                              placeholder="10"
-                              className="h-8 text-sm"
-                              dir="ltr"
-                            />
-                            <Input
-                              type="number"
-                              value={item.supplier_price}
-                              onChange={(e) => updateNewOrderItem(idx, 'supplier_price', e.target.value)}
-                              placeholder="0"
-                              className="h-8 text-sm"
-                              dir="ltr"
-                            />
+                            {isAdmin && (
+                              <>
+                                <Input
+                                  type="number"
+                                  value={item.profit_percent}
+                                  onChange={(e) => updateNewOrderItem(idx, 'profit_percent', e.target.value)}
+                                  placeholder="10"
+                                  className="h-8 text-sm"
+                                  dir="ltr"
+                                />
+                                <Input
+                                  type="number"
+                                  value={item.supplier_price}
+                                  onChange={(e) => updateNewOrderItem(idx, 'supplier_price', e.target.value)}
+                                  placeholder="0"
+                                  className="h-8 text-sm"
+                                  dir="ltr"
+                                />
+                              </>
+                            )}
                             <Button
                               type="button"
                               variant="ghost"
@@ -601,11 +623,12 @@ export default function ResidentPage() {
                           )}
                           {order.order_items?.length > 0 && (
                             <p className="text-sm text-gray-500">
-                              {order.order_items.length} פריטים |
-                              הכנסה: {formatCurrency(revenue)} |
-                              <span className={profit >= 0 ? 'text-green-600' : 'text-red-600'}>
-                                {' '}רווח: {formatCurrency(profit)}
-                              </span>
+                              {order.order_items.length} פריטים | הכנסה: {formatCurrency(revenue)}
+                              {isAdmin && (
+                                <span className={profit >= 0 ? 'text-green-600' : 'text-red-600'}>
+                                  {' | '}רווח: {formatCurrency(profit)}
+                                </span>
+                              )}
                             </p>
                           )}
                         </div>

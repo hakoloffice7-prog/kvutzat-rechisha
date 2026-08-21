@@ -17,6 +17,7 @@ import {
   DEBT_STATUS_LABELS,
   DEBT_STATUS_COLORS,
 } from '@/lib/utils'
+import { useIsAdmin } from '@/components/RoleProvider'
 
 type Supplier = {
   id: string
@@ -60,6 +61,7 @@ type CategorySummary = { categoryName: string; items: ItemSummaryRow[]; totalCou
 export default function SupplierPaymentsPage() {
   const params = useParams()
   const supplierId = params.id as string
+  const isAdmin = useIsAdmin()
 
   const [supplier, setSupplier] = useState<Supplier | null>(null)
   const [groups, setGroups] = useState<ProjectGroup[]>([])
@@ -85,17 +87,32 @@ export default function SupplierPaymentsPage() {
 
   async function fetchData() {
     setLoading(true)
-    const [{ data: supplierData }, { data: ordersData }, { data: ledgerData }, { data: projectsData }] = await Promise.all([
-      supabase.from('suppliers').select('*').eq('id', supplierId).single(),
+    const [{ data: supplierData }, { data: rawOrdersData }, { data: ledgerData }, { data: projectsData }] = await Promise.all([
+      supabase.from('suppliers').select('*, supplier_costs(advance_amount, advance_note)').eq('id', supplierId).single(),
       supabase
         .from('orders')
-        .select('id, status, total_price, payment_status, is_global_price, global_supplier_price, categories(name), order_items(description, customer_price, supplier_price), residents(projects(id, name))')
+        .select('id, status, total_price, payment_status, is_global_price, order_costs(global_supplier_price), categories(name), order_items(description, customer_price, order_item_costs(supplier_price)), residents(projects(id, name))')
         .eq('supplier_id', supplierId),
       supabase.from('supplier_project_ledger').select('*').eq('supplier_id', supplierId),
       supabase.from('projects').select('id, name, cities(name)').order('name'),
     ])
 
-    if (supplierData) setSupplier(supplierData)
+    if (supplierData) {
+      setSupplier({
+        ...supplierData,
+        advance_amount: (supplierData as any).supplier_costs?.advance_amount ?? null,
+        advance_note: (supplierData as any).supplier_costs?.advance_note ?? null,
+      })
+    }
+
+    const ordersData = (rawOrdersData || []).map((order: any) => ({
+      ...order,
+      global_supplier_price: order.order_costs?.global_supplier_price ?? 0,
+      order_items: (order.order_items || []).map((item: any) => ({
+        ...item,
+        supplier_price: item.order_item_costs?.supplier_price ?? 0,
+      })),
+    }))
 
     const projectNameById = new Map<string, string>()
     const projectOptions: ProjectOption[] = (projectsData || []).map((p: any) => {
@@ -304,7 +321,7 @@ export default function SupplierPaymentsPage() {
             </span>
           )}
         </div>
-        {!!supplier.advance_amount && (
+        {isAdmin && !!supplier.advance_amount && (
           <p className="text-sm text-amber-700 bg-amber-50 inline-block rounded px-2 py-1 mt-2">
             מקדמה ששולמה לספק: {formatCurrency(supplier.advance_amount)}
             {supplier.advance_note ? ` — ${supplier.advance_note}` : ''}
@@ -312,7 +329,8 @@ export default function SupplierPaymentsPage() {
         )}
       </div>
 
-      {/* Overall summary */}
+      {/* Overall summary - admin only, financial data */}
+      {isAdmin && (
       <Card>
         <CardContent className="p-4 grid grid-cols-1 sm:grid-cols-4 gap-4 text-sm">
           <div>
@@ -333,6 +351,7 @@ export default function SupplierPaymentsPage() {
           </div>
         </CardContent>
       </Card>
+      )}
 
       {/* Items ordered from this supplier, across all categories */}
       {itemSummary.length > 0 && (
@@ -363,8 +382,8 @@ export default function SupplierPaymentsPage() {
         </Card>
       )}
 
-      {/* Add project manually (before any orders exist) */}
-      {availableProjectsToAdd.length > 0 && (
+      {/* Add project manually (before any orders exist) - admin only, ledger data */}
+      {isAdmin && availableProjectsToAdd.length > 0 && (
         <Card>
           <CardContent className="p-4 flex flex-wrap items-end gap-3">
             <div className="space-y-1 flex-1 min-w-[200px]">
@@ -384,7 +403,8 @@ export default function SupplierPaymentsPage() {
         </Card>
       )}
 
-      {groups.length === 0 ? (
+      {/* Per-project commission ledger - admin only, financial data */}
+      {isAdmin && (groups.length === 0 ? (
         <Card>
           <CardContent className="text-center py-12">
             <p className="text-gray-500 text-lg">אין עדיין פרויקטים משויכים לספק זה</p>
@@ -571,7 +591,7 @@ export default function SupplierPaymentsPage() {
             )
           })}
         </div>
-      )}
+      ))}
     </div>
   )
 }

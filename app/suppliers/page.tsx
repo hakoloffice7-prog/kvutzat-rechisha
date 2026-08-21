@@ -18,6 +18,7 @@ import {
 import { Plus, Truck, Loader2, Trash2, Phone, Mail, Edit2, Wallet } from 'lucide-react'
 import Link from 'next/link'
 import { formatCurrency } from '@/lib/utils'
+import { useIsAdmin } from '@/components/RoleProvider'
 
 type Supplier = {
   id: string
@@ -34,6 +35,7 @@ type Supplier = {
 type Category = { id: string; name: string }
 
 export default function SuppliersPage() {
+  const isAdmin = useIsAdmin()
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
@@ -61,12 +63,18 @@ export default function SuppliersPage() {
     const [{ data: suppliersData }, { data: categoriesData }] = await Promise.all([
       supabase
         .from('suppliers')
-        .select('*, categories(name)')
+        .select('*, categories(name), supplier_costs(advance_amount, advance_note)')
         .order('name'),
       supabase.from('categories').select('*').order('name'),
     ])
 
-    if (suppliersData) setSuppliers(suppliersData)
+    if (suppliersData) {
+      setSuppliers(suppliersData.map((s: any) => ({
+        ...s,
+        advance_amount: s.supplier_costs?.advance_amount ?? null,
+        advance_note: s.supplier_costs?.advance_note ?? null,
+      })))
+    }
     if (categoriesData) setCategories(categoriesData)
     setLoading(false)
   }
@@ -111,10 +119,17 @@ export default function SuppliersPage() {
         phone2: (editingSupplier.phone2 || '').trim(),
         email: editingSupplier.email.trim(),
         category_id: editingSupplier.category_id || null,
+      })
+      .eq('id', editingSupplier.id)
+
+    if (!error && isAdmin) {
+      await supabase.from('supplier_costs').upsert({
+        supplier_id: editingSupplier.id,
         advance_amount: editingSupplier.advance_amount || 0,
         advance_note: (editingSupplier.advance_note || '').trim(),
       })
-      .eq('id', editingSupplier.id)
+    }
+
     if (!error) {
       setEditDialogOpen(false)
       setEditingSupplier(null)
@@ -309,7 +324,7 @@ export default function SuppliersPage() {
                       <span dir="ltr">{supplier.email}</span>
                     </a>
                   )}
-                  {!!supplier.advance_amount && (
+                  {isAdmin && !!supplier.advance_amount && (
                     <p className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-1">
                       מקדמה ששולמה: {formatCurrency(supplier.advance_amount)}
                       {supplier.advance_note ? ` — ${supplier.advance_note}` : ''}
@@ -385,25 +400,29 @@ export default function SuppliersPage() {
                   dir="ltr"
                 />
               </div>
-              <div className="border-t pt-4 space-y-2">
-                <Label>מקדמה ששולמה לספק (₪)</Label>
-                <p className="text-xs text-gray-500">עבור מקרים בהם אנחנו נותנים לספק מקדמה על ביצוע עבודה</p>
-                <Input
-                  type="number"
-                  value={editingSupplier.advance_amount ?? ''}
-                  onChange={(e) => setEditingSupplier({ ...editingSupplier, advance_amount: parseFloat(e.target.value) || 0 })}
-                  placeholder="0"
-                  dir="ltr"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>הערה למקדמה</Label>
-                <Input
-                  value={editingSupplier.advance_note || ''}
-                  onChange={(e) => setEditingSupplier({ ...editingSupplier, advance_note: e.target.value })}
-                  placeholder="לדוגמה: מקדמה עבור התקנת רשתות"
-                />
-              </div>
+              {isAdmin && (
+                <>
+                  <div className="border-t pt-4 space-y-2">
+                    <Label>מקדמה ששולמה לספק (₪)</Label>
+                    <p className="text-xs text-gray-500">עבור מקרים בהם אנחנו נותנים לספק מקדמה על ביצוע עבודה</p>
+                    <Input
+                      type="number"
+                      value={editingSupplier.advance_amount ?? ''}
+                      onChange={(e) => setEditingSupplier({ ...editingSupplier, advance_amount: parseFloat(e.target.value) || 0 })}
+                      placeholder="0"
+                      dir="ltr"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>הערה למקדמה</Label>
+                    <Input
+                      value={editingSupplier.advance_note || ''}
+                      onChange={(e) => setEditingSupplier({ ...editingSupplier, advance_note: e.target.value })}
+                      placeholder="לדוגמה: מקדמה עבור התקנת רשתות"
+                    />
+                  </div>
+                </>
+              )}
               <div className="flex gap-2 justify-end">
                 <Button variant="outline" onClick={() => setEditDialogOpen(false)}>ביטול</Button>
                 <Button onClick={saveEditSupplier} disabled={saving || !editingSupplier.name.trim()}>

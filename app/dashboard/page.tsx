@@ -15,6 +15,13 @@ export default async function DashboardPage() {
     redirect('/login')
   }
 
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', session.user.id)
+    .single()
+  const isAdmin = profile?.role === 'admin'
+
   // Fetch stats in parallel
   const [
     { count: citiesCount },
@@ -29,7 +36,9 @@ export default async function DashboardPage() {
     supabase.from('projects').select('*', { count: 'exact', head: true }),
     supabase.from('residents').select('*', { count: 'exact', head: true }),
     supabase.from('orders').select('*', { count: 'exact', head: true }),
-    supabase.from('order_items').select('customer_price, supplier_price'),
+    isAdmin
+      ? supabase.from('order_items').select('customer_price, order_item_costs(supplier_price)')
+      : supabase.from('order_items').select('customer_price'),
     supabase.from('notifications').select('*', { count: 'exact', head: true }).eq('is_read', false),
     supabase.from('orders')
       .select(`
@@ -42,9 +51,11 @@ export default async function DashboardPage() {
       .limit(5),
   ])
 
-  const totalProfit = orderItems?.reduce((sum, item) => {
-    return sum + ((item.customer_price || 0) - (item.supplier_price || 0))
-  }, 0) || 0
+  const totalProfit = isAdmin
+    ? (orderItems?.reduce((sum, item: any) => {
+        return sum + ((item.customer_price || 0) - (item.order_item_costs?.supplier_price || 0))
+      }, 0) || 0)
+    : 0
 
   const totalRevenue = orderItems?.reduce((sum, item) => sum + (item.customer_price || 0), 0) || 0
 
@@ -129,7 +140,7 @@ export default async function DashboardPage() {
       </div>
 
       {/* Financial Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className={`grid grid-cols-1 ${isAdmin ? 'md:grid-cols-2' : ''} gap-4`}>
         <Link href="/orders">
           <Card className="cursor-pointer hover:shadow-md transition-shadow">
             <CardContent className="p-6">
@@ -146,6 +157,7 @@ export default async function DashboardPage() {
           </Card>
         </Link>
 
+        {isAdmin && (
         <Link href="/orders">
           <Card className={`cursor-pointer hover:shadow-md transition-shadow ${totalProfit >= 0 ? 'border-green-200' : 'border-red-200'}`}>
             <CardContent className="p-6">
@@ -163,6 +175,7 @@ export default async function DashboardPage() {
             </CardContent>
           </Card>
         </Link>
+        )}
       </div>
 
       {/* Notifications alert */}

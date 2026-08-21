@@ -30,7 +30,7 @@ type Resident = {
   email: string
   key_location: string
 }
-type OrderItem = { id: string; description: string; model: string; customer_price: number; supplier_price: number }
+type OrderItem = { id: string; description: string; model: string; customer_price: number }
 
 type SimpleOrder = {
   id: string
@@ -245,7 +245,7 @@ export default function ResidentsPage() {
 
     const { data } = await supabase
       .from('orders')
-      .select('id, status, payment_status, categories(name), suppliers(name), order_items(id, description, model, customer_price, supplier_price)')
+      .select('id, status, payment_status, categories(name), suppliers(name), order_items(id, description, model, customer_price)')
       .eq('resident_id', resident.id)
       .order('created_at', { ascending: false })
 
