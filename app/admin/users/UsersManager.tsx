@@ -101,7 +101,7 @@ export default function UsersManager({
   currentUserId: string
 }) {
   const router = useRouter()
-  const [users, setUsers] = useState(initialUsers)
+  const users = initialUsers
   const [error, setError] = useState('')
 
   const [createOpen, setCreateOpen] = useState(false)
