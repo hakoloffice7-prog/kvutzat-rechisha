@@ -39,6 +39,8 @@ type Order = {
   created_at: string
   notes: string
   total_price: number | null
+  is_global_price: boolean
+  global_supplier_price: number | null
   satisfaction_rating: number | null
   categories: { id: string; name: string }
   suppliers: { id: string; name: string } | null
@@ -131,7 +133,7 @@ export default function ResidentPage() {
         .single(),
       supabase
         .from('orders')
-        .select('*, categories(id, name), suppliers(id, name), order_items(customer_price, order_item_costs(supplier_price)), order_payments(amount)')
+        .select('*, categories(id, name), suppliers(id, name), order_items(customer_price, order_item_costs(supplier_price)), order_payments(amount), order_costs(global_supplier_price)')
         .eq('resident_id', residentId)
         .order('created_at', { ascending: false }),
       supabase.from('categories').select('*').order('name'),
@@ -142,6 +144,7 @@ export default function ResidentPage() {
     if (ordersData) {
       setOrders(ordersData.map((order: any) => ({
         ...order,
+        global_supplier_price: order.order_costs?.global_supplier_price ?? 0,
         order_items: (order.order_items || []).map((item: any) => ({
           ...item,
           supplier_price: item.order_item_costs?.supplier_price ?? 0,
@@ -221,7 +224,15 @@ export default function ResidentPage() {
     fetchData()
   }
 
-  const getOrderTotal = (items: { customer_price: number; supplier_price: number }[]) => {
+  // מחיר גלובלי נשמר ב-order.total_price/global_supplier_price ולא בפריטים
+  // (הפריטים משמשים רק לתיאור במצב הזה) - אסור לחשב את הסכום מהפריטים בלבד
+  const getOrderTotal = (order: Order) => {
+    if (order.is_global_price) {
+      const revenue = order.total_price || 0
+      const cost = order.global_supplier_price || 0
+      return { revenue, profit: revenue - cost }
+    }
+    const items = order.order_items
     if (!items || items.length === 0) return { revenue: 0, profit: 0 }
     const revenue = items.reduce((sum, item) => sum + (item.customer_price || 0), 0)
     const cost = items.reduce((sum, item) => sum + (item.supplier_price || 0), 0)
@@ -584,7 +595,7 @@ export default function ResidentPage() {
         ) : (
           <div className="space-y-3">
             {orders.map((order) => {
-              const { revenue, profit } = getOrderTotal(order.order_items)
+              const { revenue, profit } = getOrderTotal(order)
               return (
                 <Card key={order.id} className="hover:shadow-md transition-shadow">
                   <CardContent className="p-4">

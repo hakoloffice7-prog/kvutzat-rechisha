@@ -28,7 +28,7 @@ export default async function DashboardPage() {
     { count: projectsCount },
     { count: residentsCount },
     { count: ordersCount },
-    { data: orderItems },
+    { data: ordersForTotals },
     { count: unreadNotifications },
     { data: recentOrders },
   ] = await Promise.all([
@@ -37,8 +37,8 @@ export default async function DashboardPage() {
     supabase.from('residents').select('*', { count: 'exact', head: true }),
     supabase.from('orders').select('*', { count: 'exact', head: true }),
     isAdmin
-      ? supabase.from('order_items').select('customer_price, order_item_costs(supplier_price)')
-      : supabase.from('order_items').select('customer_price'),
+      ? supabase.from('orders').select('total_price, is_global_price, order_costs(global_supplier_price), order_items(customer_price, order_item_costs(supplier_price))')
+      : supabase.from('orders').select('total_price, is_global_price, order_items(customer_price)'),
     supabase.from('notifications').select('*', { count: 'exact', head: true }).eq('is_read', false),
     supabase.from('orders')
       .select(`
@@ -51,13 +51,21 @@ export default async function DashboardPage() {
       .limit(5),
   ])
 
-  const totalProfit = isAdmin
-    ? (orderItems?.reduce((sum, item: any) => {
-        return sum + ((item.customer_price || 0) - (item.order_item_costs?.supplier_price || 0))
-      }, 0) || 0)
-    : 0
+  // מחיר גלובלי נשמר ב-order.total_price/global_supplier_price ולא בפריטים
+  // (הפריטים משמשים רק לתיאור במצב הזה) - אסור לחשב את הסכום מהפריטים בלבד
+  function orderRevenue(order: any) {
+    if (order.is_global_price) return order.total_price || 0
+    return (order.order_items || []).reduce((s: number, i: any) => s + (i.customer_price || 0), 0)
+  }
+  function orderCost(order: any) {
+    if (order.is_global_price) return order.order_costs?.global_supplier_price || 0
+    return (order.order_items || []).reduce((s: number, i: any) => s + (i.order_item_costs?.supplier_price || 0), 0)
+  }
 
-  const totalRevenue = orderItems?.reduce((sum, item) => sum + (item.customer_price || 0), 0) || 0
+  const totalRevenue = (ordersForTotals || []).reduce((sum, o: any) => sum + orderRevenue(o), 0)
+  const totalProfit = isAdmin
+    ? (ordersForTotals || []).reduce((sum, o: any) => sum + (orderRevenue(o) - orderCost(o)), 0)
+    : 0
 
   const paymentColors: Record<string, string> = {
     not_paid: 'text-red-600',
