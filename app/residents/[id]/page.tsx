@@ -160,6 +160,9 @@ export default function ResidentPage() {
     if (!newOrder.category_id) return
     setSaving(true)
 
+    const validItems = newOrderItems.filter(i => i.description.trim())
+    const totalPrice = validItems.reduce((sum, i) => sum + (parseFloat(i.customer_price) || 0), 0)
+
     const { data: orderData, error } = await supabase.from('orders').insert({
       resident_id: residentId,
       category_id: newOrder.category_id,
@@ -168,10 +171,10 @@ export default function ResidentPage() {
       payment_status: newOrder.payment_status,
       notes: newOrder.notes,
       measured_at: newOrder.status === 'measured' ? (newOrder.measured_at || new Date().toISOString().slice(0, 10)) : null,
+      total_price: totalPrice,
     }).select('id').single()
 
     if (!error && orderData) {
-      const validItems = newOrderItems.filter(i => i.description.trim())
       if (validItems.length > 0) {
         const { data: insertedItems } = await supabase.from('order_items').insert(
           validItems.map(i => ({
@@ -243,7 +246,7 @@ export default function ResidentPage() {
   // השמורה (order.payment_status) — היא יכולה להתיישן אם ההזמנה לא נשמרה מחדש.
   const getEffectivePaymentStatus = (order: Order) => {
     const totalPaid = (order.order_payments || []).reduce((sum, p) => sum + (p.amount || 0), 0)
-    return getDebtStatus(order.total_price || 0, totalPaid)
+    return getDebtStatus(getOrderTotal(order).revenue, totalPaid)
   }
 
   const filteredSuppliers = newOrder.category_id

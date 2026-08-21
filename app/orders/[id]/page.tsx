@@ -167,9 +167,14 @@ export default function OrderPage() {
         notes: flattened.notes || '',
         measurements: flattened.measurements || '',
         measured_at: flattened.measured_at || '',
-        total_price: (updateTotalFromItemsRef.current && !flattened.is_global_price)
-          ? String(itemsRevenue)
-          : (flattened.total_price ? String(flattened.total_price) : ''),
+        // אם total_price בהזמנה תקוע על 0/ריק (הזמנה ישנה שנוצרה בלי סנכרון,
+        // או שינוי בפריטים כרגע) - נופלים חזרה לסכום הפריטים בפועל, כדי לא
+        // להציג "מחיר לתשלום: 0" כשיש פריטים עם מחיר אמיתי
+        total_price: flattened.is_global_price
+          ? (flattened.total_price ? String(flattened.total_price) : '')
+          : (updateTotalFromItemsRef.current
+              ? String(itemsRevenue)
+              : String(flattened.total_price || itemsRevenue || '')),
         is_global_price: flattened.is_global_price || false,
         global_supplier_price: flattened.global_supplier_price ? String(flattened.global_supplier_price) : '',
         global_profit_percent: '10',
@@ -328,7 +333,7 @@ export default function OrderPage() {
   }
 
   async function syncPaymentStatus(newTotalPaid: number) {
-    const newStatus = getDebtStatus(order?.total_price || 0, newTotalPaid)
+    const newStatus = getDebtStatus(totalRevenue, newTotalPaid)
     await supabase
       .from('orders')
       .update({ payment_status: newStatus, updated_at: new Date().toISOString() })
@@ -339,9 +344,10 @@ export default function OrderPage() {
     (a, b) => a.paid_at.localeCompare(b.paid_at) || a.id.localeCompare(b.id)
   )
   const totalPaid = sortedPayments.reduce((sum, p) => sum + (p.amount || 0), 0)
-  const balanceDue = (order?.total_price || 0) - totalPaid
-  const computedPaymentStatus = getDebtStatus(order?.total_price || 0, totalPaid)
 
+  // totalRevenue/totalCost הם המקור האמיתי - order.total_price בטבלה יכול
+  // להישאר תקוע על 0 בהזמנות ישנות שנוצרו לפני שהיה סנכרון אוטומטי, אז אסור
+  // להשתמש בו ישירות ליתרה/סטטוס תשלום
   const totalRevenue = order?.is_global_price
     ? (order.total_price || 0)
     : (order?.order_items?.reduce((sum, item) => sum + (item.customer_price || 0), 0) || 0)
@@ -349,6 +355,9 @@ export default function OrderPage() {
     ? (order.global_supplier_price || 0)
     : (order?.order_items?.reduce((sum, item) => sum + (item.supplier_price || 0), 0) || 0)
   const totalProfit = totalRevenue - totalCost
+
+  const balanceDue = totalRevenue - totalPaid
+  const computedPaymentStatus = getDebtStatus(totalRevenue, totalPaid)
 
   const filteredSuppliers = order?.categories?.id
     ? suppliers.filter(s => s.category_id === order.categories.id)
@@ -757,11 +766,11 @@ export default function OrderPage() {
               <CardTitle>סיכום כספי</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {(order.total_price || totalPaid > 0) ? (
+              {(totalRevenue || totalPaid > 0) ? (
                 <>
                   <div className="flex justify-between">
                     <span className="text-gray-500">מחיר לתשלום (הזמנה)</span>
-                    <span className="font-medium">{formatCurrency(order.total_price || 0)}</span>
+                    <span className="font-medium">{formatCurrency(totalRevenue)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-500">סה"כ שולם בפועל</span>
@@ -868,7 +877,7 @@ export default function OrderPage() {
                 <div className="space-y-2">
                   {sortedPayments.reduce((rows: JSX.Element[], payment, idx) => {
                     const paidSoFar = sortedPayments.slice(0, idx + 1).reduce((s, p) => s + (p.amount || 0), 0)
-                    const remaining = (order.total_price || 0) - paidSoFar
+                    const remaining = totalRevenue - paidSoFar
                     rows.push(
                       <div key={payment.id} className="flex items-center justify-between text-sm border-b pb-2 last:border-b-0">
                         <div>
