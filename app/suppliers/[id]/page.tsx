@@ -44,6 +44,7 @@ type ProjectGroup = {
   projectName: string
   totalCollected: number
   commissionOwed: number
+  orderCount: number
   paidOrderCount: number
   owedToSupplier: number
   unpaidOrderCount: number
@@ -91,7 +92,7 @@ export default function SupplierPaymentsPage() {
       supabase.from('suppliers').select('*, supplier_costs(advance_amount, advance_note)').eq('id', supplierId).single(),
       supabase
         .from('orders')
-        .select('id, status, total_price, payment_status, is_global_price, order_costs(global_supplier_price), categories(name), order_items(description, customer_price, order_item_costs(supplier_price)), residents(projects(id, name))')
+        .select('id, status, total_price, payment_status, is_global_price, order_costs(global_supplier_price), categories(name), order_items(description, customer_price, order_item_costs(supplier_price)), order_payments(amount), residents(projects(id, name))')
         .eq('supplier_id', supplierId),
       supabase.from('supplier_project_ledger').select('*').eq('supplier_id', supplierId),
       supabase.from('projects').select('id, name, cities(name)').order('name'),
@@ -134,6 +135,7 @@ export default function SupplierPaymentsPage() {
           projectName,
           totalCollected: 0,
           commissionOwed: 0,
+          orderCount: 0,
           paidOrderCount: 0,
           owedToSupplier: 0,
           unpaidOrderCount: 0,
@@ -154,21 +156,29 @@ export default function SupplierPaymentsPage() {
       const project = order.residents?.projects
       if (!project) return
       const group = ensureGroup(project.id, project.name)
-      if (order.payment_status === 'paid_full') {
-        group.totalCollected += order.total_price || 0
-        group.paidOrderCount += 1
-        const itemsMargin = (order.order_items || []).reduce(
-          (sum: number, item: any) => sum + ((item.customer_price || 0) - (item.supplier_price || 0)),
-          0
-        )
-        group.commissionOwed += itemsMargin
+      group.orderCount += 1
+
+      const orderRevenue = order.is_global_price
+        ? (order.total_price || 0)
+        : (order.order_items || []).reduce((sum: number, item: any) => sum + (item.customer_price || 0), 0)
+      const orderCost = order.is_global_price
+        ? (order.global_supplier_price || 0)
+        : (order.order_items || []).reduce((sum: number, item: any) => sum + (item.supplier_price || 0), 0)
+      const orderMargin = orderRevenue - orderCost
+      const paidForOrder = (order.order_payments || []).reduce((sum: number, p: any) => sum + (p.amount || 0), 0)
+
+      // תשלומים חלקיים נספרים גם הם - הכסף שנאסף בפועל, וחלק יחסי מהעמלה
+      // לפי כמה מסך ההזמנה כבר שולם (לא רק הזמנות ששולמו במלואן)
+      if (paidForOrder > 0) {
+        group.totalCollected += paidForOrder
+        const paidFraction = orderRevenue > 0 ? Math.min(1, paidForOrder / orderRevenue) : 0
+        group.commissionOwed += orderMargin * paidFraction
+        if (order.payment_status === 'paid_full') group.paidOrderCount += 1
       }
+
       // הזמנות שבוצעו מול הספק אבל הלקוח עוד לא שילם עליהן במלואן - כמה כסף אנחנו חייבים לספק
       if (FULFILLED_STATUSES.has(order.status) && order.payment_status !== 'paid_full') {
-        const supplierCost = order.is_global_price
-          ? (order.global_supplier_price || 0)
-          : (order.order_items || []).reduce((sum: number, item: any) => sum + (item.supplier_price || 0), 0)
-        group.owedToSupplier += supplierCost
+        group.owedToSupplier += orderCost
         group.unpaidOrderCount += 1
       }
     })
@@ -435,7 +445,7 @@ export default function SupplierPaymentsPage() {
                           <Pencil className="h-3.5 w-3.5 ml-1" />
                           ערוך תשלומים
                         </Button>
-                        {group.paidOrderCount === 0 && (
+                        {group.orderCount === 0 && (
                           <Button
                             variant="ghost"
                             size="sm"
@@ -460,8 +470,8 @@ export default function SupplierPaymentsPage() {
                     )}
                   </div>
                   <p className="text-xs text-gray-400">
-                    {group.paidOrderCount > 0
-                      ? `${group.paidOrderCount} הזמנות בסטטוס "שילם הכל"`
+                    {group.orderCount > 0
+                      ? `${group.orderCount} הזמנות (${group.paidOrderCount} שולמו במלואן)`
                       : 'טרם קיימות הזמנות משויכות (נוסף ידנית)'}
                   </p>
                   {group.owedToSupplier > 0 && (
