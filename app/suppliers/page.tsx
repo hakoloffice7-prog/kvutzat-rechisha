@@ -164,6 +164,7 @@ export default function SuppliersPage() {
           <p className="text-gray-500 mt-1">ניהול ספקים וקשר עם קטגוריות</p>
         </div>
 
+        {isAdmin && (
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
             <Button>
@@ -235,6 +236,7 @@ export default function SuppliersPage() {
             </div>
           </DialogContent>
         </Dialog>
+        )}
       </div>
 
       {/* Filter */}
@@ -275,25 +277,29 @@ export default function SuppliersPage() {
                       </Badge>
                     )}
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setEditingSupplier({ ...supplier })
-                      setEditDialogOpen(true)
-                    }}
-                    className="text-blue-400 hover:text-blue-600"
-                  >
-                    <Edit2 className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => deleteSupplier(supplier.id)}
-                    className="text-red-400 hover:text-red-600"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  {isAdmin && (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setEditingSupplier({ ...supplier })
+                          setEditDialogOpen(true)
+                        }}
+                        className="text-blue-400 hover:text-blue-600"
+                      >
+                        <Edit2 className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => deleteSupplier(supplier.id)}
+                        className="text-red-400 hover:text-red-600"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </>
+                  )}
                 </div>
 
                 <div className="space-y-1.5">

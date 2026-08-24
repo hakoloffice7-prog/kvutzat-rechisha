@@ -16,6 +16,7 @@ import {
 import { Plus, Building2, ChevronLeft, Loader2, Trash2, FolderOpen, Edit2 } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { useIsAdmin } from '@/components/RoleProvider'
 
 type City = {
   id: string
@@ -33,6 +34,7 @@ type Project = {
 }
 
 export default function CitiesPage() {
+  const isAdmin = useIsAdmin()
   const [cities, setCities] = useState<City[]>([])
   const [loading, setLoading] = useState(true)
   const [cityDialogOpen, setCityDialogOpen] = useState(false)
@@ -201,6 +203,7 @@ export default function CitiesPage() {
           <p className="text-gray-500 mt-1">ניהול ערים ופרויקטי בנייה</p>
         </div>
 
+        {isAdmin && (
         <Dialog open={cityDialogOpen} onOpenChange={setCityDialogOpen}>
           <DialogTrigger asChild>
             <Button>
@@ -232,6 +235,7 @@ export default function CitiesPage() {
             </div>
           </DialogContent>
         </Dialog>
+        )}
       </div>
 
       {cities.length === 0 ? (
@@ -256,36 +260,42 @@ export default function CitiesPage() {
                     </span>
                   </div>
                   <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setSelectedCityId(city.id)
-                        setProjectDialogOpen(true)
-                      }}
-                    >
-                      <Plus className="h-4 w-4 ml-1" />
-                      הוסף פרויקט
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setEditingCity({ id: city.id, name: city.name })
-                        setEditCityDialogOpen(true)
-                      }}
-                      className="text-blue-400 hover:text-blue-600"
-                    >
-                      <Edit2 className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => openDeleteCity(city)}
-                      className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    {isAdmin && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setSelectedCityId(city.id)
+                          setProjectDialogOpen(true)
+                        }}
+                      >
+                        <Plus className="h-4 w-4 ml-1" />
+                        הוסף פרויקט
+                      </Button>
+                    )}
+                    {isAdmin && (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setEditingCity({ id: city.id, name: city.name })
+                            setEditCityDialogOpen(true)
+                          }}
+                          className="text-blue-400 hover:text-blue-600"
+                        >
+                          <Edit2 className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => openDeleteCity(city)}
+                          className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </div>
               </CardHeader>
@@ -316,25 +326,29 @@ export default function CitiesPage() {
                                 <ChevronLeft className="h-4 w-4" />
                               </Button>
                             </Link>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setEditingProject({ id: project.id, name: project.name, address: project.address || '' })
-                                setEditProjectDialogOpen(true)
-                              }}
-                              className="text-blue-400 hover:text-blue-600"
-                            >
-                              <Edit2 className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => openDeleteProject(project)}
-                              className="text-red-400 hover:text-red-600 hover:bg-red-50"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                            {isAdmin && (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    setEditingProject({ id: project.id, name: project.name, address: project.address || '' })
+                                    setEditProjectDialogOpen(true)
+                                  }}
+                                  className="text-blue-400 hover:text-blue-600"
+                                >
+                                  <Edit2 className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => openDeleteProject(project)}
+                                  className="text-red-400 hover:text-red-600 hover:bg-red-50"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -348,7 +362,7 @@ export default function CitiesPage() {
       )}
 
       {/* Add Project Dialog */}
-      <Dialog open={projectDialogOpen} onOpenChange={setProjectDialogOpen}>
+      <Dialog open={isAdmin && projectDialogOpen} onOpenChange={setProjectDialogOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>הוספת פרויקט חדש</DialogTitle>
@@ -389,7 +403,7 @@ export default function CitiesPage() {
       </Dialog>
 
       {/* Edit City Dialog */}
-      <Dialog open={editCityDialogOpen} onOpenChange={setEditCityDialogOpen}>
+      <Dialog open={isAdmin && editCityDialogOpen} onOpenChange={setEditCityDialogOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>עריכת עיר</DialogTitle>
@@ -416,7 +430,7 @@ export default function CitiesPage() {
       </Dialog>
 
       {/* Edit Project Dialog */}
-      <Dialog open={editProjectDialogOpen} onOpenChange={setEditProjectDialogOpen}>
+      <Dialog open={isAdmin && editProjectDialogOpen} onOpenChange={setEditProjectDialogOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>עריכת פרויקט</DialogTitle>
@@ -449,7 +463,7 @@ export default function CitiesPage() {
       </Dialog>
 
       {/* Delete City Confirmation */}
-      <Dialog open={deleteCityConfirm.open} onOpenChange={(open) => setDeleteCityConfirm(prev => ({ ...prev, open }))}>
+      <Dialog open={isAdmin && deleteCityConfirm.open} onOpenChange={(open) => setDeleteCityConfirm(prev => ({ ...prev, open }))}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>מחיקת עיר</DialogTitle>
@@ -466,7 +480,7 @@ export default function CitiesPage() {
       </Dialog>
 
       {/* Delete Project Confirmation */}
-      <Dialog open={deleteProjectConfirm.open} onOpenChange={(open) => setDeleteProjectConfirm(prev => ({ ...prev, open }))}>
+      <Dialog open={isAdmin && deleteProjectConfirm.open} onOpenChange={(open) => setDeleteProjectConfirm(prev => ({ ...prev, open }))}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>מחיקת פרויקט</DialogTitle>
