@@ -15,7 +15,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { Plus, ShoppingCart, Loader2, Trash2, Phone, MapPin, ArrowLeft, Edit2, Mail, KeyRound, X, Save, Star } from 'lucide-react'
+import { Plus, ShoppingCart, Loader2, Trash2, Phone, MapPin, ArrowLeft, Edit2, Mail, KeyRound, X, Save, Star, CalendarClock } from 'lucide-react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { STATUS_LABELS, STATUS_COLORS, STATUS_ORDER, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, formatCurrency, getDebtStatus, calcSupplierPrice } from '@/lib/utils'
@@ -86,6 +86,9 @@ export default function ResidentPage() {
   })
   const [savingResident, setSavingResident] = useState(false)
   const [residentDirty, setResidentDirty] = useState(false)
+  const [reminderDialogOpen, setReminderDialogOpen] = useState(false)
+  const [newReminder, setNewReminder] = useState({ message: '', remind_at: '' })
+  const [savingReminder, setSavingReminder] = useState(false)
   const supabase = createClient()
 
   function addNewOrderItem() {
@@ -244,6 +247,23 @@ export default function ResidentPage() {
     fetchData()
   }
 
+  async function addReminder() {
+    if (!newReminder.message.trim() || !newReminder.remind_at) return
+    setSavingReminder(true)
+    const { error } = await supabase.from('notifications').insert({
+      type: 'manual_reminder',
+      resident_id: residentId,
+      message: newReminder.message.trim(),
+      remind_at: newReminder.remind_at,
+      is_read: false,
+    })
+    if (!error) {
+      setReminderDialogOpen(false)
+      setNewReminder({ message: '', remind_at: '' })
+    }
+    setSavingReminder(false)
+  }
+
   // מחיר גלובלי נשמר ב-order.total_price/global_supplier_price ולא בפריטים
   // (הפריטים משמשים רק לתיאור במצב הזה) - אסור לחשב את הסכום מהפריטים בלבד
   const getOrderTotal = (order: Order) => {
@@ -392,6 +412,48 @@ export default function ResidentPage() {
             </div>
 
             <div className="flex flex-col gap-2 items-end">
+              <Dialog open={reminderDialogOpen} onOpenChange={(open) => {
+                setReminderDialogOpen(open)
+                if (!open) setNewReminder({ message: '', remind_at: '' })
+              }}>
+                <DialogTrigger asChild>
+                  <Button variant="outline">
+                    <CalendarClock className="h-4 w-4 ml-2" />
+                    תזכורת ידנית
+                  </Button>
+                </DialogTrigger>
+                <DialogContent dir="rtl">
+                  <DialogHeader>
+                    <DialogTitle>יצירת תזכורת ל{resident.name}</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label>תזכורת *</Label>
+                      <Input
+                        value={newReminder.message}
+                        onChange={(e) => setNewReminder({ ...newReminder, message: e.target.value })}
+                        placeholder='לדוגמה: "להתקשר בעוד שבוע לבירור" או "לתאם מחר"'
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>תאריך יעד *</Label>
+                      <Input
+                        type="date"
+                        value={newReminder.remind_at}
+                        onChange={(e) => setNewReminder({ ...newReminder, remind_at: e.target.value })}
+                        dir="ltr"
+                      />
+                    </div>
+                    <div className="flex gap-2 justify-end">
+                      <Button variant="outline" onClick={() => setReminderDialogOpen(false)}>ביטול</Button>
+                      <Button onClick={addReminder} disabled={savingReminder || !newReminder.message.trim() || !newReminder.remind_at}>
+                        {savingReminder ? <Loader2 className="h-4 w-4 animate-spin" /> : 'צור תזכורת'}
+                      </Button>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
+
               <Dialog open={dialogOpen} onOpenChange={(open) => {
                 setDialogOpen(open)
                 if (!open) {
