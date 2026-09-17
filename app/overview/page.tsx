@@ -552,12 +552,36 @@ export default function OverviewPage() {
                               <td></td>
                               <td colSpan={6} className="px-4 pb-4 pt-1">
                                 <div className="rounded-md border bg-white p-3 space-y-2 text-sm">
-                                  <div className="font-semibold text-gray-900">{resident.name} — {selectedCategoryName}</div>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-semibold text-gray-900">{resident.name} — {selectedCategoryName}</span>
+                                    {order && (
+                                      <>
+                                        <Badge variant={(STATUS_COLORS[order.status] || 'outline') as any}>
+                                          {STATUS_LABELS[order.status] || order.status}
+                                        </Badge>
+                                        <Badge variant={PAYMENT_STATUS_COLORS[getEffectivePaymentStatus(order)] as any}>
+                                          {PAYMENT_STATUS_LABELS[getEffectivePaymentStatus(order)]}
+                                        </Badge>
+                                      </>
+                                    )}
+                                  </div>
                                   {resident.address && (
                                     <div className="flex items-center gap-2 text-gray-700">
                                       <MapPin className="h-4 w-4 shrink-0" />
                                       {resident.address}
                                     </div>
+                                  )}
+                                  {resident.phone && (
+                                    <div className="flex items-center gap-2 text-gray-700">
+                                      <Phone className="h-4 w-4 shrink-0" />
+                                      <span dir="ltr">{resident.phone}</span>
+                                    </div>
+                                  )}
+                                  {!!order?.total_price && (
+                                    <div><span className="text-gray-500">מחיר לתשלום: </span>₪{order.total_price.toLocaleString('he-IL')}</div>
+                                  )}
+                                  {order?.measured_at && (
+                                    <div><span className="text-gray-500">תאריך מדידה: </span>{order.measured_at}</div>
                                   )}
                                   {order?.measurements && (
                                     <div><span className="text-gray-500">מדידות: </span>{order.measurements}</div>
@@ -579,8 +603,8 @@ export default function OverviewPage() {
                                       ))}
                                     </div>
                                   )}
-                                  {!order?.measurements && !order?.notes && (!order?.order_items || order.order_items.length === 0) && (!order?.details || Object.keys(order.details).length === 0) && (
-                                    <p className="text-gray-400">אין פרטים נוספים להזמנה זו</p>
+                                  {!order?.total_price && !order?.measured_at && !order?.measurements && !order?.notes && (!order?.order_items || order.order_items.length === 0) && (!order?.details || Object.keys(order.details).length === 0) && (
+                                    <p className="text-gray-400">אין פרטי הזמנה נוספים מעבר לסטטוס ותשלום</p>
                                   )}
                                 </div>
                               </td>
