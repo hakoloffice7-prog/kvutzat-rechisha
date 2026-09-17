@@ -15,7 +15,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { Plus, ShoppingCart, Loader2, Trash2, Phone, MapPin, ArrowLeft, Edit2, Mail, KeyRound, X, Pencil, Star } from 'lucide-react'
+import { Plus, ShoppingCart, Loader2, Trash2, Phone, MapPin, ArrowLeft, Edit2, Mail, KeyRound, X, Save, Star } from 'lucide-react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { STATUS_LABELS, STATUS_COLORS, STATUS_ORDER, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, formatCurrency, getDebtStatus, calcSupplierPrice } from '@/lib/utils'
@@ -74,16 +74,18 @@ export default function ResidentPage() {
   const [newOrder, setNewOrder] = useState({
     category_id: '',
     supplier_id: '',
-    status: 'lead',
+    status: 'interested',
     payment_status: 'not_paid',
     notes: '',
     measured_at: '',
   })
   const [saving, setSaving] = useState(false)
   const [newOrderItems, setNewOrderItems] = useState<NewOrderItem[]>([])
-  const [editDialogOpen, setEditDialogOpen] = useState(false)
-  const [editingResident, setEditingResident] = useState<Resident | null>(null)
+  const [residentForm, setResidentForm] = useState({
+    name: '', address: '', phone: '', phone2: '', email: '', key_location: '',
+  })
   const [savingResident, setSavingResident] = useState(false)
+  const [residentDirty, setResidentDirty] = useState(false)
   const supabase = createClient()
 
   function addNewOrderItem() {
@@ -140,7 +142,18 @@ export default function ResidentPage() {
       supabase.from('suppliers').select('*').order('name'),
     ])
 
-    if (residentData) setResident(residentData)
+    if (residentData) {
+      setResident(residentData)
+      setResidentForm({
+        name: residentData.name || '',
+        address: residentData.address || '',
+        phone: residentData.phone || '',
+        phone2: residentData.phone2 || '',
+        email: residentData.email || '',
+        key_location: residentData.key_location || '',
+      })
+      setResidentDirty(false)
+    }
     if (ordersData) {
       setOrders(ordersData.map((order: any) => ({
         ...order,
@@ -199,23 +212,27 @@ export default function ResidentPage() {
     setSaving(false)
   }
 
-  async function saveEditResident() {
-    if (!editingResident || !editingResident.name.trim()) return
+  function updateResidentField(field: keyof typeof residentForm, value: string) {
+    setResidentForm((prev) => ({ ...prev, [field]: value }))
+    setResidentDirty(true)
+  }
+
+  async function saveResident() {
+    if (!residentForm.name.trim()) return
     setSavingResident(true)
     const { error } = await supabase
       .from('residents')
       .update({
-        name: editingResident.name.trim(),
-        address: (editingResident.address || '').trim(),
-        phone: (editingResident.phone || '').trim(),
-        phone2: (editingResident.phone2 || '').trim(),
-        email: (editingResident.email || '').trim(),
-        key_location: (editingResident.key_location || '').trim(),
+        name: residentForm.name.trim(),
+        address: residentForm.address.trim(),
+        phone: residentForm.phone.trim(),
+        phone2: residentForm.phone2.trim(),
+        email: residentForm.email.trim(),
+        key_location: residentForm.key_location.trim(),
       })
-      .eq('id', editingResident.id)
+      .eq('id', residentId)
     if (!error) {
-      setEditDialogOpen(false)
-      setEditingResident(null)
+      setResidentDirty(false)
       fetchData()
     }
     setSavingResident(false)
@@ -283,69 +300,102 @@ export default function ResidentPage() {
         <span className="text-gray-900 font-medium">{resident.name}</span>
       </div>
 
-      {/* Resident Info */}
+      {/* Resident Info — כל השדות תמיד ניתנים לעריכה, נשמר רק בלחיצה על "שמור שינויים" */}
       <Card>
         <CardContent className="p-6">
-          <div className="flex items-start justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">{resident.name}</h1>
-              <div className="mt-2 space-y-1">
-                {resident.address && (
-                  <p className="text-gray-500 flex items-center gap-2">
-                    <MapPin className="h-4 w-4" />
-                    {resident.address}
-                  </p>
-                )}
-                {resident.phone && (
-                  <div className="text-gray-500 flex items-center gap-2">
-                    <Phone className="h-4 w-4 shrink-0" />
-                    <span dir="ltr">{resident.phone}</span>
-                    <a href={`tel:${resident.phone}`} className="inline-flex items-center justify-center p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200 transition-colors" title="חייג">
-                      <Phone className="h-3.5 w-3.5" />
-                    </a>
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="flex-1 min-w-[280px] space-y-3">
+              <div className="space-y-1">
+                <Label htmlFor="residentFormName" className="text-xs text-gray-500">שם הדייר</Label>
+                <Input
+                  id="residentFormName"
+                  value={residentForm.name}
+                  onChange={(e) => updateResidentField('name', e.target.value)}
+                  className="text-xl font-bold h-11"
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="residentFormAddress" className="text-xs text-gray-500 flex items-center gap-1">
+                    <MapPin className="h-3.5 w-3.5" /> כתובת
+                  </Label>
+                  <Input
+                    id="residentFormAddress"
+                    value={residentForm.address}
+                    onChange={(e) => updateResidentField('address', e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="residentFormPhone" className="text-xs text-gray-500 flex items-center gap-1">
+                    <Phone className="h-3.5 w-3.5" /> טלפון
+                  </Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="residentFormPhone"
+                      value={residentForm.phone}
+                      onChange={(e) => updateResidentField('phone', e.target.value)}
+                      dir="ltr"
+                    />
+                    {resident.phone && (
+                      <a href={`tel:${resident.phone}`} className="inline-flex items-center justify-center p-2 rounded-full bg-green-100 text-green-600 hover:bg-green-200 transition-colors shrink-0" title="חייג">
+                        <Phone className="h-3.5 w-3.5" />
+                      </a>
+                    )}
                   </div>
-                )}
-                {resident.phone2 && (
-                  <div className="text-gray-500 flex items-center gap-2">
-                    <Phone className="h-4 w-4 shrink-0" />
-                    <span dir="ltr">{resident.phone2}</span>
-                    <span className="text-xs text-gray-400">(נוסף)</span>
-                    <a href={`tel:${resident.phone2}`} className="inline-flex items-center justify-center p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200 transition-colors" title="חייג">
-                      <Phone className="h-3.5 w-3.5" />
-                    </a>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="residentFormPhone2" className="text-xs text-gray-500 flex items-center gap-1">
+                    <Phone className="h-3.5 w-3.5" /> נייד נוסף
+                  </Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="residentFormPhone2"
+                      value={residentForm.phone2}
+                      onChange={(e) => updateResidentField('phone2', e.target.value)}
+                      dir="ltr"
+                    />
+                    {resident.phone2 && (
+                      <a href={`tel:${resident.phone2}`} className="inline-flex items-center justify-center p-2 rounded-full bg-green-100 text-green-600 hover:bg-green-200 transition-colors shrink-0" title="חייג">
+                        <Phone className="h-3.5 w-3.5" />
+                      </a>
+                    )}
                   </div>
-                )}
-                {resident.email && (
-                  <p className="text-gray-500 flex items-center gap-2">
-                    <Mail className="h-4 w-4" />
-                    <span dir="ltr">{resident.email}</span>
-                  </p>
-                )}
-                {resident.key_location && (
-                  <p className="text-gray-500 flex items-center gap-2">
-                    <KeyRound className="h-4 w-4" />
-                    {resident.key_location}
-                  </p>
-                )}
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="residentFormEmail" className="text-xs text-gray-500 flex items-center gap-1">
+                    <Mail className="h-3.5 w-3.5" /> מייל
+                  </Label>
+                  <Input
+                    id="residentFormEmail"
+                    value={residentForm.email}
+                    onChange={(e) => updateResidentField('email', e.target.value)}
+                    dir="ltr"
+                  />
+                </div>
+                <div className="space-y-1 sm:col-span-2">
+                  <Label htmlFor="residentFormKeyLocation" className="text-xs text-gray-500 flex items-center gap-1">
+                    <KeyRound className="h-3.5 w-3.5" /> מיקום מפתח
+                  </Label>
+                  <Input
+                    id="residentFormKeyLocation"
+                    value={residentForm.key_location}
+                    onChange={(e) => updateResidentField('key_location', e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <Button onClick={saveResident} disabled={savingResident || !residentForm.name.trim() || !residentDirty}>
+                  {savingResident ? <Loader2 className="h-4 w-4 animate-spin ml-2" /> : <Save className="h-4 w-4 ml-2" />}
+                  שמור שינויים
+                </Button>
               </div>
             </div>
 
             <div className="flex flex-col gap-2 items-end">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setEditingResident({ ...resident })
-                  setEditDialogOpen(true)
-                }}
-              >
-                <Pencil className="h-4 w-4 ml-2" />
-                עריכת פרטי דייר
-              </Button>
-
               <Dialog open={dialogOpen} onOpenChange={(open) => {
                 setDialogOpen(open)
                 if (!open) {
-                  setNewOrder({ category_id: '', supplier_id: '', status: 'lead', payment_status: 'not_paid', notes: '', measured_at: '' })
+                  setNewOrder({ category_id: '', supplier_id: '', status: 'interested', payment_status: 'not_paid', notes: '', measured_at: '' })
                   setNewOrderItems([])
                 }
               }}>
@@ -510,76 +560,6 @@ export default function ResidentPage() {
           </div>
         </CardContent>
       </Card>
-
-      {/* Edit Resident Dialog */}
-      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent dir="rtl">
-          <DialogHeader>
-            <DialogTitle>עריכת פרטי דייר</DialogTitle>
-          </DialogHeader>
-          {editingResident && (
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="editResidentName">שם הדייר</Label>
-                <Input
-                  id="editResidentName"
-                  value={editingResident.name}
-                  onChange={(e) => setEditingResident({ ...editingResident, name: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="editResidentAddress">כתובת</Label>
-                <Input
-                  id="editResidentAddress"
-                  value={editingResident.address}
-                  onChange={(e) => setEditingResident({ ...editingResident, address: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="editResidentPhone">טלפון</Label>
-                <Input
-                  id="editResidentPhone"
-                  value={editingResident.phone}
-                  onChange={(e) => setEditingResident({ ...editingResident, phone: e.target.value })}
-                  dir="ltr"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="editResidentPhone2">נייד נוסף</Label>
-                <Input
-                  id="editResidentPhone2"
-                  value={editingResident.phone2 || ''}
-                  onChange={(e) => setEditingResident({ ...editingResident, phone2: e.target.value })}
-                  dir="ltr"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="editResidentEmail">מייל</Label>
-                <Input
-                  id="editResidentEmail"
-                  value={editingResident.email || ''}
-                  onChange={(e) => setEditingResident({ ...editingResident, email: e.target.value })}
-                  dir="ltr"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="editResidentKeyLocation">מיקום מפתח</Label>
-                <Input
-                  id="editResidentKeyLocation"
-                  value={editingResident.key_location || ''}
-                  onChange={(e) => setEditingResident({ ...editingResident, key_location: e.target.value })}
-                />
-              </div>
-              <div className="flex gap-2 justify-end">
-                <Button variant="outline" onClick={() => setEditDialogOpen(false)}>ביטול</Button>
-                <Button onClick={saveEditResident} disabled={savingResident || !editingResident.name.trim()}>
-                  {savingResident ? <Loader2 className="h-4 w-4 animate-spin" /> : 'שמור שינויים'}
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
 
       {/* Orders by Category */}
       <div>

@@ -51,8 +51,8 @@ type ProjectGroup = {
   ledger: Ledger
 }
 
-// הזמנות שנחשבות "בוצעו" מול הספק (לא רק לברר/מעוניין/הצעת מחיר וכו')
-const FULFILLED_STATUSES = new Set(['ordered', 'delivery_scheduled', 'done'])
+// הזמנות שנחשבות "בוצעו" מול הספק (לא רק מעוניין/אישור וכו')
+const FULFILLED_STATUSES = new Set(['delivery_scheduled', 'done'])
 
 type ProjectOption = { id: string; name: string; cityName: string }
 

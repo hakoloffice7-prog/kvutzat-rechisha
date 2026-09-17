@@ -19,9 +19,9 @@ type Notification = {
 
 const NOTIFICATION_MESSAGES: Record<string, (n: Notification) => string> = {
   considering_week: (n) =>
-    `${n.residents?.name || 'דייר'} מתלבט מעל שבוע בנוגע ל${n.orders?.categories?.name || 'הזמנה'}`,
+    `${n.residents?.name || 'דייר'} מעוניין ללא התקדמות מעל שבוע בנוגע ל${n.orders?.categories?.name || 'הזמנה'}`,
   unpaid_order: (n) =>
-    `הזמנת ${n.orders?.categories?.name || 'מוצר'} של ${n.residents?.name || 'דייר'} לא שולמה`,
+    `הזמנת ${n.orders?.categories?.name || 'מוצר'} של ${n.residents?.name || 'דייר'} בתיאום אספקה ולא שולמה`,
 }
 
 export default function NotificationsPage() {
@@ -81,12 +81,12 @@ export default function NotificationsPage() {
       supabase
         .from('orders')
         .select('id, resident_id')
-        .eq('status', 'considering')
+        .eq('status', 'interested')
         .lt('created_at', sevenDaysAgo),
       supabase
         .from('orders')
         .select('id, resident_id')
-        .eq('status', 'ordered')
+        .eq('status', 'delivery_scheduled')
         .eq('payment_status', 'not_paid')
         .lt('created_at', threeDaysAgo),
       supabase

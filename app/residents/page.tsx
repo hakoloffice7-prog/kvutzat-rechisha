@@ -72,7 +72,7 @@ export default function ResidentsPage() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [deleteConfirmId, setDeleteConfirmId] = useState('')
   const [deleteConfirmName, setDeleteConfirmName] = useState('')
-  // Name search
+  // חיפוש חופשי לפי שם / טלפון / כתובת
   const [nameSearch, setNameSearch] = useState('')
   // Phone validation
   const [phoneError, setPhoneError] = useState('')
@@ -343,8 +343,8 @@ export default function ResidentsPage() {
               <Input
                 value={nameSearch}
                 onChange={(e) => setNameSearch(e.target.value)}
-                placeholder="חיפוש לפי שם..."
-                className="w-44 h-8 text-sm"
+                placeholder="חיפוש לפי שם / טלפון / כתובת..."
+                className="w-64 h-8 text-sm"
               />
             </div>
           </CardHeader>
@@ -360,7 +360,13 @@ export default function ResidentsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(nameSearch.trim() ? residents.filter(r => r.name.includes(nameSearch.trim())) : residents).map((resident) => (
+                  {(nameSearch.trim()
+                    ? residents.filter((r) => {
+                        const q = nameSearch.trim()
+                        return r.name.includes(q) || (r.phone || '').includes(q) || (r.address || '').includes(q)
+                      })
+                    : residents
+                  ).map((resident) => (
                     <tr key={resident.id} className="border-b hover:bg-gray-50 transition-colors">
                       <td className="py-3 px-4">
                         <button

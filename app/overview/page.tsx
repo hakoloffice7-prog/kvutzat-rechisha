@@ -1,21 +1,33 @@
 'use client'
 
-import { useState, useEffect, useMemo, useRef } from 'react'
-import { ChevronDown } from 'lucide-react'
+import { useState, useEffect, useMemo, useRef, Fragment } from 'react'
+import { ChevronDown, ChevronUp } from 'lucide-react'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
-import { Loader2, BarChart2, Phone } from 'lucide-react'
+import { Loader2, BarChart2, Phone, MapPin } from 'lucide-react'
 import Link from 'next/link'
 import { STATUS_LABELS, STATUS_ORDER, STATUS_COLORS, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, getDebtStatus, type DebtStatus } from '@/lib/utils'
+
+// ערכי "סינטינל" לבחירת "כל הערים" / "כל הפרויקטים" בבוררים, כדי לאפשר
+// תצוגה חוצת ערים/פרויקטים (למשל כל מי שרוצה וילונות, מכל המערכת)
+const ALL_CITIES = '__ALL_CITIES__'
+const ALL_PROJECTS = '__ALL_PROJECTS__'
 
 type City = { id: string; name: string }
 type Project = { id: string; city_id: string; name: string }
 type Category = { id: string; name: string }
 
-type Resident = { id: string; name: string; phone: string }
+type Resident = {
+  id: string
+  name: string
+  phone: string
+  address: string
+  project_id: string
+  projects: { name: string; cities: { name: string } } | null
+}
 
 type Order = {
   id: string
@@ -25,7 +37,11 @@ type Order = {
   payment_status: string
   measured_at: string | null
   total_price: number | null
+  notes: string | null
+  measurements: string | null
+  details: Record<string, string> | null
   order_payments: { amount: number }[]
+  order_items: { description: string; model: string }[]
 }
 
 type ResidentRow = {
@@ -55,6 +71,16 @@ const STATUS_FILTER_OPTIONS: { value: StatusValue; label: string }[] =
 
 const STATUS_FILTER_VALUES = new Set<string>(STATUS_ORDER)
 const PAYMENT_STATUS_FILTER_VALUES = new Set<string>(['all', 'not_paid', 'partial', 'paid_full'])
+
+const TILE_COLOR: Record<string, string> = {
+  interested: 'text-blue-600',
+  measurement_scheduled: 'text-blue-600',
+  measured: 'text-blue-600',
+  quoted: 'text-yellow-600',
+  delivery_scheduled: 'text-blue-600',
+  done: 'text-green-600',
+  cancelled: 'text-red-600',
+}
 
 export default function OverviewPage() {
   const supabase = createClient()
@@ -91,6 +117,7 @@ export default function OverviewPage() {
 
   const [residents, setResidents] = useState<Resident[]>([])
   const [orders, setOrders] = useState<Order[]>([])
+  const [expandedResidentId, setExpandedResidentId] = useState<string>('')
 
   const [loadingInit, setLoadingInit] = useState(true)
   const [loadingData, setLoadingData] = useState(false)
@@ -109,30 +136,28 @@ export default function OverviewPage() {
     init()
   }, [])
 
-  // Load projects when city changes; restore the project coming from the URL
-  // (on first load) if it actually belongs to that city, otherwise clear it
+  // Load projects when city changes (או את כל הפרויקטים מכל הערים אם נבחר
+  // "כל הערים"); משחזר את הפרויקט שהגיע מה-URL (בטעינה ראשונה) אם הוא באמת
+  // שייך לרשימה, אחרת מנקה אותו
   useEffect(() => {
     if (!selectedCityId) {
       setProjects([])
       setSelectedProjectId('')
       return
     }
-    supabase
-      .from('projects')
-      .select('id, city_id, name')
-      .eq('city_id', selectedCityId)
-      .order('name')
-      .then(({ data }) => {
-        const projectsData = data || []
-        setProjects(projectsData)
-        const pending = pendingProjectIdRef.current
-        if (pending && projectsData.some((p) => p.id === pending)) {
-          setSelectedProjectId(pending)
-        } else {
-          setSelectedProjectId('')
-        }
-        pendingProjectIdRef.current = ''
-      })
+    const query = supabase.from('projects').select('id, city_id, name').order('name')
+    const scoped = selectedCityId === ALL_CITIES ? query : query.eq('city_id', selectedCityId)
+    scoped.then(({ data }) => {
+      const projectsData = data || []
+      setProjects(projectsData)
+      const pending = pendingProjectIdRef.current
+      if (pending && (pending === ALL_PROJECTS || projectsData.some((p) => p.id === pending))) {
+        setSelectedProjectId(pending)
+      } else {
+        setSelectedProjectId('')
+      }
+      pendingProjectIdRef.current = ''
+    })
   }, [selectedCityId])
 
   // Keep the current filters reflected in the URL (replacing, not pushing, so
@@ -172,9 +197,17 @@ export default function OverviewPage() {
     setStatusFilters((prev) => prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value])
   }
 
-  // Load residents + orders when project + category selected
+  // רשימת מזהי הפרויקטים הרלוונטית לשאילתה: פרויקט בודד, או כל הפרויקטים
+  // שכבר נטענו לפי סינון העיר (עיר בודדת / כל הערים)
+  const effectiveProjectIds = useMemo(() => {
+    if (!selectedProjectId) return null
+    if (selectedProjectId === ALL_PROJECTS) return projects.map((p) => p.id)
+    return [selectedProjectId]
+  }, [selectedProjectId, projects])
+
+  // Load residents + orders when project(s) + category selected
   useEffect(() => {
-    if (!selectedProjectId || !selectedCategoryId) {
+    if (!effectiveProjectIds || effectiveProjectIds.length === 0 || !selectedCategoryId) {
       setResidents([])
       setOrders([])
       return
@@ -182,24 +215,27 @@ export default function OverviewPage() {
 
     async function fetchData() {
       setLoadingData(true)
-      const { data: residentsData } = await supabase
+      const residentsQuery = supabase
         .from('residents')
-        .select('id, name, phone')
-        .eq('project_id', selectedProjectId)
+        .select('id, name, phone, address, project_id, projects(name, cities(name))')
         .order('name')
+      const scopedResidentsQuery = effectiveProjectIds!.length === 1
+        ? residentsQuery.eq('project_id', effectiveProjectIds![0])
+        : residentsQuery.in('project_id', effectiveProjectIds!)
+      const { data: residentsData } = await scopedResidentsQuery
 
-      const residentsList = residentsData || []
+      const residentsList = (residentsData || []) as unknown as Resident[]
       setResidents(residentsList)
 
       if (residentsList.length > 0) {
         const residentIds = residentsList.map((r) => r.id)
         const { data: ordersData } = await supabase
           .from('orders')
-          .select('id, resident_id, category_id, status, payment_status, measured_at, total_price, order_payments(amount)')
+          .select('id, resident_id, category_id, status, payment_status, measured_at, total_price, notes, measurements, details, order_payments(amount), order_items(description, model)')
           .in('resident_id', residentIds)
           .eq('category_id', selectedCategoryId)
 
-        setOrders(ordersData || [])
+        setOrders((ordersData || []) as unknown as Order[])
       } else {
         setOrders([])
       }
@@ -208,7 +244,7 @@ export default function OverviewPage() {
     }
 
     fetchData()
-  }, [selectedProjectId, selectedCategoryId])
+  }, [effectiveProjectIds, selectedCategoryId])
 
   // Merge residents + orders — residents with no order (no status yet) in this
   // category are left out entirely, instead of being treated as "לברר"
@@ -237,19 +273,20 @@ export default function OverviewPage() {
     return result
   }, [rows, statusFilters, paymentStatusFilter, measuredDateFilter])
 
-  // Summary counts
+  // Summary counts — נספרים דינמית לפי כל הסטטוסים הקיימים בפייפליין הנוכחי
   const summary = useMemo(() => {
-    const total = rows.length
-    const ordered = rows.filter((r) => r.order?.status === 'ordered').length
-    const quoted = rows.filter((r) => r.order?.status === 'quoted').length
-    const interested = rows.filter((r) => r.order?.status === 'interested').length
-    const considering = rows.filter((r) => r.order?.status === 'considering').length
-    const noContact = rows.filter((r) => r.order?.status === 'lead').length
-    return { total, ordered, quoted, interested, considering, noContact }
+    const byStatus: Record<string, number> = {}
+    for (const s of STATUS_ORDER) byStatus[s] = 0
+    for (const row of rows) {
+      if (row.order && byStatus[row.order.status] !== undefined) byStatus[row.order.status]++
+    }
+    return { total: rows.length, byStatus }
   }, [rows])
 
-  const filteredProjects = projects.filter((p) => p.city_id === selectedCityId)
+  const filteredProjects = selectedCityId === ALL_CITIES ? projects : projects.filter((p) => p.city_id === selectedCityId)
+  const showAllScopeColumn = selectedProjectId === ALL_PROJECTS
   const showTable = !!(selectedProjectId && selectedCategoryId)
+  const selectedCategoryName = categories.find((c) => c.id === selectedCategoryId)?.name || ''
 
   return (
     <div className="space-y-6" dir="rtl">
@@ -258,7 +295,7 @@ export default function OverviewPage() {
         <BarChart2 className="h-8 w-8 text-blue-600" />
         <div>
           <h1 className="text-3xl font-bold text-gray-900">סקירת פרויקט</h1>
-          <p className="text-gray-500 mt-1">הצג את כל הדיירים בפרויקט עם סטטוס הזמנה לפי קטגוריה</p>
+          <p className="text-gray-500 mt-1">הצג את כל הדיירים בפרויקט (או בכל הערים/פרויקטים) עם סטטוס הזמנה לפי קטגוריה</p>
         </div>
       </div>
 
@@ -282,6 +319,7 @@ export default function OverviewPage() {
                   className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">-- בחר עיר --</option>
+                  <option value={ALL_CITIES}>כל הערים</option>
                   {cities.map((city) => (
                     <option key={city.id} value={city.id}>{city.name}</option>
                   ))}
@@ -299,6 +337,11 @@ export default function OverviewPage() {
                   className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                 >
                   <option value="">-- בחר פרויקט --</option>
+                  {selectedCityId && (
+                    <option value={ALL_PROJECTS}>
+                      {selectedCityId === ALL_CITIES ? 'כל הפרויקטים (כל הערים)' : 'כל הפרויקטים בעיר'}
+                    </option>
+                  )}
                   {filteredProjects.map((p) => (
                     <option key={p.id} value={p.id}>{p.name}</option>
                   ))}
@@ -403,7 +446,7 @@ export default function OverviewPage() {
         <Card>
           <CardContent className="text-center py-12">
             <BarChart2 className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-500 text-lg">בחר פרויקט וקטגוריה לצפייה בסקירה</p>
+            <p className="text-gray-500 text-lg">בחר פרויקט (או "כל הפרויקטים") וקטגוריה לצפייה בסקירה</p>
           </CardContent>
         </Card>
       ) : loadingData ? (
@@ -413,7 +456,7 @@ export default function OverviewPage() {
       ) : residents.length === 0 ? (
         <Card>
           <CardContent className="text-center py-12">
-            <p className="text-gray-500 text-lg">אין דיירים בפרויקט זה</p>
+            <p className="text-gray-500 text-lg">אין דיירים בסינון זה</p>
           </CardContent>
         </Card>
       ) : rows.length === 0 ? (
@@ -429,6 +472,7 @@ export default function OverviewPage() {
               <CardTitle className="text-lg">
                 דיירים ({filteredRows.length}{statusFilters.length > 0 ? ` מתוך ${rows.length}` : ''})
               </CardTitle>
+              <p className="text-xs text-gray-400">לחיצה על שם הדייר פותחת שורת פירוט (לצילום מסך ושליחה לבעל מקצוע)</p>
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
@@ -437,9 +481,11 @@ export default function OverviewPage() {
                     <tr className="border-b bg-gray-50 text-gray-600">
                       <th className="text-right py-3 px-4 font-medium">#</th>
                       <th className="text-right py-3 px-4 font-medium">שם דייר</th>
+                      <th className="text-right py-3 px-4 font-medium">כתובת</th>
                       <th className="text-right py-3 px-4 font-medium">טלפון</th>
                       <th className="text-right py-3 px-4 font-medium">סטטוס הזמנה</th>
                       <th className="text-right py-3 px-4 font-medium">סטטוס תשלום</th>
+                      <th className="text-right py-3 px-4 font-medium">הערות</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -447,36 +493,100 @@ export default function OverviewPage() {
                       const effectiveStatus = order!.status
                       const statusLabel = STATUS_LABELS[effectiveStatus] || effectiveStatus
                       const statusVariant = STATUS_COLORS[effectiveStatus] || 'outline'
+                      const isExpanded = expandedResidentId === resident.id
 
                       return (
-                        <tr key={resident.id} className="border-b hover:bg-gray-50 transition-colors">
-                          <td className="py-3 px-4 text-gray-400">{idx + 1}</td>
-                          <td className="py-3 px-4 font-medium">
-                            <Link href={`/residents/${resident.id}`} className="text-blue-700 hover:underline">{resident.name}</Link>
-                          </td>
-                          <td className="py-3 px-4 text-left">
-                            {resident.phone
-                              ? <div className="flex items-center gap-2">
-                                  <span className="text-gray-600" dir="ltr">{resident.phone}</span>
-                                  <a href={`tel:${resident.phone}`} className="inline-flex items-center justify-center p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200 transition-colors" title="חייג">
-                                    <Phone className="h-3.5 w-3.5" />
-                                  </a>
+                        <Fragment key={resident.id}>
+                          <tr className="border-b hover:bg-gray-50 transition-colors">
+                            <td className="py-3 px-4 text-gray-400">{idx + 1}</td>
+                            <td className="py-3 px-4 font-medium">
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setExpandedResidentId(isExpanded ? '' : resident.id)}
+                                  className="flex items-center gap-1 text-blue-700 hover:underline text-right"
+                                  title="הצג פרטי הזמנה"
+                                >
+                                  {isExpanded ? <ChevronUp className="h-3.5 w-3.5 shrink-0" /> : <ChevronDown className="h-3.5 w-3.5 shrink-0" />}
+                                  {resident.name}
+                                </button>
+                                <Link href={`/residents/${resident.id}`} className="text-gray-400 hover:text-blue-600 text-xs" title="לעמוד הדייר">
+                                  ←
+                                </Link>
+                              </div>
+                              {showAllScopeColumn && resident.projects && (
+                                <div className="text-xs text-gray-400 mr-5">
+                                  {resident.projects.cities?.name} · {resident.projects.name}
                                 </div>
-                              : <span className="text-gray-400">—</span>}
-                          </td>
-                          <td className="py-3 px-4">
-                            <Badge variant={statusVariant as any}>{statusLabel}</Badge>
-                          </td>
-                          <td className="py-3 px-4">
-                            {order ? (
-                              <Badge variant={PAYMENT_STATUS_COLORS[getEffectivePaymentStatus(order)] as any}>
-                                {PAYMENT_STATUS_LABELS[getEffectivePaymentStatus(order)]}
-                              </Badge>
-                            ) : (
-                              <span className="text-gray-400">—</span>
-                            )}
-                          </td>
-                        </tr>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-gray-600">{resident.address || '—'}</td>
+                            <td className="py-3 px-4 text-left">
+                              {resident.phone
+                                ? <div className="flex items-center gap-2">
+                                    <span className="text-gray-600" dir="ltr">{resident.phone}</span>
+                                    <a href={`tel:${resident.phone}`} className="inline-flex items-center justify-center p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200 transition-colors" title="חייג">
+                                      <Phone className="h-3.5 w-3.5" />
+                                    </a>
+                                  </div>
+                                : <span className="text-gray-400">—</span>}
+                            </td>
+                            <td className="py-3 px-4">
+                              <Badge variant={statusVariant as any}>{statusLabel}</Badge>
+                            </td>
+                            <td className="py-3 px-4">
+                              {order ? (
+                                <Badge variant={PAYMENT_STATUS_COLORS[getEffectivePaymentStatus(order)] as any}>
+                                  {PAYMENT_STATUS_LABELS[getEffectivePaymentStatus(order)]}
+                                </Badge>
+                              ) : (
+                                <span className="text-gray-400">—</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-gray-600 max-w-[200px] truncate" title={order?.notes || ''}>
+                              {order?.notes || '—'}
+                            </td>
+                          </tr>
+                          {isExpanded && (
+                            <tr className="bg-blue-50/40 border-b">
+                              <td></td>
+                              <td colSpan={6} className="px-4 pb-4 pt-1">
+                                <div className="rounded-md border bg-white p-3 space-y-2 text-sm">
+                                  <div className="font-semibold text-gray-900">{resident.name} — {selectedCategoryName}</div>
+                                  {resident.address && (
+                                    <div className="flex items-center gap-2 text-gray-700">
+                                      <MapPin className="h-4 w-4 shrink-0" />
+                                      {resident.address}
+                                    </div>
+                                  )}
+                                  {order?.measurements && (
+                                    <div><span className="text-gray-500">מדידות: </span>{order.measurements}</div>
+                                  )}
+                                  {order?.notes && (
+                                    <div><span className="text-gray-500">הערות: </span>{order.notes}</div>
+                                  )}
+                                  {order?.order_items && order.order_items.length > 0 && (
+                                    <ul className="list-disc pr-5">
+                                      {order.order_items.map((it, i) => (
+                                        <li key={i}>{it.description}{it.model ? ` — ${it.model}` : ''}</li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                  {order?.details && Object.keys(order.details).length > 0 && (
+                                    <div className="grid grid-cols-2 gap-1 pt-1 border-t">
+                                      {Object.entries(order.details).map(([k, v]) => (
+                                        <div key={k}><span className="text-gray-500">{k}: </span>{v}</div>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {!order?.measurements && !order?.notes && (!order?.order_items || order.order_items.length === 0) && (!order?.details || Object.keys(order.details).length === 0) && (
+                                    <p className="text-gray-400">אין פרטים נוספים להזמנה זו</p>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
                       )
                     })}
                   </tbody>
@@ -491,13 +601,11 @@ export default function OverviewPage() {
               <CardTitle className="text-base text-gray-700">סיכום</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-4">
                 <SummaryTile label="סה״כ דיירים" value={summary.total} color="text-gray-800" />
-                <SummaryTile label="הזמינו" value={summary.ordered} color="text-green-600" />
-                <SummaryTile label="הצעת מחיר" value={summary.quoted} color="text-yellow-600" />
-                <SummaryTile label="מעוניינים" value={summary.interested} color="text-blue-600" />
-                <SummaryTile label="מתלבטים" value={summary.considering} color="text-yellow-600" />
-                <SummaryTile label="לברר" value={summary.noContact} color="text-gray-500" />
+                {STATUS_ORDER.map((s) => (
+                  <SummaryTile key={s} label={STATUS_LABELS[s]} value={summary.byStatus[s] || 0} color={TILE_COLOR[s] || 'text-gray-600'} />
+                ))}
               </div>
             </CardContent>
           </Card>

@@ -15,7 +15,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { Plus, Loader2, Trash2, ArrowLeft, Save, X, Pencil, Star } from 'lucide-react'
+import { Plus, Loader2, Trash2, ArrowLeft, Save, X, Pencil, Star, Phone, MapPin, Mail, KeyRound } from 'lucide-react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { useIsAdmin } from '@/components/RoleProvider'
@@ -57,6 +57,11 @@ type Order = {
   residents: {
     id: string
     name: string
+    address: string | null
+    phone: string | null
+    phone2: string | null
+    email: string | null
+    key_location: string | null
     projects: { id: string; name: string; cities: { name: string } }
   }
   categories: { id: string; name: string }
@@ -135,7 +140,7 @@ export default function OrderPage() {
         .from('orders')
         .select(`
           *,
-          residents(id, name, projects(id, name, cities(name))),
+          residents(id, name, address, phone, phone2, email, key_location, projects(id, name, cities(name))),
           categories(id, name),
           suppliers(id, name),
           order_items(*, order_item_costs(supplier_price)),
@@ -422,6 +427,53 @@ export default function OrderPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Order Details (Editable) */}
         <div className="lg:col-span-1 space-y-4">
+          {/* Customer Details */}
+          <Card>
+            <CardHeader>
+              <CardTitle>פרטי לקוח</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              <div className="font-semibold text-gray-900 text-base">{order.residents?.name}</div>
+              {order.residents?.address && (
+                <p className="text-gray-600 flex items-center gap-2">
+                  <MapPin className="h-4 w-4 shrink-0" />
+                  {order.residents.address}
+                </p>
+              )}
+              {order.residents?.phone && (
+                <div className="text-gray-600 flex items-center gap-2">
+                  <Phone className="h-4 w-4 shrink-0" />
+                  <span dir="ltr">{order.residents.phone}</span>
+                  <a href={`tel:${order.residents.phone}`} className="inline-flex items-center justify-center p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200 transition-colors" title="חייג">
+                    <Phone className="h-3.5 w-3.5" />
+                  </a>
+                </div>
+              )}
+              {order.residents?.phone2 && (
+                <div className="text-gray-600 flex items-center gap-2">
+                  <Phone className="h-4 w-4 shrink-0" />
+                  <span dir="ltr">{order.residents.phone2}</span>
+                  <span className="text-xs text-gray-400">(נוסף)</span>
+                  <a href={`tel:${order.residents.phone2}`} className="inline-flex items-center justify-center p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200 transition-colors" title="חייג">
+                    <Phone className="h-3.5 w-3.5" />
+                  </a>
+                </div>
+              )}
+              {order.residents?.email && (
+                <p className="text-gray-600 flex items-center gap-2">
+                  <Mail className="h-4 w-4 shrink-0" />
+                  <span dir="ltr">{order.residents.email}</span>
+                </p>
+              )}
+              {order.residents?.key_location && (
+                <p className="text-gray-600 flex items-center gap-2">
+                  <KeyRound className="h-4 w-4 shrink-0" />
+                  {order.residents.key_location}
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle>פרטי הזמנה</CardTitle>
