@@ -15,7 +15,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { Plus, Loader2, Trash2, ArrowLeft, Save, X, Pencil, Star, Phone, MapPin, Mail, KeyRound } from 'lucide-react'
+import { Plus, Loader2, Trash2, ArrowLeft, Save, X, Star, Phone, MapPin, Mail, KeyRound } from 'lucide-react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { useIsAdmin } from '@/components/RoleProvider'
@@ -79,7 +79,8 @@ export default function OrderPage() {
   const isAdmin = useIsAdmin()
 
   const updateTotalFromItemsRef = useRef(false)
-  const [editMode, setEditMode] = useState(false)
+  // העריכה זמינה תמיד, בלי כפתור "ערוך"
+  const editMode = true
   const [order, setOrder] = useState<Order | null>(null)
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [loading, setLoading] = useState(true)
@@ -413,14 +414,6 @@ export default function OrderPage() {
           <Badge variant={PAYMENT_STATUS_COLORS[computedPaymentStatus] as any} className="text-sm px-3 py-1">
             {PAYMENT_STATUS_LABELS[computedPaymentStatus]}
           </Badge>
-          <Button
-            variant={editMode ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setEditMode(!editMode)}
-          >
-            <Pencil className="h-4 w-4 ml-1" />
-            {editMode ? 'בטל עריכה' : 'ערוך'}
-          </Button>
         </div>
       </div>
 

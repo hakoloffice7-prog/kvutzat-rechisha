@@ -17,6 +17,7 @@ import {
 import { Plus, Users, Loader2, Pencil, Trash2, ShoppingCart, Phone } from 'lucide-react'
 import { STATUS_LABELS, STATUS_ORDER, STATUS_COLORS, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS } from '@/lib/utils'
 import Link from 'next/link'
+import { AddOrderDialog } from '@/components/AddOrderDialog'
 
 type City = { id: string; name: string }
 type Project = { id: string; city_id: string; name: string; address: string }
@@ -29,6 +30,7 @@ type Resident = {
   phone2: string
   email: string
   key_location: string
+  projects?: { name: string; city_id: string } | null
 }
 type OrderItem = { id: string; description: string; model: string; customer_price: number }
 
@@ -40,6 +42,9 @@ type SimpleOrder = {
   suppliers: { name: string } | null
   order_items: OrderItem[]
 }
+
+const ALL = 'all'
+const PAGE_SIZE = 25
 
 export default function ResidentsPage() {
   const router = useRouter()
@@ -64,6 +69,7 @@ export default function ResidentsPage() {
   const [ordersResident, setOrdersResident] = useState<Resident | null>(null)
   const [residentOrders, setResidentOrders] = useState<SimpleOrder[]>([])
   const [loadingOrders, setLoadingOrders] = useState(false)
+  const [addOrderOpen, setAddOrderOpen] = useState(false)
 
   // Filter persistence
   const pendingProjectIdRef = useRef('')
@@ -74,6 +80,10 @@ export default function ResidentsPage() {
   const [deleteConfirmName, setDeleteConfirmName] = useState('')
   // חיפוש חופשי לפי שם / טלפון / כתובת
   const [nameSearch, setNameSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const [page, setPage] = useState(0)
+  const [totalCount, setTotalCount] = useState(0)
+  const fetchSeqRef = useRef(0)
   // Phone validation
   const [phoneError, setPhoneError] = useState('')
 
@@ -98,15 +108,13 @@ export default function ResidentsPage() {
   useEffect(() => {
     if (selectedCityId) {
       ;(async () => {
-        const { data } = await supabase
-          .from('projects')
-          .select('id, city_id, name, address')
-          .eq('city_id', selectedCityId)
-          .order('name')
+        let q = supabase.from('projects').select('id, city_id, name, address').order('name')
+        if (selectedCityId !== ALL) q = q.eq('city_id', selectedCityId)
+        const { data } = await q
         const projectsData = data || []
         setProjects(projectsData)
         const pending = pendingProjectIdRef.current
-        if (pending && projectsData.some((p) => p.id === pending)) {
+        if (pending && (pending === ALL || projectsData.some((p) => p.id === pending))) {
           setSelectedProjectId(pending)
           if (pendingAddDialogRef.current) {
             pendingAddDialogRef.current = false
@@ -126,9 +134,13 @@ export default function ResidentsPage() {
   }, [selectedCityId])
 
   useEffect(() => {
-    if (selectedProjectId) fetchResidents(selectedProjectId)
-    else setResidents([])
-  }, [selectedProjectId])
+    const t = setTimeout(() => setDebouncedSearch(nameSearch.trim()), 300)
+    return () => clearTimeout(t)
+  }, [nameSearch])
+
+  useEffect(() => {
+    fetchResidents()
+  }, [selectedCityId, selectedProjectId, page, debouncedSearch])
 
   useEffect(() => {
     try {
@@ -155,14 +167,35 @@ export default function ResidentsPage() {
     setProjects(data || [])
   }
 
-  async function fetchResidents(projectId: string) {
+  async function fetchResidents(_projectId?: string) {
+    if (!selectedProjectId || !selectedCityId) {
+      setResidents([])
+      setTotalCount(0)
+      return
+    }
+    const seq = ++fetchSeqRef.current
     setLoadingResidents(true)
-    const { data } = await supabase
+    const cityFiltered = selectedProjectId === ALL && selectedCityId !== ALL
+    let q = supabase
       .from('residents')
-      .select('id, project_id, name, address, phone, phone2, email, key_location')
-      .eq('project_id', projectId)
+      .select(
+        cityFiltered
+          ? 'id, project_id, name, address, phone, phone2, email, key_location, projects!inner(name, city_id)'
+          : 'id, project_id, name, address, phone, phone2, email, key_location, projects(name, city_id)',
+        { count: 'exact' }
+      )
+    if (selectedProjectId !== ALL) q = q.eq('project_id', selectedProjectId)
+    else if (cityFiltered) q = q.eq('projects.city_id', selectedCityId)
+    const term = debouncedSearch.replace(/[,()%*]/g, ' ').trim()
+    if (term) q = q.or(`name.ilike.%${term}%,phone.ilike.%${term}%,address.ilike.%${term}%`)
+    const { data, count } = await q
       .order('name')
-    setResidents(data || [])
+      .order('id')
+      .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
+    if (seq !== fetchSeqRef.current) return
+    if (page > 0 && (!data || data.length === 0)) { setPage(Math.max(0, Math.ceil((count || 0) / PAGE_SIZE) - 1)); return }
+    setResidents((data as unknown as Resident[]) || [])
+    setTotalCount(count || 0)
     setLoadingResidents(false)
   }
 
@@ -172,13 +205,13 @@ export default function ResidentsPage() {
   }
 
   async function addResident() {
-    if (!newResident.name.trim() || !selectedProjectId) return
+    if (!newResident.name.trim() || !selectedProjectId || selectedProjectId === ALL) return
     const phone = newResident.phone.trim()
     if (!phone) { setPhoneError('יש להזין מספר טלפון'); return }
     if (!isValidPhone(phone)) { setPhoneError('מספר טלפון לא תקין (לדוגמה: 050-1234567)'); return }
     setPhoneError('')
     setSaving(true)
-    const { error } = await supabase.from('residents').insert({
+    const { data: created, error } = await supabase.from('residents').insert({
       project_id: selectedProjectId,
       name: newResident.name.trim(),
       address: newResident.address.trim(),
@@ -186,12 +219,14 @@ export default function ResidentsPage() {
       phone2: newResident.phone2.trim(),
       email: newResident.email.trim(),
       key_location: newResident.key_location.trim(),
-    })
-    if (!error) {
+    }).select('id').single()
+    if (!error && created) {
       setNewResident({ name: '', address: '', phone: '', phone2: '', email: '', key_location: '' })
       setAddDialogOpen(false)
-      fetchResidents(selectedProjectId)
       router.refresh()
+      setSaving(false)
+      router.push('/residents/' + created.id)
+      return
     }
     setSaving(false)
   }
@@ -253,7 +288,8 @@ export default function ResidentsPage() {
     setLoadingOrders(false)
   }
 
-  const filteredProjects = projects.filter((p) => p.city_id === selectedCityId)
+  const filteredProjects = selectedCityId === ALL ? projects : projects.filter((p) => p.city_id === selectedCityId)
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
 
   return (
     <div className="space-y-6" dir="rtl">
@@ -262,7 +298,7 @@ export default function ResidentsPage() {
           <h1 className="text-3xl font-bold text-gray-900">דיירים</h1>
           <p className="text-gray-500 mt-1">ניהול דיירים לפי פרויקט</p>
         </div>
-        {selectedProjectId && (
+        {selectedProjectId && selectedProjectId !== ALL && (
           <Button onClick={() => setAddDialogOpen(true)}>
             <Plus className="h-4 w-4 ml-2" />
             הוסף דייר
@@ -285,10 +321,11 @@ export default function ResidentsPage() {
                 <select
                   id="citySelect"
                   value={selectedCityId}
-                  onChange={(e) => setSelectedCityId(e.target.value)}
+                  onChange={(e) => { setSelectedCityId(e.target.value); setPage(0) }}
                   className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">-- בחר עיר --</option>
+                  <option value={ALL}>כל הערים</option>
                   {cities.map((city) => (
                     <option key={city.id} value={city.id}>{city.name}</option>
                   ))}
@@ -301,11 +338,12 @@ export default function ResidentsPage() {
               <select
                 id="projectSelect"
                 value={selectedProjectId}
-                onChange={(e) => setSelectedProjectId(e.target.value)}
+                onChange={(e) => { setSelectedProjectId(e.target.value); setPage(0) }}
                 disabled={!selectedCityId}
                 className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
               >
                 <option value="">-- בחר פרויקט --</option>
+                <option value={ALL}>כל הפרויקטים</option>
                 {filteredProjects.map((project) => (
                   <option key={project.id} value={project.id}>{project.name}</option>
                 ))}
@@ -327,7 +365,7 @@ export default function ResidentsPage() {
         <div className="flex items-center justify-center h-32">
           <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
         </div>
-      ) : residents.length === 0 ? (
+      ) : totalCount === 0 && !debouncedSearch ? (
         <Card>
           <CardContent className="text-center py-12">
             <Users className="h-12 w-12 text-gray-300 mx-auto mb-4" />
@@ -339,10 +377,10 @@ export default function ResidentsPage() {
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
-              <CardTitle className="text-lg">דיירים ({residents.length})</CardTitle>
+              <CardTitle className="text-lg">דיירים ({totalCount})</CardTitle>
               <Input
                 value={nameSearch}
-                onChange={(e) => setNameSearch(e.target.value)}
+                onChange={(e) => { setNameSearch(e.target.value); setPage(0) }}
                 placeholder="חיפוש לפי שם / טלפון / כתובת..."
                 className="w-64 h-8 text-sm"
               />
@@ -354,19 +392,14 @@ export default function ResidentsPage() {
                 <thead>
                   <tr className="border-b text-gray-500">
                     <th className="text-right py-3 px-4 font-medium">שם</th>
+                    {selectedProjectId === ALL && <th className="text-right py-3 px-4 font-medium">פרויקט</th>}
                     <th className="text-right py-3 px-4 font-medium">כתובת</th>
                     <th className="text-right py-3 px-4 font-medium">טלפון</th>
                     <th className="py-3 px-4"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {(nameSearch.trim()
-                    ? residents.filter((r) => {
-                        const q = nameSearch.trim()
-                        return r.name.includes(q) || (r.phone || '').includes(q) || (r.address || '').includes(q)
-                      })
-                    : residents
-                  ).map((resident) => (
+                  {residents.map((resident) => (
                     <tr key={resident.id} className="border-b hover:bg-gray-50 transition-colors">
                       <td className="py-3 px-4">
                         <button
@@ -376,6 +409,9 @@ export default function ResidentsPage() {
                           {resident.name}
                         </button>
                       </td>
+                      {selectedProjectId === ALL && (
+                        <td className="py-3 px-4 text-gray-600">{resident.projects?.name || '—'}</td>
+                      )}
                       <td className="py-3 px-4 text-gray-600">{resident.address || '—'}</td>
                       <td className="py-3 px-4">
                         {resident.phone
@@ -424,6 +460,22 @@ export default function ResidentsPage() {
                 </tbody>
               </table>
             </div>
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between pt-4 text-sm text-gray-600">
+                <span>
+                  מציג {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, totalCount)} מתוך {totalCount}
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(page - 1)}>
+                    הקודם
+                  </Button>
+                  <span>עמוד {page + 1} מתוך {totalPages}</span>
+                  <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(page + 1)}>
+                    הבא
+                  </Button>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -591,6 +643,14 @@ export default function ResidentsPage() {
         </DialogContent>
       </Dialog>
 
+      {ordersResident && (
+        <AddOrderDialog
+          residentId={ordersResident.id}
+          open={addOrderOpen}
+          onOpenChange={setAddOrderOpen}
+        />
+      )}
+
       {/* Orders Dialog */}
       <Dialog open={ordersDialogOpen} onOpenChange={setOrdersDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" dir="rtl">
@@ -599,6 +659,14 @@ export default function ResidentsPage() {
               הזמנות — {ordersResident?.name}
             </DialogTitle>
           </DialogHeader>
+
+          <Button
+            onClick={() => { setOrdersDialogOpen(false); setAddOrderOpen(true) }}
+            className="w-fit"
+          >
+            <Plus className="h-4 w-4 ml-2" />
+            הוסף הזמנה
+          </Button>
 
           {loadingOrders ? (
             <div className="flex items-center justify-center py-16">

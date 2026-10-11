@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
 import { Loader2, BarChart2, Phone, MapPin } from 'lucide-react'
 import Link from 'next/link'
+import { MultiSelect } from '@/components/MultiSelect'
 import { STATUS_LABELS, STATUS_ORDER, STATUS_COLORS, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, getDebtStatus, type DebtStatus } from '@/lib/utils'
 
 // ערכי "סינטינל" לבחירת "כל הערים" / "כל הפרויקטים" בבוררים, כדי לאפשר
@@ -50,10 +51,9 @@ type ResidentRow = {
 }
 
 type StatusValue = typeof STATUS_ORDER[number]
-type PaymentStatusFilter = 'all' | DebtStatus
+type PaymentStatusFilter = DebtStatus
 
 const PAYMENT_STATUS_FILTER_OPTIONS: { value: PaymentStatusFilter; label: string }[] = [
-  { value: 'all', label: 'הכל' },
   { value: 'not_paid', label: PAYMENT_STATUS_LABELS.not_paid },
   { value: 'partial', label: PAYMENT_STATUS_LABELS.partial },
   { value: 'paid_full', label: PAYMENT_STATUS_LABELS.paid_full },
@@ -70,7 +70,7 @@ const STATUS_FILTER_OPTIONS: { value: StatusValue; label: string }[] =
   STATUS_ORDER.map((value) => ({ value, label: STATUS_LABELS[value] }))
 
 const STATUS_FILTER_VALUES = new Set<string>(STATUS_ORDER)
-const PAYMENT_STATUS_FILTER_VALUES = new Set<string>(['all', 'not_paid', 'partial', 'paid_full'])
+const PAYMENT_STATUS_FILTER_VALUES = new Set<string>(['not_paid', 'partial', 'paid_full'])
 
 const TILE_COLOR: Record<string, string> = {
   interested: 'text-blue-600',
@@ -92,12 +92,13 @@ export default function OverviewPage() {
   // מתוך עמוד דייר) יחזיר את המסך הזה מדויק כמו שהיה, גם אם הוא נטען מחדש
   const initialCityId = searchParams.get('city') || ''
   const initialProjectId = searchParams.get('project') || ''
-  const initialCategoryId = searchParams.get('category') || ''
+  const initialCategoryIds = (searchParams.get('category') || '').split(',').filter(Boolean)
   const initialStatusFilters = (searchParams.get('status') || '')
     .split(',')
     .filter((s) => STATUS_FILTER_VALUES.has(s)) as StatusValue[]
-  const initialPaymentParam = searchParams.get('payment') || 'all'
-  const initialPaymentStatusFilter = (PAYMENT_STATUS_FILTER_VALUES.has(initialPaymentParam) ? initialPaymentParam : 'all') as PaymentStatusFilter
+  const initialPaymentStatusFilters = (searchParams.get('payment') || '')
+    .split(',')
+    .filter((v) => PAYMENT_STATUS_FILTER_VALUES.has(v)) as PaymentStatusFilter[]
   const initialMeasuredDateFilter = searchParams.get('measuredDate') || ''
 
   const [cities, setCities] = useState<City[]>([])
@@ -108,11 +109,11 @@ export default function OverviewPage() {
 
   const [selectedCityId, setSelectedCityId] = useState(initialCityId)
   const [selectedProjectId, setSelectedProjectId] = useState(initialProjectId)
-  const [selectedCategoryId, setSelectedCategoryId] = useState(initialCategoryId)
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>(initialCategoryIds)
   const [statusFilters, setStatusFilters] = useState<StatusValue[]>(initialStatusFilters)
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false)
   const statusDropdownRef = useRef<HTMLDivElement>(null)
-  const [paymentStatusFilter, setPaymentStatusFilter] = useState<PaymentStatusFilter>(initialPaymentStatusFilter)
+  const [paymentStatusFilters, setPaymentStatusFilters] = useState<PaymentStatusFilter[]>(initialPaymentStatusFilters)
   const [measuredDateFilter, setMeasuredDateFilter] = useState(initialMeasuredDateFilter)
 
   const [residents, setResidents] = useState<Resident[]>([])
@@ -167,13 +168,13 @@ export default function OverviewPage() {
     const params = new URLSearchParams()
     if (selectedCityId) params.set('city', selectedCityId)
     if (selectedProjectId) params.set('project', selectedProjectId)
-    if (selectedCategoryId) params.set('category', selectedCategoryId)
+    if (selectedCategoryIds.length > 0) params.set('category', selectedCategoryIds.join(','))
     if (statusFilters.length > 0) params.set('status', statusFilters.join(','))
-    if (paymentStatusFilter !== 'all') params.set('payment', paymentStatusFilter)
+    if (paymentStatusFilters.length > 0) params.set('payment', paymentStatusFilters.join(','))
     if (measuredDateFilter) params.set('measuredDate', measuredDateFilter)
     const query = params.toString()
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
-  }, [selectedCityId, selectedProjectId, selectedCategoryId, statusFilters, paymentStatusFilter, measuredDateFilter, pathname, router])
+  }, [selectedCityId, selectedProjectId, selectedCategoryIds, statusFilters, paymentStatusFilters, measuredDateFilter, pathname, router])
 
   // Reset measured-date filter whenever "measured" isn't one of the selected statuses
   useEffect(() => {
@@ -207,7 +208,7 @@ export default function OverviewPage() {
 
   // Load residents + orders when project(s) + category selected
   useEffect(() => {
-    if (!effectiveProjectIds || effectiveProjectIds.length === 0 || !selectedCategoryId) {
+    if (!effectiveProjectIds || effectiveProjectIds.length === 0 || selectedCategoryIds.length === 0) {
       setResidents([])
       setOrders([])
       return
@@ -233,7 +234,7 @@ export default function OverviewPage() {
           .from('orders')
           .select('id, resident_id, category_id, status, payment_status, measured_at, total_price, notes, measurements, details, order_payments(amount), order_items(description, model)')
           .in('resident_id', residentIds)
-          .eq('category_id', selectedCategoryId)
+          .in('category_id', selectedCategoryIds)
 
         setOrders((ordersData || []) as unknown as Order[])
       } else {
@@ -244,17 +245,17 @@ export default function OverviewPage() {
     }
 
     fetchData()
-  }, [effectiveProjectIds, selectedCategoryId])
+  }, [effectiveProjectIds, selectedCategoryIds])
 
   // Merge residents + orders — residents with no order (no status yet) in this
   // category are left out entirely, instead of being treated as "לברר"
   const rows = useMemo<ResidentRow[]>(() => {
-    return residents
-      .map((resident) => {
-        const order = orders.find((o) => o.resident_id === resident.id) || null
-        return { resident, order }
-      })
-      .filter((row) => row.order !== null)
+    // שורה לכל הזמנה (דייר עם הזמנות בכמה קטגוריות מופיע בכל אחת מהן)
+    const byId = new Map(residents.map((r) => [r.id, r]))
+    return orders
+      .filter((o) => byId.has(o.resident_id))
+      .map((order) => ({ resident: byId.get(order.resident_id)!, order }))
+      .sort((a, b) => a.resident.name.localeCompare(b.resident.name, 'he'))
   }, [residents, orders])
 
   // Apply status filter (multi-select — empty selection means "all")
@@ -263,15 +264,15 @@ export default function OverviewPage() {
     if (statusFilters.length > 0) {
       result = result.filter((row) => row.order && statusFilters.includes(row.order.status as StatusValue))
     }
-    if (paymentStatusFilter !== 'all') {
-      result = result.filter((row) => row.order && getEffectivePaymentStatus(row.order) === paymentStatusFilter)
+    if (paymentStatusFilters.length > 0) {
+      result = result.filter((row) => row.order && paymentStatusFilters.includes(getEffectivePaymentStatus(row.order) as PaymentStatusFilter))
     }
     if (measuredDateFilter && statusFilters.includes('measured')) {
       // הסינון לפי תאריך מדידה חל רק על שורות בסטטוס "נמדד"; שאר הסטטוסים הנבחרים לא מוסתרים
       result = result.filter((row) => row.order?.status !== 'measured' || row.order?.measured_at === measuredDateFilter)
     }
     return result
-  }, [rows, statusFilters, paymentStatusFilter, measuredDateFilter])
+  }, [rows, statusFilters, paymentStatusFilters, measuredDateFilter])
 
   // Summary counts — נספרים דינמית לפי כל הסטטוסים הקיימים בפייפליין הנוכחי
   const summary = useMemo(() => {
@@ -285,8 +286,9 @@ export default function OverviewPage() {
 
   const filteredProjects = selectedCityId === ALL_CITIES ? projects : projects.filter((p) => p.city_id === selectedCityId)
   const showAllScopeColumn = selectedProjectId === ALL_PROJECTS
-  const showTable = !!(selectedProjectId && selectedCategoryId)
-  const selectedCategoryName = categories.find((c) => c.id === selectedCategoryId)?.name || ''
+  const showTable = !!(selectedProjectId && selectedCategoryIds.length > 0)
+  const categoryNameById = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories])
+  const multiCategory = selectedCategoryIds.length > 1
 
   return (
     <div className="space-y-6" dir="rtl">
@@ -349,20 +351,15 @@ export default function OverviewPage() {
               </div>
 
               {/* Category */}
-              <div className="space-y-2">
-                <Label htmlFor="categorySelect">בחר קטגוריה</Label>
-                <select
-                  id="categorySelect"
-                  value={selectedCategoryId}
-                  onChange={(e) => setSelectedCategoryId(e.target.value)}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">-- בחר קטגוריה --</option>
-                  {categories.map((cat) => (
-                    <option key={cat.id} value={cat.id}>{cat.name}</option>
-                  ))}
-                </select>
-              </div>
+              <MultiSelect
+                label="בחר קטגוריה"
+                options={categories.map((c) => ({ value: c.id, label: c.name }))}
+                selected={selectedCategoryIds}
+                onChange={setSelectedCategoryIds}
+                emptyLabel="-- בחר קטגוריה --"
+                pluralLabel="קטגוריות"
+                clearLabel="נקה בחירה"
+              />
 
               {/* Status filter (multi-select) */}
               <div className="space-y-2" ref={statusDropdownRef}>
@@ -407,20 +404,15 @@ export default function OverviewPage() {
                 </div>
               </div>
 
-              {/* Payment status filter */}
-              <div className="space-y-2">
-                <Label htmlFor="paymentStatusFilter">סנן לפי סטטוס תשלום</Label>
-                <select
-                  id="paymentStatusFilter"
-                  value={paymentStatusFilter}
-                  onChange={(e) => setPaymentStatusFilter(e.target.value as PaymentStatusFilter)}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  {PAYMENT_STATUS_FILTER_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-              </div>
+              <MultiSelect
+                label="סנן לפי סטטוס תשלום"
+                options={PAYMENT_STATUS_FILTER_OPTIONS}
+                selected={paymentStatusFilters}
+                onChange={(v) => setPaymentStatusFilters(v as PaymentStatusFilter[])}
+                emptyLabel="הכל"
+                pluralLabel="סטטוסים"
+                clearLabel="נקה בחירה (הכל)"
+              />
 
               {/* Measured date filter - shown only when "measured" is one of the selected statuses */}
               {statusFilters.includes('measured') && (
@@ -446,7 +438,7 @@ export default function OverviewPage() {
         <Card>
           <CardContent className="text-center py-12">
             <BarChart2 className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-500 text-lg">בחר פרויקט (או "כל הפרויקטים") וקטגוריה לצפייה בסקירה</p>
+            <p className="text-gray-500 text-lg">בחר פרויקט (או "כל הפרויקטים") וקטגוריה אחת או יותר לצפייה בסקירה</p>
           </CardContent>
         </Card>
       ) : loadingData ? (
@@ -462,7 +454,7 @@ export default function OverviewPage() {
       ) : rows.length === 0 ? (
         <Card>
           <CardContent className="text-center py-12">
-            <p className="text-gray-500 text-lg">אין דיירים עם סטטוס בקטגוריה זו</p>
+            <p className="text-gray-500 text-lg">אין דיירים עם סטטוס בקטגוריות שנבחרו</p>
           </CardContent>
         </Card>
       ) : (
@@ -481,6 +473,7 @@ export default function OverviewPage() {
                     <tr className="border-b bg-gray-50 text-gray-600">
                       <th className="text-right py-3 px-4 font-medium">#</th>
                       <th className="text-right py-3 px-4 font-medium">שם דייר</th>
+                      {multiCategory && <th className="text-right py-3 px-4 font-medium">קטגוריה</th>}
                       <th className="text-right py-3 px-4 font-medium">כתובת</th>
                       <th className="text-right py-3 px-4 font-medium">טלפון</th>
                       <th className="text-right py-3 px-4 font-medium">סטטוס הזמנה</th>
@@ -493,17 +486,17 @@ export default function OverviewPage() {
                       const effectiveStatus = order!.status
                       const statusLabel = STATUS_LABELS[effectiveStatus] || effectiveStatus
                       const statusVariant = STATUS_COLORS[effectiveStatus] || 'outline'
-                      const isExpanded = expandedResidentId === resident.id
+                      const isExpanded = expandedResidentId === order!.id
 
                       return (
-                        <Fragment key={resident.id}>
+                        <Fragment key={order!.id}>
                           <tr className="border-b hover:bg-gray-50 transition-colors">
                             <td className="py-3 px-4 text-gray-400">{idx + 1}</td>
                             <td className="py-3 px-4 font-medium">
                               <div className="flex items-center gap-2">
                                 <button
                                   type="button"
-                                  onClick={() => setExpandedResidentId(isExpanded ? '' : resident.id)}
+                                  onClick={() => setExpandedResidentId(isExpanded ? '' : order!.id)}
                                   className="flex items-center gap-1 text-blue-700 hover:underline text-right"
                                   title="הצג פרטי הזמנה"
                                 >
@@ -520,6 +513,9 @@ export default function OverviewPage() {
                                 </div>
                               )}
                             </td>
+                            {multiCategory && (
+                              <td className="py-3 px-4 text-gray-600">{categoryNameById.get(order!.category_id) || '—'}</td>
+                            )}
                             <td className="py-3 px-4 text-gray-600">{resident.address || '—'}</td>
                             <td className="py-3 px-4 text-left">
                               {resident.phone
@@ -550,10 +546,10 @@ export default function OverviewPage() {
                           {isExpanded && (
                             <tr className="bg-blue-50/40 border-b">
                               <td></td>
-                              <td colSpan={6} className="px-4 pb-4 pt-1">
+                              <td colSpan={multiCategory ? 7 : 6} className="px-4 pb-4 pt-1">
                                 <div className="rounded-md border bg-white p-3 space-y-2 text-sm">
                                   <div className="flex items-center gap-2 flex-wrap">
-                                    <span className="font-semibold text-gray-900">{resident.name} — {selectedCategoryName}</span>
+                                    <span className="font-semibold text-gray-900">{resident.name} — {categoryNameById.get(order?.category_id || '') || ''}</span>
                                     {order && (
                                       <>
                                         <Badge variant={(STATUS_COLORS[order.status] || 'outline') as any}>
@@ -626,7 +622,7 @@ export default function OverviewPage() {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-4">
-                <SummaryTile label="סה״כ דיירים" value={summary.total} color="text-gray-800" />
+                <SummaryTile label={multiCategory ? 'סה״כ הזמנות' : 'סה״כ דיירים'} value={summary.total} color="text-gray-800" />
                 {STATUS_ORDER.map((s) => (
                   <SummaryTile key={s} label={STATUS_LABELS[s]} value={summary.byStatus[s] || 0} color={TILE_COLOR[s] || 'text-gray-600'} />
                 ))}

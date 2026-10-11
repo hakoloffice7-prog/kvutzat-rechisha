@@ -7,13 +7,16 @@ import { Select } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { FileSpreadsheet, Download, Loader2 } from 'lucide-react'
-import { formatCurrency, PAYMENT_STATUS_LABELS } from '@/lib/utils'
+import { formatCurrency, PAYMENT_STATUS_LABELS, STATUS_LABELS, STATUS_ORDER } from '@/lib/utils'
 import { useIsAdmin } from '@/components/RoleProvider'
+import { MultiSelect } from '@/components/MultiSelect'
 
+type Supplier = { id: string; name: string }
 type Project = { id: string; name: string; cities: { name: string } }
 
 type OrderRow = {
   id: string
+  status: string
   payment_status: string
   supplier_id: string | null
   is_global_price: boolean
@@ -56,7 +59,9 @@ export default function ReportsPage() {
   const isAdmin = useIsAdmin()
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProject, setSelectedProject] = useState('')
-  const [selectedSupplierId, setSelectedSupplierId] = useState('')
+  const [suppliers, setSuppliers] = useState<Supplier[]>([])
+  const [selectedSupplierIds, setSelectedSupplierIds] = useState<string[]>([])
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState(false)
   const [orders, setOrders] = useState<OrderRow[]>([])
@@ -65,10 +70,14 @@ export default function ReportsPage() {
 
   useEffect(() => {
     fetchProjects()
+    supabase.from('suppliers').select('id, name').order('name').then(({ data }) => {
+      if (data) setSuppliers(data.sort((a, b) => a.name.localeCompare(b.name, 'he')))
+    })
   }, [])
 
   useEffect(() => {
-    setSelectedSupplierId('')
+    setSelectedSupplierIds([])
+    setSelectedStatuses([])
     if (selectedProject) {
       fetchOrders()
     } else {
@@ -93,6 +102,7 @@ export default function ReportsPage() {
       .from('orders')
       .select(`
         id,
+        status,
         payment_status,
         supplier_id,
         is_global_price,
@@ -117,21 +127,26 @@ export default function ReportsPage() {
     setOrdersLoading(false)
   }
 
-  // ספקים שיש להם בפועל הזמנות בפרויקט הנבחר - לבחירה בפילטר
-  const availableSuppliers = useMemo(() => {
-    const map = new Map<string, string>()
+  // כל הספקים במערכת, עם מספר ההזמנות של כל אחד בפרויקט הנבחר
+  const supplierOptions = useMemo(() => {
+    const counts = new Map<string, number>()
     orders.forEach((o) => {
-      if (o.supplier_id && o.suppliers?.name) map.set(o.supplier_id, o.suppliers.name)
+      if (o.supplier_id) counts.set(o.supplier_id, (counts.get(o.supplier_id) || 0) + 1)
     })
-    return Array.from(map.entries())
-      .map(([id, name]) => ({ id, name }))
-      .sort((a, b) => a.name.localeCompare(b.name, 'he'))
-  }, [orders])
+    return suppliers.map((s) => ({
+      value: s.id,
+      label: selectedProject ? `${s.name} (${counts.get(s.id) || 0})` : s.name,
+    }))
+  }, [suppliers, orders, selectedProject])
 
   const filteredOrders = useMemo(() => {
-    if (!selectedSupplierId) return orders
-    return orders.filter((o) => o.supplier_id === selectedSupplierId)
-  }, [orders, selectedSupplierId])
+    return orders.filter((o) =>
+      (selectedSupplierIds.length === 0 || (!!o.supplier_id && selectedSupplierIds.includes(o.supplier_id))) &&
+      (selectedStatuses.length === 0 || selectedStatuses.includes(o.status))
+    )
+  }, [orders, selectedSupplierIds, selectedStatuses])
+
+  const statusOptions = STATUS_ORDER.map((value) => ({ value, label: STATUS_LABELS[value] }))
 
   async function exportToExcel() {
     if (!selectedProject || filteredOrders.length === 0) return
@@ -139,7 +154,11 @@ export default function ReportsPage() {
 
     try {
       const project = projects.find(p => p.id === selectedProject)
-      const supplierName = availableSuppliers.find(s => s.id === selectedSupplierId)?.name
+      const supplierName = selectedSupplierIds.length === 0
+        ? ''
+        : selectedSupplierIds.length === 1
+          ? suppliers.find(s => s.id === selectedSupplierIds[0])?.name
+          : `${selectedSupplierIds.length}_ספקים`
 
       // Dynamic import of xlsx
       const XLSX = await import('xlsx')
@@ -157,6 +176,7 @@ export default function ReportsPage() {
             'טלפון': resident?.phone || '',
             'קטגוריה': order.categories?.name || '',
             'ספק': order.suppliers?.name || '',
+            'סטטוס הזמנה': STATUS_LABELS[order.status] || order.status,
             'סטטוס תשלום': paymentStatus,
             'תיאור פריט': row.description,
             'דגם': row.model,
@@ -173,7 +193,7 @@ export default function ReportsPage() {
       // Set column widths (must match the number of columns above)
       ws['!cols'] = [
         { width: 20 }, { width: 25 }, { width: 15 },
-        { width: 15 }, { width: 18 }, { width: 15 },
+        { width: 15 }, { width: 18 }, { width: 15 }, { width: 15 },
         { width: 25 }, { width: 15 }, { width: 12 },
         ...(isAdmin ? [{ width: 12 }] : []),
       ]
@@ -193,7 +213,7 @@ export default function ReportsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold text-gray-900">דוחות Excel</h1>
-        <p className="text-gray-500 mt-1">יצוא הזמנות לפי פרויקט, וניתן לסנן גם לפי ספק</p>
+        <p className="text-gray-500 mt-1">יצוא הזמנות לפי פרויקט, וניתן לסנן גם לפי ספק וסטטוס הזמנה</p>
       </div>
 
       <Card>
@@ -204,7 +224,7 @@ export default function ReportsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-4xl">
             <div className="space-y-2">
               <Label>בחר פרויקט</Label>
               {loading ? (
@@ -227,19 +247,27 @@ export default function ReportsPage() {
               )}
             </div>
 
-            <div className="space-y-2">
-              <Label>סנן לפי ספק (אופציונלי)</Label>
-              <Select
-                value={selectedSupplierId}
-                onChange={(e) => setSelectedSupplierId(e.target.value)}
-                disabled={!selectedProject || availableSuppliers.length === 0}
-              >
-                <option value="">כל הספקים</option>
-                {availableSuppliers.map(sup => (
-                  <option key={sup.id} value={sup.id}>{sup.name}</option>
-                ))}
-              </Select>
-            </div>
+            <MultiSelect
+              label="סנן לפי ספק (אופציונלי)"
+              options={supplierOptions}
+              selected={selectedSupplierIds}
+              onChange={setSelectedSupplierIds}
+              emptyLabel="כל הספקים"
+              pluralLabel="ספקים"
+              clearLabel="נקה בחירה (כל הספקים)"
+              disabled={!selectedProject}
+            />
+
+            <MultiSelect
+              label="סנן לפי סטטוס הזמנה (אופציונלי)"
+              options={statusOptions}
+              selected={selectedStatuses}
+              onChange={setSelectedStatuses}
+              emptyLabel="כל הסטטוסים"
+              pluralLabel="סטטוסים"
+              clearLabel="נקה בחירה (כל הסטטוסים)"
+              disabled={!selectedProject}
+            />
           </div>
 
           <Button
@@ -264,7 +292,7 @@ export default function ReportsPage() {
             <p className="font-medium mb-2">הקובץ יכלול את הנתונים הבאים:</p>
             <ul className="space-y-1 list-disc list-inside">
               <li>שם דייר, כתובת וטלפון</li>
-              <li>קטגוריה, ספק וסטטוס תשלום</li>
+              <li>קטגוריה, ספק, סטטוס הזמנה וסטטוס תשלום</li>
               <li>תיאור ודגם לכל פריט</li>
               <li>{isAdmin ? 'מחיר לקוח ומחיר ספק' : 'מחיר לקוח'}</li>
             </ul>
@@ -295,6 +323,7 @@ export default function ReportsPage() {
                       <th className="text-right py-2 px-3 font-semibold">טלפון</th>
                       <th className="text-right py-2 px-3 font-semibold">קטגוריה</th>
                       <th className="text-right py-2 px-3 font-semibold">ספק</th>
+                      <th className="text-right py-2 px-3 font-semibold">סטטוס הזמנה</th>
                       <th className="text-right py-2 px-3 font-semibold">סטטוס תשלום</th>
                       <th className="text-right py-2 px-3 font-semibold">תיאור פריט</th>
                       <th className="text-right py-2 px-3 font-semibold">דגם</th>
@@ -315,6 +344,7 @@ export default function ReportsPage() {
                               <td className="py-2 px-3" rowSpan={displayRows.length}>{resident?.phone}</td>
                               <td className="py-2 px-3" rowSpan={displayRows.length}>{order.categories?.name || '-'}</td>
                               <td className="py-2 px-3" rowSpan={displayRows.length}>{order.suppliers?.name || '-'}</td>
+                              <td className="py-2 px-3" rowSpan={displayRows.length}>{STATUS_LABELS[order.status] || order.status}</td>
                               <td className="py-2 px-3" rowSpan={displayRows.length}>{PAYMENT_STATUS_LABELS[order.payment_status]}</td>
                             </>
                           ) : null}
