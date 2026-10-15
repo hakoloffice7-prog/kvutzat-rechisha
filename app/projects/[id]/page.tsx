@@ -79,18 +79,6 @@ export default function ProjectPage() {
     setLoading(false)
   }
 
-  function goToAddResident() {
-    if (!project) return
-    try {
-      sessionStorage.setItem('residents-filter', JSON.stringify({
-        cityId: project.city_id,
-        projectId: projectId,
-      }))
-      sessionStorage.setItem('residents-pending-add', '1')
-    } catch {}
-    router.push('/residents')
-  }
-
   function openDeleteConfirm(resident: Resident) {
     setDeleteConfirm({ open: true, id: resident.id, name: resident.name })
   }
@@ -159,11 +147,6 @@ export default function ProjectPage() {
             סך הכנסות: <span className="font-semibold text-gray-800">{formatCurrency(totalRevenue)}</span>
           </p>
         </div>
-
-        <Button onClick={goToAddResident}>
-          <Plus className="h-4 w-4 ml-2" />
-          הוסף דייר
-        </Button>
       </div>
 
       {/* Residents List */}
@@ -172,7 +155,7 @@ export default function ProjectPage() {
           <CardContent className="text-center py-12">
             <Users className="h-12 w-12 text-gray-300 mx-auto mb-4" />
             <p className="text-gray-500 text-lg">אין דיירים עדיין</p>
-            <p className="text-gray-400 text-sm mt-1">לחץ על "הוסף דייר" להוספת דייר ראשון</p>
+            <p className="text-gray-400 text-sm mt-1">ניתן להוסיף דיירים ממסך "דיירים"</p>
           </CardContent>
         </Card>
       ) : (

@@ -63,7 +63,7 @@ export default function ResidentsPage() {
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [newResident, setNewResident] = useState({ name: '', address: '', phone: '', phone2: '', email: '', key_location: '' })
+  const [newResident, setNewResident] = useState({ name: '', address: '', phone: '', phone2: '', email: '', key_location: '', project_id: '' })
   const [editingResident, setEditingResident] = useState<Resident | null>(null)
 
   // Orders dialog state
@@ -213,15 +213,22 @@ export default function ResidentsPage() {
     return /^0\d{8,9}$/.test(cleaned)
   }
 
+  function openAddDialog() {
+    // אם כבר נבחר פרויקט מסוים בסינון - מציעים אותו כברירת מחדל; אחרת הכל נעול עד בחירת עיר ופרויקט
+    setNewResident({ name: '', address: '', phone: '', phone2: '', email: '', key_location: '', project_id: selectedProjectId && selectedProjectId !== ALL ? selectedProjectId : '' })
+    setPhoneError('')
+    setAddDialogOpen(true)
+  }
+
   async function addResident() {
-    if (!newResident.name.trim() || !selectedProjectId || selectedProjectId === ALL) return
+    if (!newResident.name.trim() || !newResident.project_id) return
     const phone = newResident.phone.trim()
     if (!phone) { setPhoneError('יש להזין מספר טלפון'); return }
     if (!isValidPhone(phone)) { setPhoneError('מספר טלפון לא תקין (לדוגמה: 050-1234567)'); return }
     setPhoneError('')
     setSaving(true)
     const { data: created, error } = await supabase.from('residents').insert({
-      project_id: selectedProjectId,
+      project_id: newResident.project_id,
       name: newResident.name.trim(),
       address: newResident.address.trim(),
       phone: phone,
@@ -230,7 +237,7 @@ export default function ResidentsPage() {
       key_location: newResident.key_location.trim(),
     }).select('id').single()
     if (!error && created) {
-      setNewResident({ name: '', address: '', phone: '', phone2: '', email: '', key_location: '' })
+      setNewResident({ name: '', address: '', phone: '', phone2: '', email: '', key_location: '', project_id: '' })
       setAddDialogOpen(false)
       router.refresh()
       setSaving(false)
@@ -310,12 +317,10 @@ export default function ResidentsPage() {
           <h1 className="text-3xl font-bold text-gray-900">דיירים</h1>
           <p className="text-gray-500 mt-1">ניהול דיירים לפי פרויקט</p>
         </div>
-        {selectedProjectId && selectedProjectId !== ALL && (
-          <Button onClick={() => setAddDialogOpen(true)}>
-            <Plus className="h-4 w-4 ml-2" />
-            הוסף דייר
-          </Button>
-        )}
+        <Button onClick={openAddDialog}>
+          <Plus className="h-4 w-4 ml-2" />
+          הוסף דייר
+        </Button>
       </div>
 
       {/* Dropdowns */}
@@ -501,9 +506,20 @@ export default function ResidentsPage() {
             <DialogTitle>הוספת דייר חדש</DialogTitle>
           </DialogHeader>
           <div className="space-y-4" dir="rtl">
+            <div className="grid grid-cols-2 gap-3">
+              <ResidentProjectPicker
+                projectId={newResident.project_id}
+                onChange={(project_id) => setNewResident({ ...newResident, project_id })}
+                idPrefix="add"
+              />
+            </div>
+            {!newResident.project_id && (
+              <p className="text-xs text-gray-500">יש לבחור עיר ופרויקט מהרשימה כדי למלא את פרטי הדייר</p>
+            )}
             <div className="space-y-2">
               <Label htmlFor="residentName">שם הדייר</Label>
               <Input
+                disabled={!newResident.project_id}
                 id="residentName"
                 value={newResident.name}
                 onChange={(e) => setNewResident({ ...newResident, name: e.target.value })}
@@ -513,6 +529,7 @@ export default function ResidentsPage() {
             <div className="space-y-2">
               <Label htmlFor="residentAddress">כתובת</Label>
               <Input
+                disabled={!newResident.project_id}
                 id="residentAddress"
                 value={newResident.address}
                 onChange={(e) => setNewResident({ ...newResident, address: e.target.value })}
@@ -522,6 +539,7 @@ export default function ResidentsPage() {
             <div className="space-y-2">
               <Label htmlFor="residentPhone">טלפון *</Label>
               <Input
+                disabled={!newResident.project_id}
                 id="residentPhone"
                 value={newResident.phone}
                 onChange={(e) => { setNewResident({ ...newResident, phone: e.target.value }); setPhoneError('') }}
@@ -534,6 +552,7 @@ export default function ResidentsPage() {
             <div className="space-y-2">
               <Label htmlFor="residentPhone2">נייד נוסף</Label>
               <Input
+                disabled={!newResident.project_id}
                 id="residentPhone2"
                 value={newResident.phone2}
                 onChange={(e) => setNewResident({ ...newResident, phone2: e.target.value })}
@@ -544,6 +563,7 @@ export default function ResidentsPage() {
             <div className="space-y-2">
               <Label htmlFor="residentEmail">מייל</Label>
               <Input
+                disabled={!newResident.project_id}
                 id="residentEmail"
                 value={newResident.email}
                 onChange={(e) => setNewResident({ ...newResident, email: e.target.value })}
@@ -554,6 +574,7 @@ export default function ResidentsPage() {
             <div className="space-y-2">
               <Label htmlFor="residentKeyLocation">מיקום מפתח</Label>
               <Input
+                disabled={!newResident.project_id}
                 id="residentKeyLocation"
                 value={newResident.key_location}
                 onChange={(e) => setNewResident({ ...newResident, key_location: e.target.value })}
@@ -562,7 +583,7 @@ export default function ResidentsPage() {
             </div>
             <div className="flex gap-2 justify-end">
               <Button variant="outline" onClick={() => setAddDialogOpen(false)}>ביטול</Button>
-              <Button onClick={addResident} disabled={saving || !newResident.name.trim() || !newResident.phone.trim()}>
+              <Button onClick={addResident} disabled={saving || !newResident.project_id || !newResident.name.trim() || !newResident.phone.trim()}>
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'הוסף דייר'}
               </Button>
             </div>

@@ -19,6 +19,7 @@ import { Plus, Loader2, Trash2, ArrowLeft, Save, X, Star, Phone, MapPin, Mail, K
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { useIsAdmin } from '@/components/RoleProvider'
+import { NotesSection } from '@/components/NotesSection'
 import { CopyButton } from '@/components/CopyButton'
 import {
   STATUS_LABELS, STATUS_COLORS, STATUS_ORDER,
@@ -211,7 +212,6 @@ export default function OrderPage() {
         status: editedOrder.status,
         payment_status: getDebtStatus(newTotalPrice, totalPaid),
         supplier_id: editedOrder.supplier_id || null,
-        notes: stampNewNoteLines(order?.notes, editedOrder.notes),
         measurements: editedOrder.measurements,
         measured_at: editedOrder.measured_at || null,
         total_price: newTotalPrice,
@@ -234,6 +234,18 @@ export default function OrderPage() {
       fetchData()
     }
     setSaving(false)
+  }
+
+  async function addOrderNote(text: string) {
+    // מצרפים להערות העדכניות ביותר שנשמרו כדי לא לדרוס הערות של עובד אחר, בלי לאבד שינויים שלא נשמרו בשאר הטופס
+    const { data: current } = await supabase.from('orders').select('notes').eq('id', orderId).single()
+    const previous = current?.notes || ''
+    const next = stampNewNoteLines(previous, previous ? previous + '\n' + text : text)
+    const { error } = await supabase.from('orders').update({ notes: next }).eq('id', orderId)
+    if (error) return false
+    setOrder((prev) => (prev ? { ...prev, notes: next } : prev))
+    setEditedOrder((prev) => ({ ...prev, notes: next }))
+    return true
   }
 
   async function addItem() {
@@ -639,15 +651,7 @@ export default function OrderPage() {
                     )}
                   </div>
 
-                  <div className="space-y-2">
-                    <Label>הערות</Label>
-                    <textarea
-                      value={editedOrder.notes}
-                      onChange={(e) => setEditedOrder({ ...editedOrder, notes: e.target.value })}
-                      placeholder="הערות לשיתוף מידע בין העובדים..."
-                      className="w-full min-h-[96px] border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
-                    />
-                  </div>
+                  <NotesSection notes={editedOrder.notes} onAdd={addOrderNote} />
 
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">

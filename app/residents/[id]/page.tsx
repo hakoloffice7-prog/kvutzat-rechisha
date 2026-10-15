@@ -21,6 +21,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { STATUS_LABELS, STATUS_COLORS, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, formatCurrency, getDebtStatus, stampNewNoteLines } from '@/lib/utils'
 import { useIsAdmin } from '@/components/RoleProvider'
 import { CopyButton } from '@/components/CopyButton'
+import { NotesSection } from '@/components/NotesSection'
 import { AddOrderDialog } from '@/components/AddOrderDialog'
 import { ResidentProjectPicker } from '@/components/ResidentProjectPicker'
 
@@ -139,7 +140,6 @@ export default function ResidentPage() {
         email: residentForm.email.trim(),
         key_location: residentForm.key_location.trim(),
         project_id: residentForm.project_id,
-        notes: stampNewNoteLines(resident?.notes, residentForm.notes),
       })
       .eq('id', residentId)
     if (!error) {
@@ -147,6 +147,17 @@ export default function ResidentPage() {
       fetchData()
     }
     setSavingResident(false)
+  }
+
+  async function addResidentNote(text: string) {
+    // מצרפים להערות העדכניות ביותר שנשמרו (ולא למה שנטען בדף) כדי לא לדרוס הערות של עובד אחר
+    const { data: current } = await supabase.from('residents').select('notes').eq('id', residentId).single()
+    const previous = current?.notes || ''
+    const next = stampNewNoteLines(previous, previous ? previous + '\n' + text : text)
+    const { error } = await supabase.from('residents').update({ notes: next }).eq('id', residentId)
+    if (error) return false
+    setResident((prev) => (prev ? { ...prev, notes: next } : prev))
+    return true
   }
 
   async function deleteOrder(orderId: string) {
@@ -321,16 +332,12 @@ export default function ResidentPage() {
                     onChange={(e) => updateResidentField('key_location', e.target.value)}
                   />
                 </div>
-                <div className="space-y-1 sm:col-span-2">
-                  <Label htmlFor="residentFormNotes" className="text-xs text-gray-500 flex items-center gap-1">
-                    <StickyNote className="h-3.5 w-3.5" /> הערות
-                  </Label>
-                  <textarea
-                    id="residentFormNotes"
-                    value={residentForm.notes}
-                    onChange={(e) => updateResidentField('notes', e.target.value)}
-                    placeholder="הערות לשיתוף מידע בין העובדים..."
-                    className="w-full min-h-[96px] border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
+                <div className="sm:col-span-2">
+                  <NotesSection
+                    notes={resident.notes}
+                    labelClassName="text-xs text-gray-500"
+                    icon={<StickyNote className="h-3.5 w-3.5" />}
+                    onAdd={addResidentNote}
                   />
                 </div>
               </div>
