@@ -6,6 +6,7 @@ import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { CopyButton } from '@/components/CopyButton'
 import { Label } from '@/components/ui/label'
 import { Loader2, BarChart2, Phone, MapPin } from 'lucide-react'
 import Link from 'next/link'
@@ -76,6 +77,7 @@ const TILE_COLOR: Record<string, string> = {
   interested: 'text-blue-600',
   measurement_scheduled: 'text-blue-600',
   measured: 'text-blue-600',
+  awaiting_quote: 'text-yellow-600',
   quoted: 'text-yellow-600',
   delivery_scheduled: 'text-blue-600',
   done: 'text-green-600',
@@ -524,6 +526,7 @@ export default function OverviewPage() {
                                     <a href={`tel:${resident.phone}`} className="inline-flex items-center justify-center p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200 transition-colors" title="חייג">
                                       <Phone className="h-3.5 w-3.5" />
                                     </a>
+                                    <CopyButton value={resident.phone} title="העתק טלפון" />
                                   </div>
                                 : <span className="text-gray-400">—</span>}
                             </td>
@@ -571,6 +574,7 @@ export default function OverviewPage() {
                                     <div className="flex items-center gap-2 text-gray-700">
                                       <Phone className="h-4 w-4 shrink-0" />
                                       <span dir="ltr">{resident.phone}</span>
+                                      <CopyButton value={resident.phone} title="העתק טלפון" />
                                     </div>
                                   )}
                                   {!!order?.total_price && (

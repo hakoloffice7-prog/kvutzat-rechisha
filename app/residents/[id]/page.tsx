@@ -15,12 +15,14 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { Plus, ShoppingCart, Loader2, Trash2, Phone, MapPin, ArrowLeft, Edit2, Mail, KeyRound, X, Save, Star, CalendarClock } from 'lucide-react'
+import { Plus, ShoppingCart, Loader2, Trash2, Phone, MapPin, ArrowLeft, Edit2, Mail, KeyRound, X, Save, Star, CalendarClock, StickyNote } from 'lucide-react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
-import { STATUS_LABELS, STATUS_COLORS, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, formatCurrency, getDebtStatus } from '@/lib/utils'
+import { STATUS_LABELS, STATUS_COLORS, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, formatCurrency, getDebtStatus, stampNewNoteLines } from '@/lib/utils'
 import { useIsAdmin } from '@/components/RoleProvider'
+import { CopyButton } from '@/components/CopyButton'
 import { AddOrderDialog } from '@/components/AddOrderDialog'
+import { ResidentProjectPicker } from '@/components/ResidentProjectPicker'
 
 type Resident = {
   id: string
@@ -30,6 +32,7 @@ type Resident = {
   phone2: string | null
   email: string | null
   key_location: string | null
+  notes: string | null
   projects: { id: string; name: string; cities: { name: string } }
 }
 
@@ -60,12 +63,12 @@ export default function ResidentPage() {
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [residentForm, setResidentForm] = useState({
-    name: '', address: '', phone: '', phone2: '', email: '', key_location: '',
+    name: '', address: '', phone: '', phone2: '', email: '', key_location: '', project_id: '', notes: '',
   })
   const [savingResident, setSavingResident] = useState(false)
   const [residentDirty, setResidentDirty] = useState(false)
   const [reminderDialogOpen, setReminderDialogOpen] = useState(false)
-  const [newReminder, setNewReminder] = useState({ message: '', remind_at: '' })
+  const [newReminder, setNewReminder] = useState({ message: '', remind_at: '', remind_time: '' })
   const [savingReminder, setSavingReminder] = useState(false)
   const supabase = createClient()
 
@@ -100,6 +103,8 @@ export default function ResidentPage() {
         phone2: residentData.phone2 || '',
         email: residentData.email || '',
         key_location: residentData.key_location || '',
+        project_id: residentData.project_id || '',
+        notes: residentData.notes || '',
       })
       setResidentDirty(false)
     }
@@ -122,7 +127,7 @@ export default function ResidentPage() {
   }
 
   async function saveResident() {
-    if (!residentForm.name.trim()) return
+    if (!residentForm.name.trim() || !residentForm.project_id) return
     setSavingResident(true)
     const { error } = await supabase
       .from('residents')
@@ -133,6 +138,8 @@ export default function ResidentPage() {
         phone2: residentForm.phone2.trim(),
         email: residentForm.email.trim(),
         key_location: residentForm.key_location.trim(),
+        project_id: residentForm.project_id,
+        notes: stampNewNoteLines(resident?.notes, residentForm.notes),
       })
       .eq('id', residentId)
     if (!error) {
@@ -156,11 +163,12 @@ export default function ResidentPage() {
       resident_id: residentId,
       message: newReminder.message.trim(),
       remind_at: newReminder.remind_at,
+      remind_time: newReminder.remind_time || null,
       is_read: false,
     })
     if (!error) {
       setReminderDialogOpen(false)
-      setNewReminder({ message: '', remind_at: '' })
+      setNewReminder({ message: '', remind_at: '', remind_time: '' })
     }
     setSavingReminder(false)
   }
@@ -232,6 +240,15 @@ export default function ResidentPage() {
                 />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {resident && (
+                  <ResidentProjectPicker
+                    key={resident.id}
+                    projectId={residentForm.project_id}
+                    onChange={(id) => updateResidentField('project_id', id)}
+                    idPrefix="residentForm"
+                    labelClassName="text-xs text-gray-500"
+                  />
+                )}
                 <div className="space-y-1">
                   <Label htmlFor="residentFormAddress" className="text-xs text-gray-500 flex items-center gap-1">
                     <MapPin className="h-3.5 w-3.5" /> כתובת
@@ -253,6 +270,7 @@ export default function ResidentPage() {
                       onChange={(e) => updateResidentField('phone', e.target.value)}
                       dir="ltr"
                     />
+                    {resident.phone && <CopyButton value={resident.phone} title="העתק טלפון" className="p-2" />}
                     {resident.phone && (
                       <a href={`tel:${resident.phone}`} className="inline-flex items-center justify-center p-2 rounded-full bg-green-100 text-green-600 hover:bg-green-200 transition-colors shrink-0" title="חייג">
                         <Phone className="h-3.5 w-3.5" />
@@ -271,6 +289,7 @@ export default function ResidentPage() {
                       onChange={(e) => updateResidentField('phone2', e.target.value)}
                       dir="ltr"
                     />
+                    {resident.phone2 && <CopyButton value={resident.phone2} title="העתק טלפון" className="p-2" />}
                     {resident.phone2 && (
                       <a href={`tel:${resident.phone2}`} className="inline-flex items-center justify-center p-2 rounded-full bg-green-100 text-green-600 hover:bg-green-200 transition-colors shrink-0" title="חייג">
                         <Phone className="h-3.5 w-3.5" />
@@ -282,12 +301,15 @@ export default function ResidentPage() {
                   <Label htmlFor="residentFormEmail" className="text-xs text-gray-500 flex items-center gap-1">
                     <Mail className="h-3.5 w-3.5" /> מייל
                   </Label>
-                  <Input
-                    id="residentFormEmail"
-                    value={residentForm.email}
-                    onChange={(e) => updateResidentField('email', e.target.value)}
-                    dir="ltr"
-                  />
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="residentFormEmail"
+                      value={residentForm.email}
+                      onChange={(e) => updateResidentField('email', e.target.value)}
+                      dir="ltr"
+                    />
+                    {resident.email && <CopyButton value={resident.email} title="העתק מייל" className="p-2" />}
+                  </div>
                 </div>
                 <div className="space-y-1 sm:col-span-2">
                   <Label htmlFor="residentFormKeyLocation" className="text-xs text-gray-500 flex items-center gap-1">
@@ -299,9 +321,21 @@ export default function ResidentPage() {
                     onChange={(e) => updateResidentField('key_location', e.target.value)}
                   />
                 </div>
+                <div className="space-y-1 sm:col-span-2">
+                  <Label htmlFor="residentFormNotes" className="text-xs text-gray-500 flex items-center gap-1">
+                    <StickyNote className="h-3.5 w-3.5" /> הערות
+                  </Label>
+                  <textarea
+                    id="residentFormNotes"
+                    value={residentForm.notes}
+                    onChange={(e) => updateResidentField('notes', e.target.value)}
+                    placeholder="הערות לשיתוף מידע בין העובדים..."
+                    className="w-full min-h-[96px] border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
+                  />
+                </div>
               </div>
               <div className="flex justify-end">
-                <Button onClick={saveResident} disabled={savingResident || !residentForm.name.trim() || !residentDirty}>
+                <Button onClick={saveResident} disabled={savingResident || !residentForm.name.trim() || !residentForm.project_id || !residentDirty}>
                   {savingResident ? <Loader2 className="h-4 w-4 animate-spin ml-2" /> : <Save className="h-4 w-4 ml-2" />}
                   שמור שינויים
                 </Button>
@@ -311,7 +345,7 @@ export default function ResidentPage() {
             <div className="flex flex-col gap-2 items-end">
               <Dialog open={reminderDialogOpen} onOpenChange={(open) => {
                 setReminderDialogOpen(open)
-                if (!open) setNewReminder({ message: '', remind_at: '' })
+                if (!open) setNewReminder({ message: '', remind_at: '', remind_time: '' })
               }}>
                 <DialogTrigger asChild>
                   <Button variant="outline">
@@ -332,14 +366,25 @@ export default function ResidentPage() {
                         placeholder='לדוגמה: "להתקשר בעוד שבוע לבירור" או "לתאם מחר"'
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label>תאריך יעד *</Label>
-                      <Input
-                        type="date"
-                        value={newReminder.remind_at}
-                        onChange={(e) => setNewReminder({ ...newReminder, remind_at: e.target.value })}
-                        dir="ltr"
-                      />
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-2">
+                        <Label>תאריך יעד *</Label>
+                        <Input
+                          type="date"
+                          value={newReminder.remind_at}
+                          onChange={(e) => setNewReminder({ ...newReminder, remind_at: e.target.value })}
+                          dir="ltr"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>שעה</Label>
+                        <Input
+                          type="time"
+                          value={newReminder.remind_time}
+                          onChange={(e) => setNewReminder({ ...newReminder, remind_time: e.target.value })}
+                          dir="ltr"
+                        />
+                      </div>
                     </div>
                     <div className="flex gap-2 justify-end">
                       <Button variant="outline" onClick={() => setReminderDialogOpen(false)}>ביטול</Button>

@@ -23,6 +23,7 @@ type Notification = {
   is_read: boolean
   created_at: string
   remind_at: string | null
+  remind_time: string | null
   message: string | null
   residents: { id: string; name: string } | null
   orders: { id: string; status: string; categories: { name: string } | null } | null
@@ -39,8 +40,22 @@ const NOTIFICATION_MESSAGES: Record<string, (n: Notification) => string> = {
     `${n.residents?.name || 'דייר'}: ${n.message || 'תזכורת'}`,
 }
 
+function pad(n: number) {
+  return String(n).padStart(2, '0')
+}
+
+// תאריך/שעה לפי שעון מקומי (לא UTC) כדי שההשוואה לתזכורת תהיה נכונה בישראל
+function localDateStr(d: Date) {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
 function todayStr() {
-  return new Date().toISOString().slice(0, 10)
+  return localDateStr(new Date())
+}
+
+function nowTimeStr() {
+  const d = new Date()
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 export default function NotificationsPage() {
@@ -53,8 +68,14 @@ export default function NotificationsPage() {
   const [reminderDialogOpen, setReminderDialogOpen] = useState(false)
   const [residents, setResidents] = useState<ResidentOption[]>([])
   const [residentSearch, setResidentSearch] = useState('')
-  const [newReminder, setNewReminder] = useState({ resident_id: '', message: '', remind_at: '' })
+  const [newReminder, setNewReminder] = useState({ resident_id: '', message: '', remind_at: '', remind_time: '' })
   const [savingReminder, setSavingReminder] = useState(false)
+
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    const t = setInterval(() => setTick((v) => v + 1), 60_000)
+    return () => clearInterval(t)
+  }, [])
 
   useEffect(() => {
     fetchNotifications()
@@ -104,7 +125,7 @@ export default function NotificationsPage() {
   }
 
   function openReminderDialog(residentId?: string) {
-    setNewReminder({ resident_id: residentId || '', message: '', remind_at: '' })
+    setNewReminder({ resident_id: residentId || '', message: '', remind_at: '', remind_time: '' })
     setResidentSearch('')
     setReminderDialogOpen(true)
   }
@@ -117,6 +138,7 @@ export default function NotificationsPage() {
       resident_id: newReminder.resident_id,
       message: newReminder.message.trim(),
       remind_at: newReminder.remind_at,
+      remind_time: newReminder.remind_time || null,
       is_read: false,
     })
     if (!error) {
@@ -181,6 +203,7 @@ export default function NotificationsPage() {
 
   const unreadCount = notifications.filter(n => !n.is_read).length
   const today = todayStr()
+  const nowTime = nowTimeStr()
   const filteredResidents = residentSearch.trim()
     ? residents.filter((r) => r.name.includes(residentSearch.trim()))
     : residents
@@ -244,15 +267,27 @@ export default function NotificationsPage() {
                     placeholder='לדוגמה: "להתקשר בעוד שבוע לבירור" או "לתאם מחר"'
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label>תאריך יעד *</Label>
-                  <input
-                    type="date"
-                    value={newReminder.remind_at}
-                    onChange={(e) => setNewReminder({ ...newReminder, remind_at: e.target.value })}
-                    dir="ltr"
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label>תאריך יעד *</Label>
+                    <input
+                      type="date"
+                      value={newReminder.remind_at}
+                      onChange={(e) => setNewReminder({ ...newReminder, remind_at: e.target.value })}
+                      dir="ltr"
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>שעה</Label>
+                    <input
+                      type="time"
+                      value={newReminder.remind_time}
+                      onChange={(e) => setNewReminder({ ...newReminder, remind_time: e.target.value })}
+                      dir="ltr"
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
                 </div>
                 <div className="flex gap-2 justify-end">
                   <Button variant="outline" onClick={() => setReminderDialogOpen(false)}>ביטול</Button>
@@ -297,7 +332,11 @@ export default function NotificationsPage() {
         <div className="space-y-3">
           {notifications.map((notification) => {
             const isManual = notification.type === 'manual_reminder'
-            const isFuture = isManual && !!notification.remind_at && notification.remind_at > today
+            const remindTime = notification.remind_time ? notification.remind_time.slice(0, 5) : ''
+            const isFuture = isManual && !!notification.remind_at && (
+              notification.remind_at > today ||
+              (notification.remind_at === today && !!remindTime && remindTime > nowTime)
+            )
 
             return (
               <Card
@@ -332,6 +371,7 @@ export default function NotificationsPage() {
                           {isManual && notification.remind_at ? (
                             <>
                               תזכורת ל-{new Date(notification.remind_at).toLocaleDateString('he-IL', { day: 'numeric', month: 'long', year: 'numeric' })}
+                              {remindTime && ` בשעה ${remindTime}`}
                               {' · '}נוצרה {new Date(notification.created_at).toLocaleDateString('he-IL', { day: 'numeric', month: 'long' })}
                             </>
                           ) : (

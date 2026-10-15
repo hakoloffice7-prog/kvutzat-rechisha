@@ -19,10 +19,12 @@ import { Plus, Loader2, Trash2, ArrowLeft, Save, X, Star, Phone, MapPin, Mail, K
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { useIsAdmin } from '@/components/RoleProvider'
+import { CopyButton } from '@/components/CopyButton'
 import {
   STATUS_LABELS, STATUS_COLORS, STATUS_ORDER,
   PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS,
-  formatCurrency, formatDate, getDebtStatus, calcSupplierPrice
+  formatCurrency, formatDate, getDebtStatus, calcSupplierPrice,
+  stampNewNoteLines,
 } from '@/lib/utils'
 
 type OrderItem = {
@@ -209,7 +211,7 @@ export default function OrderPage() {
         status: editedOrder.status,
         payment_status: getDebtStatus(newTotalPrice, totalPaid),
         supplier_id: editedOrder.supplier_id || null,
-        notes: editedOrder.notes,
+        notes: stampNewNoteLines(order?.notes, editedOrder.notes),
         measurements: editedOrder.measurements,
         measured_at: editedOrder.measured_at || null,
         total_price: newTotalPrice,
@@ -431,6 +433,7 @@ export default function OrderPage() {
                 <p className="text-gray-600 flex items-center gap-2">
                   <MapPin className="h-4 w-4 shrink-0" />
                   {order.residents.address}
+                  <CopyButton value={order.residents.address} title="העתק כתובת" />
                 </p>
               )}
               {order.residents?.phone && (
@@ -440,6 +443,7 @@ export default function OrderPage() {
                   <a href={`tel:${order.residents.phone}`} className="inline-flex items-center justify-center p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200 transition-colors" title="חייג">
                     <Phone className="h-3.5 w-3.5" />
                   </a>
+                  <CopyButton value={order.residents.phone} title="העתק טלפון" />
                 </div>
               )}
               {order.residents?.phone2 && (
@@ -450,18 +454,21 @@ export default function OrderPage() {
                   <a href={`tel:${order.residents.phone2}`} className="inline-flex items-center justify-center p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200 transition-colors" title="חייג">
                     <Phone className="h-3.5 w-3.5" />
                   </a>
+                  <CopyButton value={order.residents.phone2} title="העתק טלפון" />
                 </div>
               )}
               {order.residents?.email && (
                 <p className="text-gray-600 flex items-center gap-2">
                   <Mail className="h-4 w-4 shrink-0" />
                   <span dir="ltr">{order.residents.email}</span>
+                  <CopyButton value={order.residents.email} title="העתק מייל" />
                 </p>
               )}
               {order.residents?.key_location && (
                 <p className="text-gray-600 flex items-center gap-2">
                   <KeyRound className="h-4 w-4 shrink-0" />
                   {order.residents.key_location}
+                  <CopyButton value={order.residents.key_location} title="העתק מיקום מפתח" />
                 </p>
               )}
             </CardContent>
@@ -634,10 +641,11 @@ export default function OrderPage() {
 
                   <div className="space-y-2">
                     <Label>הערות</Label>
-                    <Input
+                    <textarea
                       value={editedOrder.notes}
                       onChange={(e) => setEditedOrder({ ...editedOrder, notes: e.target.value })}
-                      placeholder="הערות נוספות..."
+                      placeholder="הערות לשיתוף מידע בין העובדים..."
+                      className="w-full min-h-[96px] border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
                     />
                   </div>
 
@@ -724,7 +732,7 @@ export default function OrderPage() {
                   {editedOrder.notes && (
                     <div className="flex justify-between">
                       <span className="text-gray-500">הערות</span>
-                      <span className="font-medium text-left">{editedOrder.notes}</span>
+                      <span className="font-medium text-left whitespace-pre-wrap">{editedOrder.notes}</span>
                     </div>
                   )}
                   {detailsRows.length > 0 && (

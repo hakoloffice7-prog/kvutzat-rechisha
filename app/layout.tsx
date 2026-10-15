@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 import { createServerClient } from '@/lib/supabase/server'
 import Sidebar from '@/components/Sidebar'
+import { ReminderPopup } from '@/components/ReminderPopup'
 import { RoleProvider, type Role } from '@/components/RoleProvider'
 
 export const metadata: Metadata = {
@@ -36,6 +37,7 @@ export default async function RootLayout({
           {session ? (
             <div className="flex min-h-screen bg-gray-50">
               <Sidebar role={role} name={name} />
+              <ReminderPopup />
               <main className="flex-1 p-6 pt-16 md:pt-6 overflow-auto">
                 {children}
               </main>

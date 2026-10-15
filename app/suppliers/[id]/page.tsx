@@ -18,6 +18,7 @@ import {
   DEBT_STATUS_COLORS,
 } from '@/lib/utils'
 import { useIsAdmin } from '@/components/RoleProvider'
+import { CopyButton } from '@/components/CopyButton'
 
 type Supplier = {
   id: string
@@ -316,18 +317,21 @@ export default function SupplierPaymentsPage() {
             <span className="flex items-center gap-1" dir="ltr">
               <Phone className="h-3.5 w-3.5" />
               {supplier.phone}
+              <CopyButton value={supplier.phone} title="העתק טלפון" />
             </span>
           )}
           {supplier.phone2 && (
             <span className="flex items-center gap-1" dir="ltr">
               <Phone className="h-3.5 w-3.5" />
               {supplier.phone2}
+              <CopyButton value={supplier.phone2} title="העתק טלפון" />
             </span>
           )}
           {supplier.email && (
             <span className="flex items-center gap-1" dir="ltr">
               <Mail className="h-3.5 w-3.5" />
               {supplier.email}
+              <CopyButton value={supplier.email} title="העתק מייל" />
             </span>
           )}
         </div>

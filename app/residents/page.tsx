@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
+import { CopyButton } from '@/components/CopyButton'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog,
@@ -18,6 +19,7 @@ import { Plus, Users, Loader2, Pencil, Trash2, ShoppingCart, Phone } from 'lucid
 import { STATUS_LABELS, STATUS_ORDER, STATUS_COLORS, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS } from '@/lib/utils'
 import Link from 'next/link'
 import { AddOrderDialog } from '@/components/AddOrderDialog'
+import { ResidentProjectPicker } from '@/components/ResidentProjectPicker'
 
 type City = { id: string; name: string }
 type Project = { id: string; city_id: string; name: string; address: string }
@@ -84,6 +86,7 @@ export default function ResidentsPage() {
   const [page, setPage] = useState(0)
   const [totalCount, setTotalCount] = useState(0)
   const fetchSeqRef = useRef(0)
+  const searchInputRef = useRef<HTMLInputElement>(null)
   // Phone validation
   const [phoneError, setPhoneError] = useState('')
 
@@ -100,7 +103,13 @@ export default function ResidentsPage() {
         if (cityId) {
           pendingProjectIdRef.current = projectId || ''
           setSelectedCityId(cityId)
+        } else {
+          pendingProjectIdRef.current = ALL
+          setSelectedCityId(ALL)
         }
+      } else {
+        pendingProjectIdRef.current = ALL
+        setSelectedCityId(ALL)
       }
     } catch {}
   }, [])
@@ -232,7 +241,7 @@ export default function ResidentsPage() {
   }
 
   async function saveEditResident() {
-    if (!editingResident || !editingResident.name.trim()) return
+    if (!editingResident || !editingResident.name.trim() || !editingResident.project_id) return
     setSaving(true)
     const { error } = await supabase
       .from('residents')
@@ -243,6 +252,7 @@ export default function ResidentsPage() {
         phone2: (editingResident.phone2 || '').trim(),
         email: (editingResident.email || '').trim(),
         key_location: (editingResident.key_location || '').trim(),
+        project_id: editingResident.project_id,
       })
       .eq('id', editingResident.id)
     if (!error) {
@@ -288,6 +298,8 @@ export default function ResidentsPage() {
     setLoadingOrders(false)
   }
 
+  // כשהשדה בפוקוס לא מחליפים את הכרטיס בספינר, אחרת השדה נמחק מה-DOM ומאבד פוקוס באמצע הקלדה
+  const searchFocused = typeof document !== 'undefined' && !!searchInputRef.current && document.activeElement === searchInputRef.current
   const filteredProjects = selectedCityId === ALL ? projects : projects.filter((p) => p.city_id === selectedCityId)
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
 
@@ -361,11 +373,11 @@ export default function ResidentsPage() {
             <p className="text-gray-500 text-lg">בחר פרויקט לצפייה בדיירים</p>
           </CardContent>
         </Card>
-      ) : loadingResidents ? (
+      ) : loadingResidents && !searchFocused ? (
         <div className="flex items-center justify-center h-32">
           <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
         </div>
-      ) : totalCount === 0 && !debouncedSearch ? (
+      ) : totalCount === 0 && !debouncedSearch && !searchFocused ? (
         <Card>
           <CardContent className="text-center py-12">
             <Users className="h-12 w-12 text-gray-300 mx-auto mb-4" />
@@ -379,6 +391,7 @@ export default function ResidentsPage() {
             <div className="flex items-center justify-between">
               <CardTitle className="text-lg">דיירים ({totalCount})</CardTitle>
               <Input
+                ref={searchInputRef}
                 value={nameSearch}
                 onChange={(e) => { setNameSearch(e.target.value); setPage(0) }}
                 placeholder="חיפוש לפי שם / טלפון / כתובת..."
@@ -420,6 +433,7 @@ export default function ResidentsPage() {
                               <a href={`tel:${resident.phone}`} className="inline-flex items-center justify-center p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200 transition-colors" title="חייג">
                                 <Phone className="h-3.5 w-3.5" />
                               </a>
+                              <CopyButton value={resident.phone} title="העתק טלפון" />
                             </div>
                           : <span className="text-gray-400">—</span>}
                       </td>
@@ -572,6 +586,13 @@ export default function ResidentsPage() {
                   onChange={(e) => setEditingResident({ ...editingResident, name: e.target.value })}
                 />
               </div>
+              <div className="grid grid-cols-2 gap-3">
+                <ResidentProjectPicker
+                  projectId={editingResident.project_id}
+                  onChange={(project_id) => setEditingResident({ ...editingResident, project_id })}
+                  idPrefix="edit"
+                />
+              </div>
               <div className="space-y-2">
                 <Label htmlFor="editAddress">כתובת</Label>
                 <Input
@@ -617,7 +638,7 @@ export default function ResidentsPage() {
               </div>
               <div className="flex gap-2 justify-end">
                 <Button variant="outline" onClick={() => setEditDialogOpen(false)}>ביטול</Button>
-                <Button onClick={saveEditResident} disabled={saving || !editingResident.name.trim()}>
+                <Button onClick={saveEditResident} disabled={saving || !editingResident.name.trim() || !editingResident.project_id}>
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'שמור שינויים'}
                 </Button>
               </div>

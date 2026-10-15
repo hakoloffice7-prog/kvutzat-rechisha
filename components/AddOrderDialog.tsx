@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Plus, Loader2, X } from 'lucide-react'
-import { STATUS_LABELS, STATUS_ORDER, calcSupplierPrice } from '@/lib/utils'
+import { STATUS_LABELS, STATUS_ORDER, calcSupplierPrice, stampNewNoteLines } from '@/lib/utils'
 import { useIsAdmin } from '@/components/RoleProvider'
 
 type Category = { id: string; name: string }
@@ -108,7 +108,7 @@ export function AddOrderDialog({
       supplier_id: newOrder.supplier_id || null,
       status: newOrder.status,
       payment_status: newOrder.payment_status,
-      notes: newOrder.notes,
+      notes: stampNewNoteLines('', newOrder.notes),
       measured_at: newOrder.status === 'measured' ? (newOrder.measured_at || new Date().toISOString().slice(0, 10)) : null,
       total_price: totalPrice,
     }).select('id').single()

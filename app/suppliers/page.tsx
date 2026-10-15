@@ -19,6 +19,7 @@ import { Plus, Truck, Loader2, Trash2, Phone, Mail, Edit2, Wallet } from 'lucide
 import Link from 'next/link'
 import { formatCurrency } from '@/lib/utils'
 import { useIsAdmin } from '@/components/RoleProvider'
+import { CopyButton } from '@/components/CopyButton'
 
 type Supplier = {
   id: string
@@ -310,6 +311,7 @@ export default function SuppliersPage() {
                       <a href={`tel:${supplier.phone}`} className="inline-flex items-center justify-center p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200 transition-colors" title="חייג">
                         <Phone className="h-3.5 w-3.5" />
                       </a>
+                      <CopyButton value={supplier.phone} title="העתק טלפון" />
                     </div>
                   )}
                   {supplier.phone2 && (
@@ -319,16 +321,20 @@ export default function SuppliersPage() {
                       <a href={`tel:${supplier.phone2}`} className="inline-flex items-center justify-center p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200 transition-colors" title="חייג">
                         <Phone className="h-3.5 w-3.5" />
                       </a>
+                      <CopyButton value={supplier.phone2} title="העתק טלפון" />
                     </div>
                   )}
                   {supplier.email && (
-                    <a
-                      href={`mailto:${supplier.email}`}
-                      className="text-sm text-gray-500 flex items-center gap-2 hover:text-blue-600"
-                    >
-                      <Mail className="h-3.5 w-3.5" />
-                      <span dir="ltr">{supplier.email}</span>
-                    </a>
+                    <div className="text-sm text-gray-500 flex items-center gap-2">
+                      <a
+                        href={`mailto:${supplier.email}`}
+                        className="flex items-center gap-2 hover:text-blue-600"
+                      >
+                        <Mail className="h-3.5 w-3.5" />
+                        <span dir="ltr">{supplier.email}</span>
+                      </a>
+                      <CopyButton value={supplier.email} title="העתק מייל" />
+                    </div>
                   )}
                   {isAdmin && !!supplier.advance_amount && (
                     <p className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-1">

@@ -26,11 +26,37 @@ export function formatDate(dateString: string): string {
   }).format(new Date(dateString))
 }
 
+// חותמת תאריך אוטומטית להערות חופשיות: כל שורה חדשה שלא הייתה בהערה השמורה
+// מקבלת בתחילתה [dd/mm/yyyy]. שורות קיימות או שכבר מתחילות בחותמת לא משתנות.
+const NOTE_STAMP_RE = /^\[\d{1,2}\/\d{1,2}\/\d{4}\]/
+
+export function stampNewNoteLines(previous: string | null | undefined, next: string | null | undefined): string {
+  const nextText = (next || '').replace(/\s+$/, '')
+  if (!nextText.trim()) return ''
+  const d = new Date()
+  const stamp = `[${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}]`
+  const existing = new Map<string, number>()
+  for (const line of (previous || '').split('\n')) {
+    existing.set(line, (existing.get(line) || 0) + 1)
+  }
+  return nextText
+    .split('\n')
+    .map((line) => {
+      if (!line.trim()) return line
+      const left = existing.get(line) || 0
+      if (left > 0) { existing.set(line, left - 1); return line }
+      if (NOTE_STAMP_RE.test(line.trim())) return line
+      return `${stamp} ${line}`
+    })
+    .join('\n')
+}
+
 // פייפליין ההזמנה: מעוניין -> תיאום מדידות -> נמדד -> אישור -> תיאום אספקה -> בוצע -> בוטל
 export const STATUS_LABELS: Record<string, string> = {
   interested: 'מעוניין',
   measurement_scheduled: 'תיאום מדידות',
   measured: 'נמדד',
+  awaiting_quote: 'ממתין להצעת מחיר',
   quoted: 'אישור',
   delivery_scheduled: 'תיאום אספקה',
   done: 'בוצע',
@@ -39,7 +65,7 @@ export const STATUS_LABELS: Record<string, string> = {
 
 // סדר הצגה לפייפליין (לתפריטים ולמסכי סקירה)
 export const STATUS_ORDER = [
-  'interested', 'measurement_scheduled', 'measured', 'quoted',
+  'interested', 'measurement_scheduled', 'measured', 'awaiting_quote', 'quoted',
   'delivery_scheduled', 'done', 'cancelled',
 ] as const
 
@@ -47,6 +73,7 @@ export const STATUS_COLORS: Record<string, string> = {
   interested: 'secondary',
   measurement_scheduled: 'info',
   measured: 'info',
+  awaiting_quote: 'warning',
   quoted: 'warning',
   delivery_scheduled: 'info',
   done: 'success',

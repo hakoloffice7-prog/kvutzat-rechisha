@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { CopyButton } from '@/components/CopyButton'
 import {
   Dialog,
   DialogContent,
@@ -218,6 +219,7 @@ export default function ProjectPage() {
                         <a href={`tel:${resident.phone}`} className="inline-flex items-center justify-center p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200 transition-colors" title="חייג">
                           <Phone className="h-3.5 w-3.5" />
                         </a>
+                        <CopyButton value={resident.phone} title="העתק טלפון" />
                       </div>
                     )}
                   </div>
