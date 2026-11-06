@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { CopyButton } from '@/components/CopyButton'
+import { ClickToCallButton } from '@/components/ClickToCallButton'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog,
@@ -15,11 +16,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Plus, Users, Loader2, Pencil, Trash2, ShoppingCart, Phone } from 'lucide-react'
-import { STATUS_LABELS, STATUS_ORDER, STATUS_COLORS, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS } from '@/lib/utils'
+import { Plus, Users, Loader2, Pencil, Trash2, ShoppingCart, Phone, CalendarClock } from 'lucide-react'
+import { ResidentRemindersDialog } from '@/components/ResidentRemindersDialog'
+import { STATUS_LABELS, STATUS_ORDER, STATUS_COLORS, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, digitsOnly, phoneSearchDigits, phoneIlikePatterns } from '@/lib/utils'
 import Link from 'next/link'
 import { AddOrderDialog } from '@/components/AddOrderDialog'
 import { ResidentProjectPicker } from '@/components/ResidentProjectPicker'
+import { OrderNumber } from '@/components/OrderNumber'
 
 type City = { id: string; name: string }
 type Project = { id: string; city_id: string; name: string; address: string }
@@ -38,6 +41,7 @@ type OrderItem = { id: string; description: string; model: string; customer_pric
 
 type SimpleOrder = {
   id: string
+  order_number: number | null
   status: string
   payment_status: string
   categories: { name: string }
@@ -65,6 +69,8 @@ export default function ResidentsPage() {
   const [saving, setSaving] = useState(false)
   const [newResident, setNewResident] = useState({ name: '', address: '', phone: '', phone2: '', email: '', key_location: '', project_id: '' })
   const [editingResident, setEditingResident] = useState<Resident | null>(null)
+
+  const [remindersResident, setRemindersResident] = useState<{ id: string; name: string } | null>(null)
 
   // Orders dialog state
   const [ordersDialogOpen, setOrdersDialogOpen] = useState(false)
@@ -127,11 +133,13 @@ export default function ResidentsPage() {
           setSelectedProjectId(pending)
           if (pendingAddDialogRef.current) {
             pendingAddDialogRef.current = false
+            setNewResident({ name: '', address: '', phone: '', phone2: '', email: '', key_location: '', project_id: pending !== ALL ? pending : '' })
+            setPhoneError('')
             setAddDialogOpen(true)
           }
         } else {
-          setSelectedProjectId('')
-          setResidents([])
+          // אין פרויקט שמור / הפרויקט לא שייך לעיר — ברירת מחדל "כל הפרויקטים"
+          setSelectedProjectId(ALL)
         }
         pendingProjectIdRef.current = ''
       })()
@@ -196,7 +204,14 @@ export default function ResidentsPage() {
     if (selectedProjectId !== ALL) q = q.eq('project_id', selectedProjectId)
     else if (cityFiltered) q = q.eq('projects.city_id', selectedCityId)
     const term = debouncedSearch.replace(/[,()%*]/g, ' ').trim()
-    if (term) q = q.or(`name.ilike.%${term}%,phone.ilike.%${term}%,address.ilike.%${term}%`)
+    if (term) {
+      // טלפון: מתעלמים מ-"-" — מחפשים את הספרות גם עם מקף בכל מיקום, בשני שדות הטלפון
+      const phonePatterns = phoneIlikePatterns(phoneSearchDigits(term))
+      const phoneClauses = phonePatterns.length > 0
+        ? phonePatterns.flatMap((p) => [`phone.ilike.${p}`, `phone2.ilike.${p}`])
+        : [`phone.ilike.%${term}%`, `phone2.ilike.%${term}%`]
+      q = q.or([`name.ilike.%${term}%`, `address.ilike.%${term}%`, ...phoneClauses].join(','))
+    }
     const { data, count } = await q
       .order('name')
       .order('id')
@@ -227,6 +242,35 @@ export default function ResidentsPage() {
     if (!isValidPhone(phone)) { setPhoneError('מספר טלפון לא תקין (לדוגמה: 050-1234567)'); return }
     setPhoneError('')
     setSaving(true)
+
+    // טלפון שכבר קיים במערכת (בכל אחד משני שדות הטלפון, בלי תלות ב-"-") — חסום
+    const newPhones = [phone, newResident.phone2.trim()].map(digitsOnly).filter(Boolean)
+    const phoneClauses = newPhones.flatMap((d) =>
+      phoneIlikePatterns(d).flatMap((p) => [`phone.ilike.${p}`, `phone2.ilike.${p}`])
+    )
+    const { data: phoneMatches } = await supabase
+      .from('residents')
+      .select('name, phone, phone2')
+      .or(phoneClauses.join(','))
+    const phoneTaken = (phoneMatches || []).find((r) =>
+      [r.phone, r.phone2].some((p) => p && newPhones.includes(digitsOnly(p)))
+    )
+    if (phoneTaken) {
+      setPhoneError(`הטלפון כבר קיים במערכת אצל הדייר "${phoneTaken.name}"`)
+      setSaving(false)
+      return
+    }
+
+    // שם זהה לדייר קיים — מבקשים אישור לפני היצירה
+    const { count: sameNameCount } = await supabase
+      .from('residents')
+      .select('id', { count: 'exact', head: true })
+      .ilike('name', newResident.name.trim().replace(/[\\%_]/g, '\\$&'))
+    if ((sameNameCount || 0) > 0 && !confirm(`כבר קיים במערכת דייר בשם "${newResident.name.trim()}". ליצור דייר נוסף עם אותו שם?`)) {
+      setSaving(false)
+      return
+    }
+
     const { data: created, error } = await supabase.from('residents').insert({
       project_id: newResident.project_id,
       name: newResident.name.trim(),
@@ -297,7 +341,7 @@ export default function ResidentsPage() {
 
     const { data } = await supabase
       .from('orders')
-      .select('id, status, payment_status, categories(name), suppliers(name), order_items(id, description, model, customer_price)')
+      .select('id, order_number, status, payment_status, categories(name), suppliers(name), order_items(id, description, model, customer_price)')
       .eq('resident_id', resident.id)
       .order('created_at', { ascending: false })
 
@@ -341,7 +385,6 @@ export default function ResidentsPage() {
                   onChange={(e) => { setSelectedCityId(e.target.value); setPage(0) }}
                   className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="">-- בחר עיר --</option>
                   <option value={ALL}>כל הערים</option>
                   {cities.map((city) => (
                     <option key={city.id} value={city.id}>{city.name}</option>
@@ -359,7 +402,6 @@ export default function ResidentsPage() {
                 disabled={!selectedCityId}
                 className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
               >
-                <option value="">-- בחר פרויקט --</option>
                 <option value={ALL}>כל הפרויקטים</option>
                 {filteredProjects.map((project) => (
                   <option key={project.id} value={project.id}>{project.name}</option>
@@ -435,9 +477,7 @@ export default function ResidentsPage() {
                         {resident.phone
                           ? <div className="flex items-center gap-2">
                               <span className="text-gray-600" dir="ltr">{resident.phone}</span>
-                              <a href={`tel:${resident.phone}`} className="inline-flex items-center justify-center p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200 transition-colors" title="חייג">
-                                <Phone className="h-3.5 w-3.5" />
-                              </a>
+                              <ClickToCallButton phone={resident.phone} name={resident.name} className="p-1" />
                               <CopyButton value={resident.phone} title="העתק טלפון" />
                             </div>
                           : <span className="text-gray-400">—</span>}
@@ -453,6 +493,16 @@ export default function ResidentsPage() {
                           >
                             <ShoppingCart className="h-4 w-4" />
                             <span className="mr-1 text-xs">הזמנות</span>
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setRemindersResident({ id: resident.id, name: resident.name })}
+                            className="text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+                            title="תזכורות"
+                          >
+                            <CalendarClock className="h-4 w-4" />
+                            <span className="mr-1 text-xs">תזכורות</span>
                           </Button>
                           <Button
                             variant="ghost"
@@ -500,6 +550,8 @@ export default function ResidentsPage() {
       )}
 
       {/* Add Resident Dialog */}
+      <ResidentRemindersDialog resident={remindersResident} onClose={() => setRemindersResident(null)} />
+
       <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -542,8 +594,9 @@ export default function ResidentsPage() {
                 disabled={!newResident.project_id}
                 id="residentPhone"
                 value={newResident.phone}
-                onChange={(e) => { setNewResident({ ...newResident, phone: e.target.value }); setPhoneError('') }}
-                placeholder="לדוגמה: 050-1234567"
+                onChange={(e) => { setNewResident({ ...newResident, phone: digitsOnly(e.target.value) }); setPhoneError('') }}
+                placeholder="לדוגמה: 0501234567"
+                inputMode="numeric"
                 dir="ltr"
                 className={phoneError ? 'border-red-500' : ''}
               />
@@ -555,8 +608,9 @@ export default function ResidentsPage() {
                 disabled={!newResident.project_id}
                 id="residentPhone2"
                 value={newResident.phone2}
-                onChange={(e) => setNewResident({ ...newResident, phone2: e.target.value })}
-                placeholder="לדוגמה: 050-1234567"
+                onChange={(e) => setNewResident({ ...newResident, phone2: digitsOnly(e.target.value) })}
+                placeholder="לדוגמה: 0501234567"
+                inputMode="numeric"
                 dir="ltr"
               />
             </div>
@@ -627,7 +681,8 @@ export default function ResidentsPage() {
                 <Input
                   id="editPhone"
                   value={editingResident.phone}
-                  onChange={(e) => setEditingResident({ ...editingResident, phone: e.target.value })}
+                  onChange={(e) => setEditingResident({ ...editingResident, phone: digitsOnly(e.target.value) })}
+                  inputMode="numeric"
                   dir="ltr"
                 />
               </div>
@@ -636,7 +691,8 @@ export default function ResidentsPage() {
                 <Input
                   id="editPhone2"
                   value={editingResident.phone2 || ''}
-                  onChange={(e) => setEditingResident({ ...editingResident, phone2: e.target.value })}
+                  onChange={(e) => setEditingResident({ ...editingResident, phone2: digitsOnly(e.target.value) })}
+                  inputMode="numeric"
                   dir="ltr"
                 />
               </div>
@@ -726,6 +782,7 @@ export default function ResidentsPage() {
                   {/* Order row */}
                   <div className="flex items-center justify-between p-3 bg-white">
                     <div className="flex items-center gap-2 flex-wrap">
+                      <OrderNumber orderNumber={order.order_number} />
                       <span className="font-medium text-gray-900">{order.categories?.name}</span>
                       <Badge variant={STATUS_COLORS[order.status] as any}>
                         {STATUS_LABELS[order.status]}

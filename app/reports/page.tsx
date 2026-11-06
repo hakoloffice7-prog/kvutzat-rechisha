@@ -3,10 +3,9 @@
 import { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
-import { Select } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { FileSpreadsheet, Download, Loader2 } from 'lucide-react'
+import { FileSpreadsheet, FileText, Download, Loader2 } from 'lucide-react'
 import { formatCurrency, PAYMENT_STATUS_LABELS, STATUS_LABELS, STATUS_ORDER } from '@/lib/utils'
 import { useIsAdmin } from '@/components/RoleProvider'
 import { MultiSelect } from '@/components/MultiSelect'
@@ -58,7 +57,7 @@ function getOrderDisplayRows(order: OrderRow): DisplayRow[] {
 export default function ReportsPage() {
   const isAdmin = useIsAdmin()
   const [projects, setProjects] = useState<Project[]>([])
-  const [selectedProject, setSelectedProject] = useState('')
+  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [selectedSupplierIds, setSelectedSupplierIds] = useState<string[]>([])
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([])
@@ -67,6 +66,16 @@ export default function ReportsPage() {
   const [orders, setOrders] = useState<OrderRow[]>([])
   const [ordersLoading, setOrdersLoading] = useState(false)
   const supabase = createClient()
+
+  const hasProject = selectedProjectIds.length > 0
+  const multiProject = selectedProjectIds.length > 1
+  const selectedProjects = projects.filter((p) => selectedProjectIds.includes(p.id))
+  const projectNameOf = (id?: string | null) => projects.find((p) => p.id === id)?.name || ''
+  // שם הפרויקט בשם הקובץ ובכותרת: פרויקט בודד בשמו, כמה פרויקטים כמספרם
+  const reportProjectName = selectedProjects.length === 1 ? selectedProjects[0].name : `${selectedProjects.length}_פרויקטים`
+  const reportProjectTitle = selectedProjects.length === 1
+    ? `${selectedProjects[0].cities?.name || ''} · ${selectedProjects[0].name}`
+    : `${selectedProjects.length} פרויקטים`
 
   useEffect(() => {
     fetchProjects()
@@ -78,12 +87,12 @@ export default function ReportsPage() {
   useEffect(() => {
     setSelectedSupplierIds([])
     setSelectedStatuses([])
-    if (selectedProject) {
+    if (selectedProjectIds.length > 0) {
       fetchOrders()
     } else {
       setOrders([])
     }
-  }, [selectedProject])
+  }, [selectedProjectIds])
 
   async function fetchProjects() {
     setLoading(true)
@@ -113,7 +122,7 @@ export default function ReportsPage() {
         order_items(description, model, customer_price, order_item_costs(supplier_price)),
         order_costs(global_supplier_price)
       `)
-      .eq('residents.project_id', selectedProject)
+      .in('residents.project_id', selectedProjectIds)
 
     const flattened = ((data as any) || []).map((order: any) => ({
       ...order,
@@ -135,9 +144,9 @@ export default function ReportsPage() {
     })
     return suppliers.map((s) => ({
       value: s.id,
-      label: selectedProject ? `${s.name} (${counts.get(s.id) || 0})` : s.name,
+      label: hasProject ? `${s.name} (${counts.get(s.id) || 0})` : s.name,
     }))
-  }, [suppliers, orders, selectedProject])
+  }, [suppliers, orders, hasProject])
 
   const filteredOrders = useMemo(() => {
     return orders.filter((o) =>
@@ -149,11 +158,10 @@ export default function ReportsPage() {
   const statusOptions = STATUS_ORDER.map((value) => ({ value, label: STATUS_LABELS[value] }))
 
   async function exportToExcel() {
-    if (!selectedProject || filteredOrders.length === 0) return
+    if (!hasProject || filteredOrders.length === 0) return
     setExporting(true)
 
     try {
-      const project = projects.find(p => p.id === selectedProject)
       const supplierName = selectedSupplierIds.length === 0
         ? ''
         : selectedSupplierIds.length === 1
@@ -171,6 +179,7 @@ export default function ReportsPage() {
 
         getOrderDisplayRows(order).forEach(row => {
           rows.push({
+            ...(multiProject ? { 'פרויקט': projectNameOf(resident?.project_id) } : {}),
             'שם דייר': resident?.name || '',
             'כתובת': resident?.address || '',
             'טלפון': resident?.phone || '',
@@ -192,6 +201,7 @@ export default function ReportsPage() {
 
       // Set column widths (must match the number of columns above)
       ws['!cols'] = [
+        ...(multiProject ? [{ width: 20 }] : []),
         { width: 20 }, { width: 25 }, { width: 15 },
         { width: 15 }, { width: 18 }, { width: 15 }, { width: 15 },
         { width: 25 }, { width: 15 }, { width: 12 },
@@ -199,7 +209,7 @@ export default function ReportsPage() {
       ]
 
       const namePart = supplierName ? `_${supplierName}` : ''
-      const fileName = `הזמנות_${project?.name || 'פרויקט'}${namePart}_${new Date().toLocaleDateString('he-IL').replace(/\//g, '-')}.xlsx`
+      const fileName = `הזמנות_${reportProjectName}${namePart}_${new Date().toLocaleDateString('he-IL').replace(/\//g, '-')}.xlsx`
       XLSX.writeFile(wb, fileName)
     } catch (error) {
       console.error('Export error:', error)
@@ -209,11 +219,141 @@ export default function ReportsPage() {
     setExporting(false)
   }
 
+  // בונה מסמך HTML מעוצב (כמו הטבלה באתר) ל-PDF (הדפסה) או ל-Word.
+  // כך העברית וה-RTL מוצגים נכון בלי ספריות נוספות
+  function buildReportHtml(mode: 'print' | 'word'): string | null {
+    if (!hasProject || filteredOrders.length === 0) return null
+    const esc = (v: unknown) => String(v ?? '').replace(/[&<>"']/g, (c) => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string
+    ))
+    const supplierText = selectedSupplierIds.length === 0
+      ? 'כל הספקים'
+      : suppliers.filter((s) => selectedSupplierIds.includes(s.id)).map((s) => s.name).join(', ')
+    const statusText = selectedStatuses.length === 0
+      ? 'כל הסטטוסים'
+      : selectedStatuses.map((s) => STATUS_LABELS[s] || s).join(', ')
+    const statusClass: Record<string, string> = {
+      done: 'green', cancelled: 'red', interested: 'gray',
+      awaiting_selection: 'yellow', selection_approved: 'blue', awaiting_quote: 'yellow', awaiting_approval: 'yellow', quoted: 'yellow',
+    }
+    const payClass: Record<string, string> = { not_paid: 'red', advance: 'yellow', partial: 'blue', paid_full: 'green' }
+
+    const body = filteredOrders.map((order) => {
+      const resident = order.residents
+      const rows = getOrderDisplayRows(order)
+      return rows.map((row, idx) => {
+        const first = idx === 0
+        const span = `rowspan="${rows.length}"`
+        const head = first ? `
+          ${multiProject ? `<td ${span}>${esc(projectNameOf(resident?.project_id))}</td>` : ''}
+          <td ${span} class="strong">${esc(resident?.name)}</td>
+          <td ${span}>${esc(resident?.address)}</td>
+          <td ${span} dir="ltr" class="num">${esc(resident?.phone)}</td>
+          <td ${span}>${esc(order.categories?.name || '-')}</td>
+          <td ${span}>${esc(order.suppliers?.name || '-')}</td>
+          <td ${span}><span class="badge ${statusClass[order.status] || 'blue'}">${esc(STATUS_LABELS[order.status] || order.status)}</span></td>
+          <td ${span}><span class="badge ${payClass[order.payment_status] || 'gray'}">${esc(PAYMENT_STATUS_LABELS[order.payment_status] || '')}</span></td>` : ''
+        const rest = row.empty
+          ? `<td class="muted" colspan="${isAdmin ? 4 : 3}">אין פריטים</td>`
+          : `<td>${esc(row.description)}</td>
+             <td>${esc(row.model || '-')}</td>
+             <td class="strong">${row.customerPrice !== null ? esc(formatCurrency(row.customerPrice)) : '-'}</td>
+             ${isAdmin ? `<td class="strong">${row.supplierPrice !== null ? esc(formatCurrency(row.supplierPrice)) : '-'}</td>` : ''}`
+        return `<tr class="${first ? 'first' : ''}">${head}${rest}</tr>`
+      }).join('')
+    }).join('')
+
+    const html = `<!doctype html>
+<html ${mode === 'word' ? 'xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40" ' : ''}lang="he" dir="rtl"><head><meta charset="utf-8">
+<title>הזמנות - ${esc(reportProjectTitle)}</title>
+<style>
+  ${mode === 'word'
+    ? '@page Section1 { size: 29.7cm 21cm; mso-page-orientation: landscape; margin: 1.2cm; } div.Section1 { page: Section1; }'
+    : '@page { size: A4 landscape; margin: 12mm; }'}
+  * { box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Arial, 'Noto Sans Hebrew', sans-serif; color: #111827; margin: 0; font-size: 11px; }
+  .header { border-bottom: 3px solid #1d4ed8; padding-bottom: 8px; margin-bottom: 10px; }
+  h1 { margin: 0; font-size: 22px; color: #1d4ed8; }
+  .meta { color: #4b5563; margin-top: 4px; font-size: 11px; }
+  table { width: 100%; border-collapse: collapse; }
+  thead { display: table-header-group; }
+  th { background: #eff6ff; color: #1e3a8a; text-align: right; font-weight: 700; padding: 6px 8px; border: 1px solid #bfdbfe; }
+  td { padding: 5px 8px; border: 1px solid #e5e7eb; text-align: right; vertical-align: top; }
+  tr { page-break-inside: avoid; }
+  tr.first td { border-top: 1px solid #9ca3af; }
+  tbody tr:nth-child(even) td { background: #fafafa; }
+  .strong { font-weight: 600; }
+  .muted { color: #9ca3af; }
+  .num { direction: ltr; text-align: right; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 10px; font-weight: 600; white-space: nowrap; }
+  .green { background: #dcfce7; color: #166534; }
+  .red { background: #fee2e2; color: #991b1b; }
+  .yellow { background: #fef9c3; color: #854d0e; }
+  .blue { background: #dbeafe; color: #1e40af; }
+  .gray { background: #f3f4f6; color: #374151; }
+  .footer { margin-top: 8px; color: #6b7280; font-size: 10px; }
+</style></head><body>
+<div class="Section1">
+<div class="header">
+  <h1>דוח הזמנות — ${esc(reportProjectTitle)}</h1>
+  <div class="meta">ספקים: ${esc(supplierText)} · סטטוסים: ${esc(statusText)} · ${filteredOrders.length} הזמנות · ${esc(new Date().toLocaleDateString('he-IL'))}</div>
+</div>
+<table>
+  <thead><tr>
+    ${multiProject ? '<th>פרויקט</th>' : ''}<th>דייר</th><th>כתובת</th><th>טלפון</th><th>קטגוריה</th><th>ספק</th>
+    <th>סטטוס הזמנה</th><th>סטטוס תשלום</th><th>תיאור פריט</th><th>דגם</th><th>מחיר לקוח</th>${isAdmin ? '<th>מחיר ספק</th>' : ''}
+  </tr></thead>
+  <tbody>${body}</tbody>
+</table>
+<div class="footer">קבוצות רכישה — מערכת ניהול</div>
+</div>
+${mode === 'print' ? '<script>window.onload = function () { setTimeout(function () { window.print() }, 300) }</script>' : ''}
+</body></html>`
+    return html
+  }
+
+  // PDF: פותח את המסמך בחלון חדש ומפעיל את חלון ההדפסה של הדפדפן — שם בוחרים "שמור כ-PDF"
+  function exportToPdf() {
+    const html = buildReportHtml('print')
+    if (!html) return
+
+    const win = window.open('', '_blank')
+    if (!win) {
+      alert('הדפדפן חסם את החלון. אפשר חלונות קופצים לאתר ונסה שוב')
+      return
+    }
+    win.document.open()
+    win.document.write(html)
+    win.document.close()
+  }
+
+  // Word: קובץ HTML בסיומת .doc — Word פותח אותו כמסמך רגיל (עברית, RTL וטבלה נשמרים)
+  function exportToWord() {
+    const html = buildReportHtml('word')
+    if (!html) return
+    const supplierName = selectedSupplierIds.length === 0
+      ? ''
+      : selectedSupplierIds.length === 1
+        ? suppliers.find((s) => s.id === selectedSupplierIds[0])?.name
+        : `${selectedSupplierIds.length}_ספקים`
+    const namePart = supplierName ? `_${supplierName}` : ''
+    const fileName = `הזמנות_${reportProjectName}${namePart}_${new Date().toLocaleDateString('he-IL').replace(/\//g, '-')}.doc`
+    const blob = new Blob(['\ufeff', html], { type: 'application/msword;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = fileName
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-gray-900">דוחות Excel</h1>
-        <p className="text-gray-500 mt-1">יצוא הזמנות לפי פרויקט, וניתן לסנן גם לפי ספק וסטטוס הזמנה</p>
+        <h1 className="text-3xl font-bold text-gray-900">דוחות</h1>
+        <p className="text-gray-500 mt-1">יצוא הזמנות לפי פרויקט ל-Excel, ל-PDF או ל-Word, וניתן לסנן גם לפי ספק וסטטוס הזמנה</p>
       </div>
 
       <Card>
@@ -225,27 +365,16 @@ export default function ReportsPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-4xl">
-            <div className="space-y-2">
-              <Label>בחר פרויקט</Label>
-              {loading ? (
-                <div className="flex items-center gap-2 text-gray-500">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  טוען פרויקטים...
-                </div>
-              ) : (
-                <Select
-                  value={selectedProject}
-                  onChange={(e) => setSelectedProject(e.target.value)}
-                >
-                  <option value="">בחר פרויקט לייצוא</option>
-                  {projects.map(project => (
-                    <option key={project.id} value={project.id}>
-                      {project.cities?.name} - {project.name}
-                    </option>
-                  ))}
-                </Select>
-              )}
-            </div>
+            <MultiSelect
+              label="בחר פרויקט (אפשר כמה)"
+              options={projects.map((p) => ({ value: p.id, label: `${p.cities?.name} - ${p.name}` }))}
+              selected={selectedProjectIds}
+              onChange={setSelectedProjectIds}
+              emptyLabel={loading ? 'טוען פרויקטים...' : 'בחר פרויקט לייצוא'}
+              pluralLabel="פרויקטים"
+              clearLabel="נקה בחירה"
+              disabled={loading}
+            />
 
             <MultiSelect
               label="סנן לפי ספק (אופציונלי)"
@@ -255,7 +384,7 @@ export default function ReportsPage() {
               emptyLabel="כל הספקים"
               pluralLabel="ספקים"
               clearLabel="נקה בחירה (כל הספקים)"
-              disabled={!selectedProject}
+              disabled={!hasProject}
             />
 
             <MultiSelect
@@ -266,13 +395,13 @@ export default function ReportsPage() {
               emptyLabel="כל הסטטוסים"
               pluralLabel="סטטוסים"
               clearLabel="נקה בחירה (כל הסטטוסים)"
-              disabled={!selectedProject}
+              disabled={!hasProject}
             />
           </div>
 
           <Button
             onClick={exportToExcel}
-            disabled={!selectedProject || filteredOrders.length === 0 || exporting}
+            disabled={!hasProject || filteredOrders.length === 0 || exporting}
             className="bg-green-600 hover:bg-green-700"
           >
             {exporting ? (
@@ -286,6 +415,22 @@ export default function ReportsPage() {
                 ייצא לאקסל
               </>
             )}
+          </Button>
+          <Button
+            onClick={exportToPdf}
+            disabled={!hasProject || filteredOrders.length === 0}
+            className="bg-blue-600 hover:bg-blue-700 mr-2"
+          >
+            <FileText className="h-4 w-4 ml-2" />
+            הורד PDF
+          </Button>
+          <Button
+            onClick={exportToWord}
+            disabled={!hasProject || filteredOrders.length === 0}
+            className="bg-indigo-600 hover:bg-indigo-700 mr-2"
+          >
+            <FileText className="h-4 w-4 ml-2" />
+            הורד Word
           </Button>
 
           <div className="bg-gray-50 rounded-lg p-4 text-sm text-gray-600">
@@ -301,7 +446,7 @@ export default function ReportsPage() {
       </Card>
 
       {/* Preview */}
-      {selectedProject && (
+      {hasProject && (
         <Card>
           <CardHeader>
             <CardTitle>תצוגה מקדימה ({filteredOrders.length} הזמנות)</CardTitle>
@@ -318,6 +463,7 @@ export default function ReportsPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-gray-50 border-b">
+                      {multiProject && <th className="text-right py-2 px-3 font-semibold">פרויקט</th>}
                       <th className="text-right py-2 px-3 font-semibold">דייר</th>
                       <th className="text-right py-2 px-3 font-semibold">כתובת</th>
                       <th className="text-right py-2 px-3 font-semibold">טלפון</th>
@@ -339,6 +485,7 @@ export default function ReportsPage() {
                         <tr key={`${order.id}-${idx}`} className="border-b hover:bg-gray-50">
                           {idx === 0 ? (
                             <>
+                              {multiProject && <td className="py-2 px-3" rowSpan={displayRows.length}>{projectNameOf(resident?.project_id)}</td>}
                               <td className="py-2 px-3 font-medium" rowSpan={displayRows.length}>{resident?.name}</td>
                               <td className="py-2 px-3" rowSpan={displayRows.length}>{resident?.address}</td>
                               <td className="py-2 px-3" rowSpan={displayRows.length}>{resident?.phone}</td>

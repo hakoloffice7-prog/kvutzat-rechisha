@@ -18,12 +18,48 @@ export function calcSupplierPrice(customerPrice: number, profitPercent: number):
   return Math.round(customerPrice * (1 - profitPercent / 100) * 100) / 100
 }
 
+// אחוז הרווח ברירת המחדל לפי הקטגוריה: השלמת מטבחים 15%, שאר הקטגוריות 10%
+export function defaultProfitPercent(categoryName?: string | null): string {
+  return categoryName && categoryName.includes('השלמת מטבח') ? '15' : '10'
+}
+
 export function formatDate(dateString: string): string {
   return new Intl.DateTimeFormat('he-IL', {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
   }).format(new Date(dateString))
+}
+
+// תאריך עדכון סטטוס הזמנה בפורמט dd/mm/yyyy ('' אם אין)
+export function formatStatusDate(value: string | null | undefined): string {
+  if (!value) return ''
+  const d = new Date(value)
+  if (isNaN(d.getTime())) return ''
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
+}
+
+// שדה טלפון מקבל ספרות בלבד
+export function digitsOnly(value: string): string {
+  return value.replace(/\D/g, '')
+}
+
+// חיפוש לפי טלפון שמתעלם מהתו "-" (ורווחים): מחזיר את הספרות של מונח החיפוש,
+// או '' אם המונח אינו מספר טלפון (מכיל אותיות או תווים אחרים)
+export function phoneSearchDigits(term: string): string {
+  const stripped = term.replace(/[\s-]/g, '')
+  return /^\d+$/.test(stripped) ? stripped : ''
+}
+
+// תבניות ilike לשאילתת שרת: הספרות כפי שהן, וגם עם "-" בכל מיקום אפשרי,
+// כדי להתאים למספרים שנשמרו עם מקף (050-1234567) וגם בלי
+export function phoneIlikePatterns(digits: string): string[] {
+  if (!digits) return []
+  const patterns = [`%${digits}%`]
+  for (let i = 1; i < digits.length && i <= 12; i++) {
+    patterns.push(`%${digits.slice(0, i)}-${digits.slice(i)}%`)
+  }
+  return patterns
 }
 
 // חותמת תאריך אוטומטית להערות חופשיות: כל שורה חדשה שלא הייתה בהערה השמורה
@@ -51,12 +87,15 @@ export function stampNewNoteLines(previous: string | null | undefined, next: str
     .join('\n')
 }
 
-// פייפליין ההזמנה: מעוניין -> תיאום מדידות -> נמדד -> אישור -> תיאום אספקה -> בוצע -> בוטל
+// פייפליין ההזמנה: מעוניין -> ממתין לבחירת צורה ודגם -> אושר צורה ודגם -> תיאום מדידות -> נמדד -> אישור -> תיאום אספקה -> בוצע -> בוטל
 export const STATUS_LABELS: Record<string, string> = {
   interested: 'מעוניין',
+  awaiting_selection: 'ממתין לבחירת צורה ודגם',
+  selection_approved: 'אושר צורה ודגם',
   measurement_scheduled: 'תיאום מדידות',
   measured: 'נמדד',
   awaiting_quote: 'ממתין להצעת מחיר',
+  awaiting_approval: 'מחכים לאישור',
   quoted: 'אישור',
   delivery_scheduled: 'תיאום אספקה',
   done: 'בוצע',
@@ -65,15 +104,18 @@ export const STATUS_LABELS: Record<string, string> = {
 
 // סדר הצגה לפייפליין (לתפריטים ולמסכי סקירה)
 export const STATUS_ORDER = [
-  'interested', 'measurement_scheduled', 'measured', 'awaiting_quote', 'quoted',
+  'interested', 'awaiting_selection', 'selection_approved', 'measurement_scheduled', 'measured', 'awaiting_quote', 'awaiting_approval', 'quoted',
   'delivery_scheduled', 'done', 'cancelled',
 ] as const
 
 export const STATUS_COLORS: Record<string, string> = {
   interested: 'secondary',
+  awaiting_selection: 'warning',
+  selection_approved: 'info',
   measurement_scheduled: 'info',
   measured: 'info',
   awaiting_quote: 'warning',
+  awaiting_approval: 'warning',
   quoted: 'warning',
   delivery_scheduled: 'info',
   done: 'success',

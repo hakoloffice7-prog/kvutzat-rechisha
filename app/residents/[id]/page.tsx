@@ -18,12 +18,15 @@ import {
 import { Plus, ShoppingCart, Loader2, Trash2, Phone, MapPin, ArrowLeft, Edit2, Mail, KeyRound, X, Save, Star, CalendarClock, StickyNote } from 'lucide-react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
-import { STATUS_LABELS, STATUS_COLORS, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, formatCurrency, getDebtStatus, stampNewNoteLines } from '@/lib/utils'
+import { STATUS_LABELS, STATUS_COLORS, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, formatCurrency, getDebtStatus, stampNewNoteLines, digitsOnly, formatStatusDate } from '@/lib/utils'
 import { useIsAdmin } from '@/components/RoleProvider'
 import { CopyButton } from '@/components/CopyButton'
+import { ClickToCallButton } from '@/components/ClickToCallButton'
 import { NotesSection } from '@/components/NotesSection'
+import { ResidentRemindersDialog } from '@/components/ResidentRemindersDialog'
 import { AddOrderDialog } from '@/components/AddOrderDialog'
 import { ResidentProjectPicker } from '@/components/ResidentProjectPicker'
+import { OrderNumber } from '@/components/OrderNumber'
 
 type Resident = {
   id: string
@@ -39,7 +42,9 @@ type Resident = {
 
 type Order = {
   id: string
+  order_number: number | null
   status: string
+  status_updated_at?: string | null
   payment_status: string
   created_at: string
   notes: string
@@ -68,6 +73,7 @@ export default function ResidentPage() {
   })
   const [savingResident, setSavingResident] = useState(false)
   const [residentDirty, setResidentDirty] = useState(false)
+  const [remindersViewOpen, setRemindersViewOpen] = useState(false)
   const [reminderDialogOpen, setReminderDialogOpen] = useState(false)
   const [newReminder, setNewReminder] = useState({ message: '', remind_at: '', remind_time: '' })
   const [savingReminder, setSavingReminder] = useState(false)
@@ -160,6 +166,13 @@ export default function ResidentPage() {
     return true
   }
 
+  async function replaceResidentNotes(next: string) {
+    const { error } = await supabase.from('residents').update({ notes: next }).eq('id', residentId)
+    if (error) return false
+    setResident((prev) => (prev ? { ...prev, notes: next } : prev))
+    return true
+  }
+
   async function deleteOrder(orderId: string) {
     if (!confirm('האם למחוק הזמנה זו?')) return
     await supabase.from('orders').delete().eq('id', orderId)
@@ -222,7 +235,15 @@ export default function ResidentPage() {
     <div className="space-y-6">
       {/* Back + Breadcrumb */}
       <div className="flex items-center gap-2 text-sm text-gray-500 flex-wrap">
-        <button onClick={() => router.back()} className="flex items-center gap-1 hover:text-blue-600">
+        <button
+          onClick={() => {
+            // אם הגענו ממסך עם מצב שמור (למשל סקירת פרויקט) — חוזרים בדיוק אליו
+            const from = new URLSearchParams(window.location.search).get('from')
+            if (from && from.startsWith('/') && !from.startsWith('//')) router.push(from)
+            else router.back()
+          }}
+          className="flex items-center gap-1 hover:text-blue-600"
+        >
           <ArrowLeft className="h-4 w-4" />
           חזור
         </button>
@@ -240,26 +261,29 @@ export default function ResidentPage() {
       <Card>
         <CardContent className="p-6">
           <div className="flex items-start justify-between gap-4 flex-wrap">
+            {/* הערות — בצד ימין */}
+            <div className="w-full lg:w-80 shrink-0">
+              <NotesSection
+                notes={resident.notes}
+                labelClassName="text-xs text-gray-500"
+                icon={<StickyNote className="h-3.5 w-3.5" />}
+                onAdd={addResidentNote}
+                onReplace={replaceResidentNotes}
+              />
+            </div>
+
             <div className="flex-1 min-w-[280px] space-y-3">
-              <div className="space-y-1">
-                <Label htmlFor="residentFormName" className="text-xs text-gray-500">שם הדייר</Label>
-                <Input
-                  id="residentFormName"
-                  value={residentForm.name}
-                  onChange={(e) => updateResidentField('name', e.target.value)}
-                  className="text-xl font-bold h-11"
-                />
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {resident && (
-                  <ResidentProjectPicker
-                    key={resident.id}
-                    projectId={residentForm.project_id}
-                    onChange={(id) => updateResidentField('project_id', id)}
-                    idPrefix="residentForm"
-                    labelClassName="text-xs text-gray-500"
+              {/* שורה 1: שם, כתובת, עיר, פרויקט */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="residentFormName" className="text-xs text-gray-500">שם הדייר</Label>
+                  <Input
+                    id="residentFormName"
+                    value={residentForm.name}
+                    onChange={(e) => updateResidentField('name', e.target.value)}
+                    className="font-bold"
                   />
-                )}
+                </div>
                 <div className="space-y-1">
                   <Label htmlFor="residentFormAddress" className="text-xs text-gray-500 flex items-center gap-1">
                     <MapPin className="h-3.5 w-3.5" /> כתובת
@@ -270,6 +294,18 @@ export default function ResidentPage() {
                     onChange={(e) => updateResidentField('address', e.target.value)}
                   />
                 </div>
+                {resident && (
+                  <ResidentProjectPicker
+                    key={resident.id}
+                    projectId={residentForm.project_id}
+                    onChange={(id) => updateResidentField('project_id', id)}
+                    idPrefix="residentForm"
+                    labelClassName="text-xs text-gray-500"
+                  />
+                )}
+              </div>
+              {/* שורה 2: טלפון, נייד נוסף, מייל */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="space-y-1">
                   <Label htmlFor="residentFormPhone" className="text-xs text-gray-500 flex items-center gap-1">
                     <Phone className="h-3.5 w-3.5" /> טלפון
@@ -278,14 +314,12 @@ export default function ResidentPage() {
                     <Input
                       id="residentFormPhone"
                       value={residentForm.phone}
-                      onChange={(e) => updateResidentField('phone', e.target.value)}
+                      onChange={(e) => updateResidentField('phone', digitsOnly(e.target.value))}
                       dir="ltr"
                     />
                     {resident.phone && <CopyButton value={resident.phone} title="העתק טלפון" className="p-2" />}
                     {resident.phone && (
-                      <a href={`tel:${resident.phone}`} className="inline-flex items-center justify-center p-2 rounded-full bg-green-100 text-green-600 hover:bg-green-200 transition-colors shrink-0" title="חייג">
-                        <Phone className="h-3.5 w-3.5" />
-                      </a>
+                      <ClickToCallButton phone={resident.phone} name={resident.name} className="p-2" />
                     )}
                   </div>
                 </div>
@@ -297,14 +331,12 @@ export default function ResidentPage() {
                     <Input
                       id="residentFormPhone2"
                       value={residentForm.phone2}
-                      onChange={(e) => updateResidentField('phone2', e.target.value)}
+                      onChange={(e) => updateResidentField('phone2', digitsOnly(e.target.value))}
                       dir="ltr"
                     />
                     {resident.phone2 && <CopyButton value={resident.phone2} title="העתק טלפון" className="p-2" />}
                     {resident.phone2 && (
-                      <a href={`tel:${resident.phone2}`} className="inline-flex items-center justify-center p-2 rounded-full bg-green-100 text-green-600 hover:bg-green-200 transition-colors shrink-0" title="חייג">
-                        <Phone className="h-3.5 w-3.5" />
-                      </a>
+                      <ClickToCallButton phone={resident.phone2} name={resident.name} className="p-2" />
                     )}
                   </div>
                 </div>
@@ -322,24 +354,16 @@ export default function ResidentPage() {
                     {resident.email && <CopyButton value={resident.email} title="העתק מייל" className="p-2" />}
                   </div>
                 </div>
-                <div className="space-y-1 sm:col-span-2">
-                  <Label htmlFor="residentFormKeyLocation" className="text-xs text-gray-500 flex items-center gap-1">
-                    <KeyRound className="h-3.5 w-3.5" /> מיקום מפתח
-                  </Label>
-                  <Input
-                    id="residentFormKeyLocation"
-                    value={residentForm.key_location}
-                    onChange={(e) => updateResidentField('key_location', e.target.value)}
-                  />
-                </div>
-                <div className="sm:col-span-2">
-                  <NotesSection
-                    notes={resident.notes}
-                    labelClassName="text-xs text-gray-500"
-                    icon={<StickyNote className="h-3.5 w-3.5" />}
-                    onAdd={addResidentNote}
-                  />
-                </div>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="residentFormKeyLocation" className="text-xs text-gray-500 flex items-center gap-1">
+                  <KeyRound className="h-3.5 w-3.5" /> מיקום מפתח
+                </Label>
+                <Input
+                  id="residentFormKeyLocation"
+                  value={residentForm.key_location}
+                  onChange={(e) => updateResidentField('key_location', e.target.value)}
+                />
               </div>
               <div className="flex justify-end">
                 <Button onClick={saveResident} disabled={savingResident || !residentForm.name.trim() || !residentForm.project_id || !residentDirty}>
@@ -350,6 +374,14 @@ export default function ResidentPage() {
             </div>
 
             <div className="flex flex-col gap-2 items-end">
+              <Button variant="outline" onClick={() => setRemindersViewOpen(true)}>
+                <CalendarClock className="h-4 w-4 ml-2" />
+                צפה בתזכורות
+              </Button>
+              <ResidentRemindersDialog
+                resident={remindersViewOpen ? { id: resident.id, name: resident.name } : null}
+                onClose={() => setRemindersViewOpen(false)}
+              />
               <Dialog open={reminderDialogOpen} onOpenChange={(open) => {
                 setReminderDialogOpen(open)
                 if (!open) setNewReminder({ message: '', remind_at: '', remind_time: '' })
@@ -438,12 +470,18 @@ export default function ResidentPage() {
                       <div className="flex items-center gap-4">
                         <div>
                           <div className="flex items-center gap-2 mb-1">
+                            <OrderNumber orderNumber={order.order_number} />
                             <h3 className="font-semibold text-gray-900">
                               {order.categories?.name || 'ללא קטגוריה'}
                             </h3>
                             <Badge variant={STATUS_COLORS[order.status] as any}>
                               {STATUS_LABELS[order.status]}
                             </Badge>
+                            {order.status_updated_at && (
+                              <span className="text-xs text-gray-500" title="תאריך עדכון הסטטוס">
+                                עודכן: {formatStatusDate(order.status_updated_at)}
+                              </span>
+                            )}
                             <Badge variant={PAYMENT_STATUS_COLORS[getEffectivePaymentStatus(order)] as any}>
                               {PAYMENT_STATUS_LABELS[getEffectivePaymentStatus(order)]}
                             </Badge>

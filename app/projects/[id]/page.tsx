@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { CopyButton } from '@/components/CopyButton'
+import { ClickToCallButton } from '@/components/ClickToCallButton'
 import {
   Dialog,
   DialogContent,
@@ -199,9 +200,7 @@ export default function ProjectPage() {
                       <div className="text-sm text-gray-500 flex items-center gap-1">
                         <Phone className="h-3.5 w-3.5 shrink-0" />
                         <span dir="ltr">{resident.phone}</span>
-                        <a href={`tel:${resident.phone}`} className="inline-flex items-center justify-center p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200 transition-colors" title="חייג">
-                          <Phone className="h-3.5 w-3.5" />
-                        </a>
+                        <ClickToCallButton phone={resident.phone} name={resident.name} className="p-1" />
                         <CopyButton value={resident.phone} title="העתק טלפון" />
                       </div>
                     )}

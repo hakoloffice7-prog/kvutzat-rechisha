@@ -7,16 +7,23 @@ import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { CopyButton } from '@/components/CopyButton'
+import { ClickToCallButton } from '@/components/ClickToCallButton'
 import { Label } from '@/components/ui/label'
-import { Loader2, BarChart2, Phone, MapPin } from 'lucide-react'
+import { Loader2, BarChart2, Phone, MapPin, Plus, CalendarClock } from 'lucide-react'
+import { ResidentRemindersDialog } from '@/components/ResidentRemindersDialog'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import Link from 'next/link'
 import { MultiSelect } from '@/components/MultiSelect'
-import { STATUS_LABELS, STATUS_ORDER, STATUS_COLORS, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, getDebtStatus, type DebtStatus } from '@/lib/utils'
+import { NotesSection } from '@/components/NotesSection'
+import { STATUS_LABELS, STATUS_ORDER, STATUS_COLORS, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, getDebtStatus, formatStatusDate, stampNewNoteLines, digitsOnly, phoneSearchDigits, type DebtStatus } from '@/lib/utils'
 
 // ערכי "סינטינל" לבחירת "כל הערים" / "כל הפרויקטים" בבוררים, כדי לאפשר
 // תצוגה חוצת ערים/פרויקטים (למשל כל מי שרוצה וילונות, מכל המערכת)
 const ALL_CITIES = '__ALL_CITIES__'
 const ALL_PROJECTS = '__ALL_PROJECTS__'
+// מפתח לשמירת החיפוש האחרון בין מסכים
+const LAST_SEARCH_KEY = 'overview-last-search'
 
 type City = { id: string; name: string }
 type Project = { id: string; city_id: string; name: string }
@@ -26,6 +33,7 @@ type Resident = {
   id: string
   name: string
   phone: string
+  phone2?: string | null
   address: string
   project_id: string
   projects: { name: string; cities: { name: string } } | null
@@ -36,13 +44,14 @@ type Order = {
   resident_id: string
   category_id: string
   status: string
+  status_updated_at: string | null
   payment_status: string
   measured_at: string | null
   total_price: number | null
   notes: string | null
   measurements: string | null
   details: Record<string, string> | null
-  order_payments: { amount: number }[]
+  order_payments: { amount: number; paid_at: string | null; note: string | null }[]
   order_items: { description: string; model: string }[]
 }
 
@@ -60,12 +69,27 @@ const PAYMENT_STATUS_FILTER_OPTIONS: { value: PaymentStatusFilter; label: string
   { value: 'paid_full', label: PAYMENT_STATUS_LABELS.paid_full },
 ]
 
-// סטטוס התשלום מחושב תמיד מחדש ממחיר ותשלומים בפועל, ולא נלקח מהעמודה
-// השמורה (order.payment_status) — היא יכולה להתיישן אם ההזמנה לא נשמרה מחדש.
+// ההערה האחרונה שנוספה: כל שורה בהערות היא הערה נפרדת, והחדשה נוספת בסוף
+function lastNoteLine(notes: string | null) {
+  const lines = (notes || '').split('\n').map((l) => l.trim()).filter(Boolean)
+  return lines[lines.length - 1] || ''
+}
+
+// הערות התשלומים של ההזמנה (מזומן, העברה וכו') ללא כפילויות, לתצוגה בטבלה
+function paymentNotesText(order: Order) {
+  const notes = (order.order_payments || []).map((p) => (p.note || '').trim()).filter(Boolean)
+  return Array.from(new Set(notes)).join(', ')
+}
+
+// סטטוס התשלום נלקח מהעמודה השמורה (order.payment_status) כדי שעריכה ישירה
+// מהטבלה תישמר; אם אין ערך שמור — מחושב ממחיר ותשלומים בפועל
 function getEffectivePaymentStatus(order: Order) {
+  if (order.payment_status) return order.payment_status
   const totalPaid = (order.order_payments || []).reduce((sum, p) => sum + (p.amount || 0), 0)
   return getDebtStatus(order.total_price || 0, totalPaid)
 }
+
+const selectClass = 'border border-gray-300 rounded-md px-2 py-1 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60'
 
 const STATUS_FILTER_OPTIONS: { value: StatusValue; label: string }[] =
   STATUS_ORDER.map((value) => ({ value, label: STATUS_LABELS[value] }))
@@ -77,7 +101,10 @@ const TILE_COLOR: Record<string, string> = {
   interested: 'text-blue-600',
   measurement_scheduled: 'text-blue-600',
   measured: 'text-blue-600',
+  awaiting_selection: 'text-yellow-600',
+  selection_approved: 'text-blue-600',
   awaiting_quote: 'text-yellow-600',
+  awaiting_approval: 'text-yellow-600',
   quoted: 'text-yellow-600',
   delivery_scheduled: 'text-blue-600',
   done: 'text-green-600',
@@ -92,16 +119,30 @@ export default function OverviewPage() {
 
   // הפילטרים נשמרים ב-URL (לא רק ב-state) כדי שכפתור "חזור" בדפדפן (למשל
   // מתוך עמוד דייר) יחזיר את המסך הזה מדויק כמו שהיה, גם אם הוא נטען מחדש
-  const initialCityId = searchParams.get('city') || ''
-  const initialProjectId = searchParams.get('project') || ''
-  const initialCategoryIds = (searchParams.get('category') || '').split(',').filter(Boolean)
-  const initialStatusFilters = (searchParams.get('status') || '')
+  // כשנכנסים למסך בלי פילטרים ב-URL (למשל מהתפריט) משחזרים את החיפוש האחרון שנשמר
+  const [filterSource] = useState<URLSearchParams>(() => {
+    const keys = ['city', 'project', 'category', 'status', 'payment', 'measuredDate', 'q']
+    if (keys.some((k) => searchParams.get(k))) return new URLSearchParams(searchParams.toString())
+    try {
+      return new URLSearchParams(localStorage.getItem(LAST_SEARCH_KEY) || '')
+    } catch {
+      return new URLSearchParams()
+    }
+  })
+  // ברירת מחדל: כל הערים וכל הפרויקטים
+  const initialCityId = filterSource.get('city') || ALL_CITIES
+  const initialProjectId = filterSource.get('project') || ALL_PROJECTS
+  const initialCategoryIds = (filterSource.get('category') || '').split(',').filter(Boolean)
+  const initialStatusFilters = (filterSource.get('status') || '')
     .split(',')
     .filter((s) => STATUS_FILTER_VALUES.has(s)) as StatusValue[]
-  const initialPaymentStatusFilters = (searchParams.get('payment') || '')
+  const initialPaymentStatusFilters = (filterSource.get('payment') || '')
     .split(',')
     .filter((v) => PAYMENT_STATUS_FILTER_VALUES.has(v)) as PaymentStatusFilter[]
-  const initialMeasuredDateFilter = searchParams.get('measuredDate') || ''
+  const initialMeasuredDateFilter = filterSource.get('measuredDate') || ''
+  const initialSearch = filterSource.get('q') || ''
+
+  const [returnRowId] = useState(searchParams.get('row') || '')
 
   const [cities, setCities] = useState<City[]>([])
   const [projects, setProjects] = useState<Project[]>([])
@@ -117,10 +158,14 @@ export default function OverviewPage() {
   const statusDropdownRef = useRef<HTMLDivElement>(null)
   const [paymentStatusFilters, setPaymentStatusFilters] = useState<PaymentStatusFilter[]>(initialPaymentStatusFilters)
   const [measuredDateFilter, setMeasuredDateFilter] = useState(initialMeasuredDateFilter)
+  const [search, setSearch] = useState(initialSearch)
 
   const [residents, setResidents] = useState<Resident[]>([])
   const [orders, setOrders] = useState<Order[]>([])
   const [expandedResidentId, setExpandedResidentId] = useState<string>('')
+  const [remindersResident, setRemindersResident] = useState<{ id: string; name: string } | null>(null)
+  const [notesDialog, setNotesDialog] = useState<{ name: string; orderId: string } | null>(null)
+  const [savingOrderIds, setSavingOrderIds] = useState<Set<string>>(new Set())
 
   const [loadingInit, setLoadingInit] = useState(true)
   const [loadingData, setLoadingData] = useState(false)
@@ -157,7 +202,7 @@ export default function OverviewPage() {
       if (pending && (pending === ALL_PROJECTS || projectsData.some((p) => p.id === pending))) {
         setSelectedProjectId(pending)
       } else {
-        setSelectedProjectId('')
+        setSelectedProjectId(ALL_PROJECTS)
       }
       pendingProjectIdRef.current = ''
     })
@@ -174,9 +219,11 @@ export default function OverviewPage() {
     if (statusFilters.length > 0) params.set('status', statusFilters.join(','))
     if (paymentStatusFilters.length > 0) params.set('payment', paymentStatusFilters.join(','))
     if (measuredDateFilter) params.set('measuredDate', measuredDateFilter)
+    if (search.trim()) params.set('q', search.trim())
     const query = params.toString()
+    try { localStorage.setItem(LAST_SEARCH_KEY, query) } catch {}
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
-  }, [selectedCityId, selectedProjectId, selectedCategoryIds, statusFilters, paymentStatusFilters, measuredDateFilter, pathname, router])
+  }, [selectedCityId, selectedProjectId, selectedCategoryIds, statusFilters, paymentStatusFilters, measuredDateFilter, search, pathname, router])
 
   // Reset measured-date filter whenever "measured" isn't one of the selected statuses
   useEffect(() => {
@@ -195,6 +242,78 @@ export default function OverviewPage() {
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
+
+  // עדכון סטטוס הזמנה / תשלום ישירות מהטבלה — שמירה אוטומטית עם עדכון מיידי
+  // במסך, ושחזור הערך הקודם אם השמירה נכשלה
+  async function updateOrderField(orderId: string, field: 'status' | 'payment_status', value: string) {
+    const previous = orders.find((o) => o.id === orderId)?.[field]
+    const previousStatusDate = orders.find((o) => o.id === orderId)?.status_updated_at ?? null
+    setSavingOrderIds((prev) => new Set(prev).add(orderId))
+    const nowIso = new Date().toISOString()
+    setOrders((prev) => prev.map((o) => (o.id === orderId
+      ? { ...o, [field]: value, ...(field === 'status' ? { status_updated_at: nowIso } : {}) }
+      : o)))
+    const { error } = await supabase
+      .from('orders')
+      .update({ [field]: value, updated_at: new Date().toISOString() })
+      .eq('id', orderId)
+    if (error) {
+      setOrders((prev) => prev.map((o) => (o.id === orderId
+        ? { ...o, [field]: previous ?? '', ...(field === 'status' ? { status_updated_at: previousStatusDate } : {}) }
+        : o)))
+      alert('השמירה נכשלה, נסה שוב')
+    }
+    setSavingOrderIds((prev) => {
+      const next = new Set(prev)
+      next.delete(orderId)
+      return next
+    })
+  }
+
+  // הערות להזמנה מתוך סקירת הפרויקט: מצרפים להערות העדכניות ביותר שנשמרו כדי לא לדרוס הערות של עובד אחר
+  async function addOrderNote(orderId: string, text: string) {
+    const { data: current } = await supabase.from('orders').select('notes').eq('id', orderId).single()
+    const previous = current?.notes || ''
+    const next = stampNewNoteLines(previous, previous ? previous + '\n' + text : text)
+    const { error } = await supabase.from('orders').update({ notes: next }).eq('id', orderId)
+    if (error) return false
+    setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, notes: next } : o)))
+    return true
+  }
+
+  async function replaceOrderNotes(orderId: string, next: string) {
+    const { error } = await supabase.from('orders').update({ notes: next }).eq('id', orderId)
+    if (error) return false
+    setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, notes: next } : o)))
+    return true
+  }
+
+  // מעבר למסך דיירים עם דיאלוג "הוסף דייר" פתוח, כשהעיר/הפרויקט שנבחרו כאן מסומנים שם
+  function goAddResident() {
+    try {
+      const project = projects.find((p) => p.id === selectedProjectId)
+      const cityId = project ? project.city_id : selectedCityId !== ALL_CITIES ? selectedCityId : ''
+      const projectId = project ? project.id : ''
+      sessionStorage.setItem('residents-pending-add', '1')
+      sessionStorage.setItem('residents-filter', JSON.stringify({ cityId, projectId }))
+    } catch {}
+    router.push('/residents')
+  }
+
+  // קישור לעמוד הדייר שזוכר את מצב המסך (פילטרים + השורה שנלחצה), כדי
+  // שכפתור "חזור" יחזיר בדיוק למקום שבו היינו
+  function residentHref(residentId: string, orderId: string) {
+    const params = new URLSearchParams(window.location.search)
+    params.set('row', orderId)
+    return `/residents/${residentId}?from=${encodeURIComponent(`${pathname}?${params.toString()}`)}`
+  }
+
+  // גלילה לשורה שממנה יצאנו, אחרי שהנתונים נטענו
+  useEffect(() => {
+    if (!returnRowId || loadingData) return
+    const el = document.getElementById(`row-${returnRowId}`)
+    if (el) el.scrollIntoView({ block: 'center' })
+  }, [returnRowId, loadingData, orders])
 
   function toggleStatusFilter(value: StatusValue) {
     setStatusFilters((prev) => prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value])
@@ -220,7 +339,7 @@ export default function OverviewPage() {
       setLoadingData(true)
       const residentsQuery = supabase
         .from('residents')
-        .select('id, name, phone, address, project_id, projects(name, cities(name))')
+        .select('id, name, phone, phone2, address, project_id, projects(name, cities(name))')
         .order('name')
       const scopedResidentsQuery = effectiveProjectIds!.length === 1
         ? residentsQuery.eq('project_id', effectiveProjectIds![0])
@@ -234,7 +353,7 @@ export default function OverviewPage() {
         const residentIds = residentsList.map((r) => r.id)
         const { data: ordersData } = await supabase
           .from('orders')
-          .select('id, resident_id, category_id, status, payment_status, measured_at, total_price, notes, measurements, details, order_payments(amount), order_items(description, model)')
+          .select('id, resident_id, category_id, status, status_updated_at, payment_status, measured_at, total_price, notes, measurements, details, order_payments(amount, paid_at, note), order_items(description, model)')
           .in('resident_id', residentIds)
           .in('category_id', selectedCategoryIds)
 
@@ -273,8 +392,20 @@ export default function OverviewPage() {
       // הסינון לפי תאריך מדידה חל רק על שורות בסטטוס "נמדד"; שאר הסטטוסים הנבחרים לא מוסתרים
       result = result.filter((row) => row.order?.status !== 'measured' || row.order?.measured_at === measuredDateFilter)
     }
+    const term = search.trim().toLowerCase()
+    if (term) {
+      // חיפוש חופשי לפי שם / טלפון / כתובת; בטלפון מתעלמים מ-"-" ורווחים
+      const termDigits = phoneSearchDigits(term)
+      result = result.filter(({ resident }) => {
+        if (resident.name.toLowerCase().includes(term) || (resident.address || '').toLowerCase().includes(term)) return true
+        return [resident.phone, resident.phone2].some((p) => {
+          if (!p) return false
+          return termDigits ? digitsOnly(p).includes(termDigits) : p.toLowerCase().includes(term)
+        })
+      })
+    }
     return result
-  }, [rows, statusFilters, paymentStatusFilters, measuredDateFilter])
+  }, [rows, statusFilters, paymentStatusFilters, measuredDateFilter, search])
 
   // Summary counts — נספרים דינמית לפי כל הסטטוסים הקיימים בפייפליין הנוכחי
   const summary = useMemo(() => {
@@ -295,12 +426,18 @@ export default function OverviewPage() {
   return (
     <div className="space-y-6" dir="rtl">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <BarChart2 className="h-8 w-8 text-blue-600" />
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">סקירת פרויקט</h1>
-          <p className="text-gray-500 mt-1">הצג את כל הדיירים בפרויקט (או בכל הערים/פרויקטים) עם סטטוס הזמנה לפי קטגוריה</p>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <BarChart2 className="h-8 w-8 text-blue-600" />
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">סקירת פרויקט</h1>
+            <p className="text-gray-500 mt-1">הצג את כל הדיירים בפרויקט (או בכל הערים/פרויקטים) עם סטטוס הזמנה לפי קטגוריה</p>
+          </div>
         </div>
+        <Button onClick={goAddResident}>
+          <Plus className="h-4 w-4 ml-2" />
+          הוסף דייר
+        </Button>
       </div>
 
       {/* Filters */}
@@ -322,7 +459,6 @@ export default function OverviewPage() {
                   onChange={(e) => setSelectedCityId(e.target.value)}
                   className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="">-- בחר עיר --</option>
                   <option value={ALL_CITIES}>כל הערים</option>
                   {cities.map((city) => (
                     <option key={city.id} value={city.id}>{city.name}</option>
@@ -337,15 +473,12 @@ export default function OverviewPage() {
                   id="projectSelect"
                   value={selectedProjectId}
                   onChange={(e) => setSelectedProjectId(e.target.value)}
-                  disabled={!selectedCityId}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="">-- בחר פרויקט --</option>
-                  {selectedCityId && (
-                    <option value={ALL_PROJECTS}>
-                      {selectedCityId === ALL_CITIES ? 'כל הפרויקטים (כל הערים)' : 'כל הפרויקטים בעיר'}
-                    </option>
-                  )}
+                  <option value={ALL_PROJECTS}>
+                    {selectedCityId === ALL_CITIES ? 'כל הפרויקטים' : 'כל הפרויקטים בעיר'}
+                  </option>
+
                   {filteredProjects.map((p) => (
                     <option key={p.id} value={p.id}>{p.name}</option>
                   ))}
@@ -416,6 +549,19 @@ export default function OverviewPage() {
                 clearLabel="נקה בחירה (הכל)"
               />
 
+              {/* חיפוש דייר */}
+              <div className="space-y-2">
+                <Label htmlFor="residentSearch">חיפוש דייר</Label>
+                <input
+                  id="residentSearch"
+                  type="search"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="שם, טלפון או כתובת"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
               {/* Measured date filter - shown only when "measured" is one of the selected statuses */}
               {statusFilters.includes('measured') && (
                 <div className="space-y-2">
@@ -464,7 +610,7 @@ export default function OverviewPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">
-                דיירים ({filteredRows.length}{statusFilters.length > 0 ? ` מתוך ${rows.length}` : ''})
+                דיירים ({filteredRows.length}{filteredRows.length !== rows.length ? ` מתוך ${rows.length}` : ''})
               </CardTitle>
               <p className="text-xs text-gray-400">לחיצה על שם הדייר פותחת שורת פירוט (לצילום מסך ושליחה לבעל מקצוע)</p>
             </CardHeader>
@@ -478,6 +624,8 @@ export default function OverviewPage() {
                       {multiCategory && <th className="text-right py-3 px-4 font-medium">קטגוריה</th>}
                       <th className="text-right py-3 px-4 font-medium">כתובת</th>
                       <th className="text-right py-3 px-4 font-medium">טלפון</th>
+                      <th className="text-right py-3 px-4 font-medium">מה הוזמן</th>
+                      <th className="text-right py-3 px-4 font-medium">מחיר</th>
                       <th className="text-right py-3 px-4 font-medium">סטטוס הזמנה</th>
                       <th className="text-right py-3 px-4 font-medium">סטטוס תשלום</th>
                       <th className="text-right py-3 px-4 font-medium">הערות</th>
@@ -492,7 +640,7 @@ export default function OverviewPage() {
 
                       return (
                         <Fragment key={order!.id}>
-                          <tr className="border-b hover:bg-gray-50 transition-colors">
+                          <tr id={`row-${order!.id}`} className={`border-b hover:bg-gray-50 transition-colors ${order!.id === returnRowId ? 'bg-yellow-50' : ''}`}>
                             <td className="py-3 px-4 text-gray-400">{idx + 1}</td>
                             <td className="py-3 px-4 font-medium">
                               <div className="flex items-center gap-2">
@@ -505,7 +653,15 @@ export default function OverviewPage() {
                                   {isExpanded ? <ChevronUp className="h-3.5 w-3.5 shrink-0" /> : <ChevronDown className="h-3.5 w-3.5 shrink-0" />}
                                   {resident.name}
                                 </button>
-                                <Link href={`/residents/${resident.id}`} className="text-gray-400 hover:text-blue-600 text-xs" title="לעמוד הדייר">
+                                <button
+                                  type="button"
+                                  onClick={() => setRemindersResident({ id: resident.id, name: resident.name })}
+                                  className="text-gray-400 hover:text-blue-600"
+                                  title="תזכורות הדייר"
+                                >
+                                  <CalendarClock className="h-4 w-4" />
+                                </button>
+                                <Link href={residentHref(resident.id, order!.id)} className="text-gray-400 hover:text-blue-600 text-xs" title="לעמוד הדייר">
                                   ←
                                 </Link>
                               </div>
@@ -523,33 +679,94 @@ export default function OverviewPage() {
                               {resident.phone
                                 ? <div className="flex items-center gap-2">
                                     <span className="text-gray-600" dir="ltr">{resident.phone}</span>
-                                    <a href={`tel:${resident.phone}`} className="inline-flex items-center justify-center p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200 transition-colors" title="חייג">
-                                      <Phone className="h-3.5 w-3.5" />
-                                    </a>
+                                    <ClickToCallButton phone={resident.phone} name={resident.name} className="p-1" />
                                     <CopyButton value={resident.phone} title="העתק טלפון" />
                                   </div>
                                 : <span className="text-gray-400">—</span>}
                             </td>
+                            <td className="py-3 px-4 text-gray-600 max-w-[220px]">
+                              {order!.order_items && order!.order_items.length > 0 ? (
+                                <ul className="space-y-0.5 text-xs">
+                                  {order!.order_items.map((it, i) => (
+                                    <li key={i}>{it.description}{it.model ? ` — ${it.model}` : ''}</li>
+                                  ))}
+                                </ul>
+                              ) : '—'}
+                            </td>
+                            <td className="py-3 px-4 text-gray-700 whitespace-nowrap">
+                              {order!.total_price ? `₪${order!.total_price.toLocaleString('he-IL')}` : '—'}
+                            </td>
                             <td className="py-3 px-4">
-                              <Badge variant={statusVariant as any}>{statusLabel}</Badge>
+                              <select
+                                value={effectiveStatus}
+                                disabled={savingOrderIds.has(order!.id)}
+                                onChange={(e) => updateOrderField(order!.id, 'status', e.target.value)}
+                                className={selectClass}
+                                title={statusLabel}
+                              >
+                                {!STATUS_LABELS[effectiveStatus] && <option value={effectiveStatus}>{effectiveStatus}</option>}
+                                {STATUS_ORDER.map((s) => (
+                                  <option key={s} value={s}>{STATUS_LABELS[s]}</option>
+                                ))}
+                              </select>
+                              {order!.status_updated_at && (
+                                <div className="text-[11px] text-gray-400 mt-0.5" title="תאריך עדכון הסטטוס">
+                                  עודכן: {formatStatusDate(order!.status_updated_at)}
+                                </div>
+                              )}
                             </td>
                             <td className="py-3 px-4">
                               {order ? (
-                                <Badge variant={PAYMENT_STATUS_COLORS[getEffectivePaymentStatus(order)] as any}>
-                                  {PAYMENT_STATUS_LABELS[getEffectivePaymentStatus(order)]}
-                                </Badge>
+                                <div>
+                                  <Badge variant={PAYMENT_STATUS_COLORS[getEffectivePaymentStatus(order)] as any}>
+                                    {PAYMENT_STATUS_LABELS[getEffectivePaymentStatus(order)]}
+                                  </Badge>
+                                  {paymentNotesText(order) && (
+                                    <div className="text-[11px] text-gray-500 mt-0.5" title="הערות תשלום">{paymentNotesText(order)}</div>
+                                  )}
+                                </div>
                               ) : (
                                 <span className="text-gray-400">—</span>
                               )}
                             </td>
-                            <td className="py-3 px-4 text-gray-600 max-w-[200px] truncate" title={order?.notes || ''}>
-                              {order?.notes || '—'}
+                            <td className="py-3 px-4 text-gray-600 max-w-[200px]">
+                              {order ? (
+                                order.notes ? (
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => setNotesDialog({ name: resident.name, orderId: order.id })}
+                                      className="block flex-1 min-w-0 text-right truncate hover:text-blue-700 hover:underline"
+                                      title="לחץ לצפייה ולעריכת ההערות"
+                                    >
+                                      {lastNoteLine(order.notes)}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setNotesDialog({ name: resident.name, orderId: order.id })}
+                                      className="shrink-0 p-1 rounded-full text-blue-600 hover:bg-blue-50"
+                                      title="הוסף הערה"
+                                    >
+                                      <Plus className="h-3.5 w-3.5" />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setNotesDialog({ name: resident.name, orderId: order.id })}
+                                    className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:underline"
+                                  >
+                                    <Plus className="h-3 w-3" />
+                                    הוסף הערה
+                                  </button>
+                                )
+                              ) : '—'}
                             </td>
                           </tr>
                           {isExpanded && (
                             <tr className="bg-blue-50/40 border-b">
                               <td></td>
-                              <td colSpan={multiCategory ? 7 : 6} className="px-4 pb-4 pt-1">
+                              <td colSpan={multiCategory ? 9 : 8} className="px-4 pb-4 pt-1">
                                 <div className="rounded-md border bg-white p-3 space-y-2 text-sm">
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <span className="font-semibold text-gray-900">{resident.name} — {categoryNameById.get(order?.category_id || '') || ''}</span>
@@ -589,6 +806,20 @@ export default function OverviewPage() {
                                   {order?.notes && (
                                     <div><span className="text-gray-500">הערות: </span>{order.notes}</div>
                                   )}
+                                  {order?.order_payments && order.order_payments.length > 0 && (
+                                    <div className="pt-1 border-t">
+                                      <div className="text-gray-500 mb-1">תשלומים:</div>
+                                      <ul className="space-y-0.5">
+                                        {order.order_payments.map((p, i) => (
+                                          <li key={i}>
+                                            ₪{(p.amount || 0).toLocaleString('he-IL')}
+                                            {p.paid_at ? ` · ${formatStatusDate(p.paid_at)}` : ''}
+                                            {p.note ? ` · ${p.note}` : ''}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  )}
                                   {order?.order_items && order.order_items.length > 0 && (
                                     <ul className="list-disc pr-5">
                                       {order.order_items.map((it, i) => (
@@ -603,7 +834,7 @@ export default function OverviewPage() {
                                       ))}
                                     </div>
                                   )}
-                                  {!order?.total_price && !order?.measured_at && !order?.measurements && !order?.notes && (!order?.order_items || order.order_items.length === 0) && (!order?.details || Object.keys(order.details).length === 0) && (
+                                  {!order?.total_price && !order?.measured_at && !order?.measurements && !order?.notes && (!order?.order_payments || order.order_payments.length === 0) && (!order?.order_items || order.order_items.length === 0) && (!order?.details || Object.keys(order.details).length === 0) && (
                                     <p className="text-gray-400">אין פרטי הזמנה נוספים מעבר לסטטוס ותשלום</p>
                                   )}
                                 </div>
@@ -635,6 +866,23 @@ export default function OverviewPage() {
           </Card>
         </>
       )}
+
+      <ResidentRemindersDialog resident={remindersResident} onClose={() => setRemindersResident(null)} />
+
+      <Dialog open={!!notesDialog} onOpenChange={(open) => { if (!open) setNotesDialog(null) }}>
+        <DialogContent dir="rtl" className="max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>הערות — {notesDialog?.name}</DialogTitle>
+          </DialogHeader>
+          {notesDialog && (
+            <NotesSection
+              notes={orders.find((o) => o.id === notesDialog.orderId)?.notes}
+              onAdd={(text) => addOrderNote(notesDialog.orderId, text)}
+              onReplace={(next) => replaceOrderNotes(notesDialog.orderId, next)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

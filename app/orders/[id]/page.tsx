@@ -21,11 +21,14 @@ import { useParams, useRouter } from 'next/navigation'
 import { useIsAdmin } from '@/components/RoleProvider'
 import { NotesSection } from '@/components/NotesSection'
 import { CopyButton } from '@/components/CopyButton'
+import { ClickToCallButton } from '@/components/ClickToCallButton'
+import { OrderNumber } from '@/components/OrderNumber'
 import {
   STATUS_LABELS, STATUS_COLORS, STATUS_ORDER,
   PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS,
-  formatCurrency, formatDate, getDebtStatus, calcSupplierPrice,
+  formatCurrency, formatDate, getDebtStatus, calcSupplierPrice, defaultProfitPercent,
   stampNewNoteLines,
+  formatStatusDate,
 } from '@/lib/utils'
 
 type OrderItem = {
@@ -45,7 +48,9 @@ type OrderPayment = {
 
 type Order = {
   id: string
+  order_number: number | null
   status: string
+  status_updated_at?: string | null
   payment_status: string
   notes: string
   measurements: string | null
@@ -186,11 +191,12 @@ export default function OrderPage() {
               : String(flattened.total_price || itemsRevenue || '')),
         is_global_price: flattened.is_global_price || false,
         global_supplier_price: flattened.global_supplier_price ? String(flattened.global_supplier_price) : '',
-        global_profit_percent: '10',
+        global_profit_percent: defaultProfitPercent(flattened.categories?.name),
         satisfaction_rating: flattened.satisfaction_rating || 0,
         satisfaction_note: flattened.satisfaction_note || '',
       })
       globalSupplierPriceTouchedRef.current = false
+      setNewItem((prev) => ({ ...prev, profit_percent: defaultProfitPercent(flattened.categories?.name) }))
       updateTotalFromItemsRef.current = false
       setDetailsRows(Object.entries(flattened.details || {}).map(([key, value]) => ({ key, value: String(value) })))
     }
@@ -248,6 +254,14 @@ export default function OrderPage() {
     return true
   }
 
+  async function replaceOrderNotes(next: string) {
+    const { error } = await supabase.from('orders').update({ notes: next }).eq('id', orderId)
+    if (error) return false
+    setOrder((prev) => (prev ? { ...prev, notes: next } : prev))
+    setEditedOrder((prev) => ({ ...prev, notes: next }))
+    return true
+  }
+
   async function addItem() {
     if (!newItem.description.trim()) return
     setSaving(true)
@@ -271,7 +285,7 @@ export default function OrderPage() {
     }
 
     if (!error) {
-      setNewItem({ description: '', model: '', quantity: '1', customer_price: '', supplier_price: '', profit_percent: '10' })
+      setNewItem({ description: '', model: '', quantity: '1', customer_price: '', supplier_price: '', profit_percent: defaultProfitPercent(order?.categories?.name) })
       newItemSupplierPriceTouchedRef.current = false
       setItemDialogOpen(false)
       updateTotalFromItemsRef.current = true
@@ -417,6 +431,7 @@ export default function OrderPage() {
           <h1 className="text-3xl font-bold text-gray-900">
             {order.categories?.name} - {order.residents?.name}
           </h1>
+          <OrderNumber orderNumber={order.order_number} className="text-sm" />
           <p className="text-gray-500 mt-1">
             {order.residents?.projects?.name}, {order.residents?.projects?.cities?.name}
           </p>
@@ -425,6 +440,11 @@ export default function OrderPage() {
           <Badge variant={STATUS_COLORS[order.status] as any} className="text-sm px-3 py-1">
             {STATUS_LABELS[order.status]}
           </Badge>
+          {order.status_updated_at && (
+            <span className="text-xs text-gray-500" title="תאריך עדכון הסטטוס">
+              עודכן: {formatStatusDate(order.status_updated_at)}
+            </span>
+          )}
           <Badge variant={PAYMENT_STATUS_COLORS[computedPaymentStatus] as any} className="text-sm px-3 py-1">
             {PAYMENT_STATUS_LABELS[computedPaymentStatus]}
           </Badge>
@@ -452,9 +472,7 @@ export default function OrderPage() {
                 <div className="text-gray-600 flex items-center gap-2">
                   <Phone className="h-4 w-4 shrink-0" />
                   <span dir="ltr">{order.residents.phone}</span>
-                  <a href={`tel:${order.residents.phone}`} className="inline-flex items-center justify-center p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200 transition-colors" title="חייג">
-                    <Phone className="h-3.5 w-3.5" />
-                  </a>
+                  <ClickToCallButton phone={order.residents.phone} name={order.residents.name} className="p-1" />
                   <CopyButton value={order.residents.phone} title="העתק טלפון" />
                 </div>
               )}
@@ -463,9 +481,7 @@ export default function OrderPage() {
                   <Phone className="h-4 w-4 shrink-0" />
                   <span dir="ltr">{order.residents.phone2}</span>
                   <span className="text-xs text-gray-400">(נוסף)</span>
-                  <a href={`tel:${order.residents.phone2}`} className="inline-flex items-center justify-center p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200 transition-colors" title="חייג">
-                    <Phone className="h-3.5 w-3.5" />
-                  </a>
+                  <ClickToCallButton phone={order.residents.phone2} name={order.residents.name} className="p-1" />
                   <CopyButton value={order.residents.phone2} title="העתק טלפון" />
                 </div>
               )}
@@ -651,7 +667,7 @@ export default function OrderPage() {
                     )}
                   </div>
 
-                  <NotesSection notes={editedOrder.notes} onAdd={addOrderNote} />
+                  <NotesSection notes={editedOrder.notes} onAdd={addOrderNote} onReplace={replaceOrderNotes} />
 
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
@@ -869,105 +885,10 @@ export default function OrderPage() {
               )}
             </CardContent>
           </Card>
-
-          {/* Payment History */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle>תשלומים</CardTitle>
-                <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
-                  <DialogTrigger asChild>
-                    <Button size="sm">
-                      <Plus className="h-4 w-4 ml-1" />
-                      הוסף תשלום
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>הוספת תשלום</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                      <div className="space-y-2">
-                        <Label>תאריך</Label>
-                        <Input
-                          type="date"
-                          value={newPayment.paid_at}
-                          onChange={(e) => setNewPayment({ ...newPayment, paid_at: e.target.value })}
-                          dir="ltr"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>סכום (₪) *</Label>
-                        <Input
-                          type="number"
-                          value={newPayment.amount}
-                          onChange={(e) => setNewPayment({ ...newPayment, amount: e.target.value })}
-                          placeholder="0"
-                          dir="ltr"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>הערה</Label>
-                        <Input
-                          value={newPayment.note}
-                          onChange={(e) => setNewPayment({ ...newPayment, note: e.target.value })}
-                          placeholder="לדוגמה: מקדמה במזומן"
-                        />
-                      </div>
-                      <div className="flex gap-2 justify-end">
-                        <Button variant="outline" onClick={() => setPaymentDialogOpen(false)}>ביטול</Button>
-                        <Button onClick={addPayment} disabled={saving || !(parseFloat(newPayment.amount) > 0)}>
-                          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'הוסף תשלום'}
-                        </Button>
-                      </div>
-                    </div>
-                  </DialogContent>
-                </Dialog>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {sortedPayments.length === 0 ? (
-                <div className="text-center py-6 text-gray-500 text-sm">
-                  <p>עדיין לא נרשמו תשלומים</p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {sortedPayments.reduce((rows: JSX.Element[], payment, idx) => {
-                    const paidSoFar = sortedPayments.slice(0, idx + 1).reduce((s, p) => s + (p.amount || 0), 0)
-                    const remaining = totalRevenue - paidSoFar
-                    rows.push(
-                      <div key={payment.id} className="flex items-center justify-between text-sm border-b pb-2 last:border-b-0">
-                        <div>
-                          <div className="font-medium">{formatCurrency(payment.amount)}</div>
-                          <div className="text-gray-500 text-xs">
-                            {formatDate(payment.paid_at)}{payment.note ? ` · ${payment.note}` : ''}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <div className="text-left text-xs text-gray-500">
-                            נותר: <span className={remaining > 0 ? 'text-red-600 font-medium' : 'text-green-600 font-medium'}>{formatCurrency(remaining)}</span>
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setDeletePaymentConfirmId(payment.id)}
-                            className="text-red-400 hover:text-red-600 h-7 px-1"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </div>
-                    )
-                    return rows
-                  }, [])}
-                </div>
-              )}
-            </CardContent>
-          </Card>
         </div>
 
         {/* Order Items */}
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-2 space-y-4">
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -1271,6 +1192,101 @@ export default function OrderPage() {
                       </tr>
                     </tfoot>
                   </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Payment History */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle>תשלומים</CardTitle>
+                <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button size="sm">
+                      <Plus className="h-4 w-4 ml-1" />
+                      הוסף תשלום
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>הוספת תשלום</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label>תאריך</Label>
+                        <Input
+                          type="date"
+                          value={newPayment.paid_at}
+                          onChange={(e) => setNewPayment({ ...newPayment, paid_at: e.target.value })}
+                          dir="ltr"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>סכום (₪) *</Label>
+                        <Input
+                          type="number"
+                          value={newPayment.amount}
+                          onChange={(e) => setNewPayment({ ...newPayment, amount: e.target.value })}
+                          placeholder="0"
+                          dir="ltr"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>הערה</Label>
+                        <Input
+                          value={newPayment.note}
+                          onChange={(e) => setNewPayment({ ...newPayment, note: e.target.value })}
+                          placeholder="לדוגמה: מקדמה במזומן"
+                        />
+                      </div>
+                      <div className="flex gap-2 justify-end">
+                        <Button variant="outline" onClick={() => setPaymentDialogOpen(false)}>ביטול</Button>
+                        <Button onClick={addPayment} disabled={saving || !(parseFloat(newPayment.amount) > 0)}>
+                          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'הוסף תשלום'}
+                        </Button>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {sortedPayments.length === 0 ? (
+                <div className="text-center py-6 text-gray-500 text-sm">
+                  <p>עדיין לא נרשמו תשלומים</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {sortedPayments.reduce((rows: JSX.Element[], payment, idx) => {
+                    const paidSoFar = sortedPayments.slice(0, idx + 1).reduce((s, p) => s + (p.amount || 0), 0)
+                    const remaining = totalRevenue - paidSoFar
+                    rows.push(
+                      <div key={payment.id} className="flex items-center justify-between text-sm border-b pb-2 last:border-b-0">
+                        <div>
+                          <div className="font-medium">{formatCurrency(payment.amount)}</div>
+                          <div className="text-gray-500 text-xs">
+                            {formatDate(payment.paid_at)}{payment.note ? ` · ${payment.note}` : ''}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="text-left text-xs text-gray-500">
+                            נותר: <span className={remaining > 0 ? 'text-red-600 font-medium' : 'text-green-600 font-medium'}>{formatCurrency(remaining)}</span>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setDeletePaymentConfirmId(payment.id)}
+                            className="text-red-400 hover:text-red-600 h-7 px-1"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                    )
+                    return rows
+                  }, [])}
                 </div>
               )}
             </CardContent>

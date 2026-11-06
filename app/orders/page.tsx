@@ -7,11 +7,14 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { ShoppingCart, Loader2, Search, ChevronLeft } from 'lucide-react'
 import Link from 'next/link'
-import { STATUS_LABELS, STATUS_COLORS, STATUS_ORDER, PAYMENT_STATUS_LABELS, formatCurrency } from '@/lib/utils'
+import { OrderNumber } from '@/components/OrderNumber'
+import { STATUS_LABELS, STATUS_COLORS, STATUS_ORDER, PAYMENT_STATUS_LABELS, formatCurrency, formatStatusDate } from '@/lib/utils'
 
 type Order = {
   id: string
+  order_number: number | null
   status: string
+  status_updated_at: string | null
   payment_status: string
   total_price: number
   created_at: string
@@ -33,7 +36,7 @@ export default function OrdersPage() {
     async function fetchOrders() {
       const { data } = await supabase
         .from('orders')
-        .select('id, status, payment_status, total_price, created_at, residents(id, name), categories(name), order_payments(amount)')
+        .select('id, order_number, status, status_updated_at, payment_status, total_price, created_at, residents(id, name), categories(name), order_payments(amount)')
         .order('created_at', { ascending: false })
       if (data) setOrders(data as any)
       setLoading(false)
@@ -45,7 +48,8 @@ export default function OrdersPage() {
     const matchStatus = statusFilter === ALL || o.status === statusFilter
     const matchSearch = !search ||
       (o.residents as any)?.name?.includes(search) ||
-      (o.categories as any)?.name?.includes(search)
+      (o.categories as any)?.name?.includes(search) ||
+      String(o.order_number ?? '').includes(search.replace('#', '').trim()) && search.replace('#', '').trim() !== ''
     return matchStatus && matchSearch
   })
 
@@ -75,7 +79,7 @@ export default function OrdersPage() {
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <Input
-            placeholder="חיפוש לפי שם / קטגוריה"
+            placeholder="חיפוש לפי שם / קטגוריה / מספר הזמנה"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pr-9"
@@ -128,6 +132,7 @@ export default function OrdersPage() {
               <div className="flex items-center justify-between p-4 bg-white border rounded-lg hover:shadow-sm hover:border-blue-200 transition-all cursor-pointer">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
+                    <OrderNumber orderNumber={order.order_number} />
                     <span className="font-medium text-gray-900">
                       {(order.residents as any)?.name || 'לא ידוע'}
                     </span>
@@ -148,6 +153,11 @@ export default function OrdersPage() {
                     <Badge variant={STATUS_COLORS[order.status] as any}>
                       {STATUS_LABELS[order.status] || order.status}
                     </Badge>
+                    {order.status_updated_at && (
+                      <p className="text-xs text-gray-400 mt-1 text-right" title="תאריך עדכון הסטטוס">
+                        עודכן: {formatStatusDate(order.status_updated_at)}
+                      </p>
+                    )}
                     {order.payment_status && order.payment_status !== 'not_paid' && (
                       <p className={`text-xs mt-1 text-right ${paymentColor[order.payment_status]}`}>
                         {PAYMENT_STATUS_LABELS[order.payment_status]}

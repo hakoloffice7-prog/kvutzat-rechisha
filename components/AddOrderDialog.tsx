@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Plus, Loader2, X } from 'lucide-react'
-import { STATUS_LABELS, STATUS_ORDER, calcSupplierPrice, stampNewNoteLines } from '@/lib/utils'
+import { STATUS_LABELS, STATUS_ORDER, calcSupplierPrice, defaultProfitPercent, stampNewNoteLines } from '@/lib/utils'
 import { useIsAdmin } from '@/components/RoleProvider'
 
 type Category = { id: string; name: string }
@@ -67,10 +67,23 @@ export function AddOrderDialog({
     })()
   }, [open])
 
+  const selectedCategoryName = categories.find(c => c.id === newOrder.category_id)?.name
+
+  // שינוי קטגוריה מעדכן את אחוז הרווח של פריטים שמחיר הספק שלהם עוד לא נערך ידנית
+  function changeCategory(categoryId: string) {
+    setNewOrder(prev => ({ ...prev, category_id: categoryId, supplier_id: '' }))
+    const percent = defaultProfitPercent(categories.find(c => c.id === categoryId)?.name)
+    setNewOrderItems(prev => prev.map(item => item.supplier_price_touched ? item : {
+      ...item,
+      profit_percent: percent,
+      supplier_price: String(calcSupplierPrice(parseFloat(item.customer_price) || 0, parseFloat(percent) || 0)),
+    }))
+  }
+
   function addNewOrderItem() {
     setNewOrderItems(prev => [...prev, {
       description: '', model: '', customer_price: '', supplier_price: '',
-      profit_percent: '10', supplier_price_touched: false,
+      profit_percent: defaultProfitPercent(selectedCategoryName), supplier_price_touched: false,
     }])
   }
   function updateNewOrderItem(idx: number, field: keyof NewOrderItem, value: string) {
@@ -96,7 +109,7 @@ export function AddOrderDialog({
   }
 
   async function addOrder() {
-    if (!newOrder.category_id) return
+    if (!newOrder.category_id || !newOrder.supplier_id) return
     setSaving(true)
 
     const validItems = newOrderItems.filter(i => i.description.trim())
@@ -105,7 +118,7 @@ export function AddOrderDialog({
     const { data: orderData, error } = await supabase.from('orders').insert({
       resident_id: residentId,
       category_id: newOrder.category_id,
-      supplier_id: newOrder.supplier_id || null,
+      supplier_id: newOrder.supplier_id,
       status: newOrder.status,
       payment_status: newOrder.payment_status,
       notes: stampNewNoteLines('', newOrder.notes),
@@ -133,6 +146,8 @@ export function AddOrderDialog({
           )
         }
       }
+      // הודעה קולית ללקוח על הזמנה חדשה בסטטוס "מעוניין" (לא חוסם את המעבר; כשל לא מפריע ליצירה)
+      if (newOrder.status === "interested") fetch("/api/pbx/order-voice", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId: orderData.id }) }).catch(() => {})
       router.push(`/orders/${orderData.id}`)
     }
     setSaving(false)
@@ -155,7 +170,7 @@ export function AddOrderDialog({
               <Label>קטגוריה *</Label>
               <Select
                 value={newOrder.category_id}
-                onChange={(e) => setNewOrder({ ...newOrder, category_id: e.target.value, supplier_id: '' })}
+                onChange={(e) => changeCategory(e.target.value)}
               >
                 <option value="">בחר קטגוריה</option>
                 {categories.map(cat => (
@@ -164,12 +179,12 @@ export function AddOrderDialog({
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>ספק</Label>
+              <Label>ספק *</Label>
               <Select
                 value={newOrder.supplier_id}
                 onChange={(e) => setNewOrder({ ...newOrder, supplier_id: e.target.value })}
               >
-                <option value="">ספק (אופציונלי)</option>
+                <option value="">בחר ספק</option>
                 {filteredSuppliers.map(sup => (
                   <option key={sup.id} value={sup.id}>{sup.name}</option>
                 ))}
@@ -289,7 +304,7 @@ export function AddOrderDialog({
 
           <div className="flex gap-2 justify-end border-t pt-3">
             <Button variant="outline" onClick={() => onOpenChange(false)}>ביטול</Button>
-            <Button onClick={addOrder} disabled={saving || !newOrder.category_id}>
+            <Button onClick={addOrder} disabled={saving || !newOrder.category_id || !newOrder.supplier_id}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'הוסף הזמנה'}
             </Button>
           </div>

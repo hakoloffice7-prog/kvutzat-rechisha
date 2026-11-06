@@ -35,7 +35,7 @@ export default async function RootLayout({
       <body>
         <RoleProvider role={role} name={name}>
           {session ? (
-            <div className="flex min-h-screen bg-gray-50">
+            <div className="flex flex-col min-h-screen bg-gray-50">
               <Sidebar role={role} name={name} />
               <ReminderPopup />
               <main className="flex-1 p-6 pt-16 md:pt-6 overflow-auto">

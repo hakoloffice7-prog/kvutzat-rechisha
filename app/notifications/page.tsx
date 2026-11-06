@@ -14,7 +14,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { Bell, CheckCheck, Loader2, AlertTriangle, Clock, CalendarClock, Plus } from 'lucide-react'
+import { Bell, CheckCheck, Loader2, AlertTriangle, Clock, CalendarClock, Plus, Pencil } from 'lucide-react'
 import Link from 'next/link'
 
 type Notification = {
@@ -70,6 +70,12 @@ export default function NotificationsPage() {
   const [residentSearch, setResidentSearch] = useState('')
   const [newReminder, setNewReminder] = useState({ resident_id: '', message: '', remind_at: '', remind_time: '' })
   const [savingReminder, setSavingReminder] = useState(false)
+
+  // עריכת תזכורת קיימת (אותה עריכה כמו בעמוד הדייר)
+  const [editingReminder, setEditingReminder] = useState<Notification | null>(null)
+  const [editForm, setEditForm] = useState({ message: '', remind_at: '', remind_time: '' })
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [editError, setEditError] = useState('')
 
   const [, setTick] = useState(0)
   useEffect(() => {
@@ -128,6 +134,37 @@ export default function NotificationsPage() {
     setNewReminder({ resident_id: residentId || '', message: '', remind_at: '', remind_time: '' })
     setResidentSearch('')
     setReminderDialogOpen(true)
+  }
+
+  function startEditReminder(n: Notification) {
+    setEditingReminder(n)
+    setEditForm({
+      message: n.message || '',
+      remind_at: n.remind_at || '',
+      remind_time: n.remind_time ? n.remind_time.slice(0, 5) : '',
+    })
+    setEditError('')
+  }
+
+  async function saveEditReminder() {
+    if (!editingReminder || !editForm.message.trim() || !editForm.remind_at) return
+    setSavingEdit(true)
+    setEditError('')
+    const changes = {
+      message: editForm.message.trim(),
+      remind_at: editForm.remind_at,
+      remind_time: editForm.remind_time || null,
+      // תזכורת שנערכה חוזרת להיות פעילה
+      is_read: false,
+    }
+    const { error } = await supabase.from('notifications').update(changes).eq('id', editingReminder.id)
+    if (error) {
+      setEditError('שמירת השינוי נכשלה')
+    } else {
+      setNotifications((prev) => prev.map((n) => (n.id === editingReminder.id ? { ...n, ...changes } : n)))
+      setEditingReminder(null)
+    }
+    setSavingEdit(false)
   }
 
   async function addReminder() {
@@ -420,6 +457,17 @@ export default function NotificationsPage() {
                           <CheckCheck className="h-4 w-4" />
                         </Button>
                       )}
+                      {isManual && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => startEditReminder(notification)}
+                          className="text-gray-400 hover:text-blue-600"
+                          title="ערוך תזכורת"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="sm"
@@ -436,6 +484,55 @@ export default function NotificationsPage() {
           })}
         </div>
       )}
+
+      <Dialog open={!!editingReminder} onOpenChange={(open) => { if (!open) setEditingReminder(null) }}>
+        <DialogContent dir="rtl">
+          <DialogHeader>
+            <DialogTitle>עריכת תזכורת — {editingReminder?.residents?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>תזכורת *</Label>
+              <Input
+                value={editForm.message}
+                onChange={(e) => setEditForm({ ...editForm, message: e.target.value })}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>תאריך יעד *</Label>
+                <input
+                  type="date"
+                  value={editForm.remind_at}
+                  onChange={(e) => setEditForm({ ...editForm, remind_at: e.target.value })}
+                  dir="ltr"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>שעה</Label>
+                <input
+                  type="time"
+                  value={editForm.remind_time}
+                  onChange={(e) => setEditForm({ ...editForm, remind_time: e.target.value })}
+                  dir="ltr"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+            {editError && <p className="text-sm text-red-600">{editError}</p>}
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setEditingReminder(null)}>ביטול</Button>
+              <Button
+                onClick={saveEditReminder}
+                disabled={savingEdit || !editForm.message.trim() || !editForm.remind_at}
+              >
+                {savingEdit ? <Loader2 className="h-4 w-4 animate-spin" /> : 'שמור'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
