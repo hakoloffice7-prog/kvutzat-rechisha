@@ -45,3 +45,7 @@ next-env.d.ts
 *.sql
 
 .env*
+
+# private files - never commit
+/סודי
+/שמות והזמנות הלקוחות/
