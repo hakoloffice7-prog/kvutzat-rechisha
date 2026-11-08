@@ -1,5 +1,6 @@
 'use client'
 
+import { requestOrderReminder } from "@/lib/sendOrderReminder"
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
@@ -55,6 +56,11 @@ type Order = {
   notes: string
   measurements: string | null
   measured_at: string | null
+  measurement_planned_time: string | null
+  measurement_planned_time_to: string | null
+  installation_planned_date: string | null
+  installation_planned_time: string | null
+  installation_planned_time_to: string | null
   total_price: number | null
   is_global_price: boolean
   global_supplier_price: number | null
@@ -101,6 +107,11 @@ export default function OrderPage() {
     notes: '',
     measurements: '',
     measured_at: '',
+    measurement_planned_time: '',
+    measurement_planned_time_to: '',
+    installation_planned_date: '',
+    installation_planned_time: '',
+    installation_planned_time_to: '',
     total_price: '',
     is_global_price: false,
     global_supplier_price: '',
@@ -181,6 +192,11 @@ export default function OrderPage() {
         notes: flattened.notes || '',
         measurements: flattened.measurements || '',
         measured_at: flattened.measured_at || '',
+        measurement_planned_time: (flattened.measurement_planned_time || '').slice(0, 5),
+        installation_planned_date: flattened.installation_planned_date || '',
+        installation_planned_time: (flattened.installation_planned_time || '').slice(0, 5),
+        measurement_planned_time_to: (flattened.measurement_planned_time_to || '').slice(0, 5),
+        installation_planned_time_to: (flattened.installation_planned_time_to || '').slice(0, 5),
         // אם total_price בהזמנה תקוע על 0/ריק (הזמנה ישנה שנוצרה בלי סנכרון,
         // או שינוי בפריטים כרגע) - נופלים חזרה לסכום הפריטים בפועל, כדי לא
         // להציג "מחיר לתשלום: 0" כשיש פריטים עם מחיר אמיתי
@@ -220,6 +236,20 @@ export default function OrderPage() {
         supplier_id: editedOrder.supplier_id || null,
         measurements: editedOrder.measurements,
         measured_at: editedOrder.measured_at || null,
+        measurement_planned_time: editedOrder.measurement_planned_time || null,
+        installation_planned_date: editedOrder.installation_planned_date || null,
+        installation_planned_time: editedOrder.installation_planned_time || null,
+        measurement_planned_time_to: editedOrder.measurement_planned_time_to || null,
+        installation_planned_time_to: editedOrder.installation_planned_time_to || null,
+        // שינוי מועד מתוכנן מאפס את סימון "נשלחה תזכורת", כדי שתצא תזכורת למועד החדש
+        ...(editedOrder.measured_at !== (order?.measured_at || '') ||
+          editedOrder.measurement_planned_time !== (order?.measurement_planned_time || '').slice(0, 5) ||
+          editedOrder.measurement_planned_time_to !== (order?.measurement_planned_time_to || '').slice(0, 5)
+          ? { measurement_reminder_sent_at: null } : {}),
+        ...(editedOrder.installation_planned_date !== (order?.installation_planned_date || '') ||
+          editedOrder.installation_planned_time !== (order?.installation_planned_time || '').slice(0, 5) ||
+          editedOrder.installation_planned_time_to !== (order?.installation_planned_time_to || '').slice(0, 5)
+          ? { installation_reminder_sent_at: null } : {}),
         total_price: newTotalPrice,
         is_global_price: editedOrder.is_global_price,
         details,
@@ -237,6 +267,10 @@ export default function OrderPage() {
     }
 
     if (!error) {
+      // מדידה/התקנה למחר אחרי שה-Cron של היום רץ: תזכורת מיידית (השרת מחליט אם בכלל צריך)
+      if (editedOrder.status === 'measurement_scheduled' || editedOrder.status === 'delivery_scheduled') {
+        await requestOrderReminder(orderId)
+      }
       fetchData()
     }
     setSaving(false)
@@ -530,7 +564,7 @@ export default function OrderPage() {
                     </Select>
                   </div>
 
-                  {editedOrder.status === 'measured' && (
+                  {true && (
                     <div className="space-y-2">
                       <Label>תאריך מדידה</Label>
                       <Input
@@ -539,6 +573,73 @@ export default function OrderPage() {
                         onChange={(e) => setEditedOrder({ ...editedOrder, measured_at: e.target.value })}
                         dir="ltr"
                       />
+                    </div>
+                  )}
+
+                  {editedOrder.status === 'measurement_scheduled' && (
+                    <div className="space-y-2">
+                      <Label>שעות המדידה (תזכורת קולית יום לפני, לפי "תאריך מדידה")</Label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <span className="text-xs text-gray-500">משעה</span>
+                          <Input
+                            type="time"
+                            value={editedOrder.measurement_planned_time}
+                            onChange={(e) => setEditedOrder({ ...editedOrder, measurement_planned_time: e.target.value })}
+                            dir="ltr"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-xs text-gray-500">עד שעה</span>
+                          <Input
+                            type="time"
+                            value={editedOrder.measurement_planned_time_to}
+                            onChange={(e) => setEditedOrder({ ...editedOrder, measurement_planned_time_to: e.target.value })}
+                            dir="ltr"
+                          />
+                        </div>
+                      </div>
+                      {order?.measured_at && (order as any).measurement_reminder_sent_at && (
+                        <p className="text-xs text-green-600">נשלחה תזכורת ללקוח</p>
+                      )}
+                    </div>
+                  )}
+
+                  {editedOrder.status === 'delivery_scheduled' && (
+                    <div className="space-y-2">
+                      <Label>התקנה מתוכננת (תזכורת קולית יום לפני)</Label>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="space-y-1">
+                          <span className="text-xs text-gray-500">תאריך</span>
+                          <Input
+                            type="date"
+                            value={editedOrder.installation_planned_date}
+                            onChange={(e) => setEditedOrder({ ...editedOrder, installation_planned_date: e.target.value })}
+                            dir="ltr"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-xs text-gray-500">משעה</span>
+                          <Input
+                            type="time"
+                            value={editedOrder.installation_planned_time}
+                            onChange={(e) => setEditedOrder({ ...editedOrder, installation_planned_time: e.target.value })}
+                            dir="ltr"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-xs text-gray-500">עד שעה</span>
+                          <Input
+                            type="time"
+                            value={editedOrder.installation_planned_time_to}
+                            onChange={(e) => setEditedOrder({ ...editedOrder, installation_planned_time_to: e.target.value })}
+                            dir="ltr"
+                          />
+                        </div>
+                      </div>
+                      {order?.installation_planned_date && (order as any).installation_reminder_sent_at && (
+                        <p className="text-xs text-green-600">נשלחה תזכורת ללקוח</p>
+                      )}
                     </div>
                   )}
 
@@ -737,7 +838,7 @@ export default function OrderPage() {
                       <span className="font-medium">{editedOrder.measurements}</span>
                     </div>
                   )}
-                  {editedOrder.status === 'measured' && editedOrder.measured_at && (
+                  {editedOrder.measured_at && (
                     <div className="flex justify-between">
                       <span className="text-gray-500">תאריך מדידה</span>
                       <span className="font-medium">{formatDate(editedOrder.measured_at)}</span>

@@ -36,6 +36,7 @@ type Resident = {
   phone2?: string | null
   address: string
   project_id: string
+  last_updated_at?: string | null
   projects: { name: string; cities: { name: string } } | null
 }
 
@@ -68,6 +69,14 @@ const PAYMENT_STATUS_FILTER_OPTIONS: { value: PaymentStatusFilter; label: string
   { value: 'partial', label: PAYMENT_STATUS_LABELS.partial },
   { value: 'paid_full', label: PAYMENT_STATUS_LABELS.paid_full },
 ]
+
+// תאריך מקומי בפורמט YYYY-MM-DD מתוך חותמת זמן (להשוואה לשדות date)
+function toLocalDateKey(value: string | null | undefined) {
+  if (!value) return ''
+  const d = new Date(value)
+  if (isNaN(d.getTime())) return ''
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 
 // ההערה האחרונה שנוספה: כל שורה בהערות היא הערה נפרדת, והחדשה נוספת בסוף
 function lastNoteLine(notes: string | null) {
@@ -121,7 +130,7 @@ export default function OverviewPage() {
   // מתוך עמוד דייר) יחזיר את המסך הזה מדויק כמו שהיה, גם אם הוא נטען מחדש
   // כשנכנסים למסך בלי פילטרים ב-URL (למשל מהתפריט) משחזרים את החיפוש האחרון שנשמר
   const [filterSource] = useState<URLSearchParams>(() => {
-    const keys = ['city', 'project', 'category', 'status', 'payment', 'measuredDate', 'q']
+    const keys = ['city', 'project', 'category', 'status', 'payment', 'measuredFrom', 'measuredTo', 'updatedFrom', 'updatedTo', 'q']
     if (keys.some((k) => searchParams.get(k))) return new URLSearchParams(searchParams.toString())
     try {
       return new URLSearchParams(localStorage.getItem(LAST_SEARCH_KEY) || '')
@@ -139,7 +148,10 @@ export default function OverviewPage() {
   const initialPaymentStatusFilters = (filterSource.get('payment') || '')
     .split(',')
     .filter((v) => PAYMENT_STATUS_FILTER_VALUES.has(v)) as PaymentStatusFilter[]
-  const initialMeasuredDateFilter = filterSource.get('measuredDate') || ''
+  const initialMeasuredFrom = filterSource.get('measuredFrom') || ''
+  const initialMeasuredTo = filterSource.get('measuredTo') || ''
+  const initialUpdatedFrom = filterSource.get('updatedFrom') || ''
+  const initialUpdatedTo = filterSource.get('updatedTo') || ''
   const initialSearch = filterSource.get('q') || ''
 
   const [returnRowId] = useState(searchParams.get('row') || '')
@@ -157,7 +169,10 @@ export default function OverviewPage() {
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false)
   const statusDropdownRef = useRef<HTMLDivElement>(null)
   const [paymentStatusFilters, setPaymentStatusFilters] = useState<PaymentStatusFilter[]>(initialPaymentStatusFilters)
-  const [measuredDateFilter, setMeasuredDateFilter] = useState(initialMeasuredDateFilter)
+  const [measuredFrom, setMeasuredFrom] = useState(initialMeasuredFrom)
+  const [measuredTo, setMeasuredTo] = useState(initialMeasuredTo)
+  const [updatedFrom, setUpdatedFrom] = useState(initialUpdatedFrom)
+  const [updatedTo, setUpdatedTo] = useState(initialUpdatedTo)
   const [search, setSearch] = useState(initialSearch)
 
   const [residents, setResidents] = useState<Resident[]>([])
@@ -218,19 +233,15 @@ export default function OverviewPage() {
     if (selectedCategoryIds.length > 0) params.set('category', selectedCategoryIds.join(','))
     if (statusFilters.length > 0) params.set('status', statusFilters.join(','))
     if (paymentStatusFilters.length > 0) params.set('payment', paymentStatusFilters.join(','))
-    if (measuredDateFilter) params.set('measuredDate', measuredDateFilter)
+    if (measuredFrom) params.set('measuredFrom', measuredFrom)
+    if (measuredTo) params.set('measuredTo', measuredTo)
+    if (updatedFrom) params.set('updatedFrom', updatedFrom)
+    if (updatedTo) params.set('updatedTo', updatedTo)
     if (search.trim()) params.set('q', search.trim())
     const query = params.toString()
     try { localStorage.setItem(LAST_SEARCH_KEY, query) } catch {}
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
-  }, [selectedCityId, selectedProjectId, selectedCategoryIds, statusFilters, paymentStatusFilters, measuredDateFilter, search, pathname, router])
-
-  // Reset measured-date filter whenever "measured" isn't one of the selected statuses
-  useEffect(() => {
-    if (!statusFilters.includes('measured') && measuredDateFilter) {
-      setMeasuredDateFilter('')
-    }
-  }, [statusFilters])
+  }, [selectedCityId, selectedProjectId, selectedCategoryIds, statusFilters, paymentStatusFilters, measuredFrom, measuredTo, updatedFrom, updatedTo, search, pathname, router])
 
   // Close the status multi-select dropdown when clicking outside of it
   useEffect(() => {
@@ -245,6 +256,13 @@ export default function OverviewPage() {
 
   // עדכון סטטוס הזמנה / תשלום ישירות מהטבלה — שמירה אוטומטית עם עדכון מיידי
   // במסך, ושחזור הערך הקודם אם השמירה נכשלה
+  function touchResidentOfOrder(orderId: string) {
+    const rid = orders.find((o) => o.id === orderId)?.resident_id
+    if (!rid) return
+    const nowIso = new Date().toISOString()
+    setResidents((prev) => prev.map((r) => (r.id === rid ? { ...r, last_updated_at: nowIso } : r)))
+  }
+
   async function updateOrderField(orderId: string, field: 'status' | 'payment_status', value: string) {
     const previous = orders.find((o) => o.id === orderId)?.[field]
     const previousStatusDate = orders.find((o) => o.id === orderId)?.status_updated_at ?? null
@@ -262,6 +280,8 @@ export default function OverviewPage() {
         ? { ...o, [field]: previous ?? '', ...(field === 'status' ? { status_updated_at: previousStatusDate } : {}) }
         : o)))
       alert('השמירה נכשלה, נסה שוב')
+    } else {
+      touchResidentOfOrder(orderId)
     }
     setSavingOrderIds((prev) => {
       const next = new Set(prev)
@@ -278,6 +298,7 @@ export default function OverviewPage() {
     const { error } = await supabase.from('orders').update({ notes: next }).eq('id', orderId)
     if (error) return false
     setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, notes: next } : o)))
+    touchResidentOfOrder(orderId)
     return true
   }
 
@@ -285,6 +306,7 @@ export default function OverviewPage() {
     const { error } = await supabase.from('orders').update({ notes: next }).eq('id', orderId)
     if (error) return false
     setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, notes: next } : o)))
+    touchResidentOfOrder(orderId)
     return true
   }
 
@@ -339,7 +361,7 @@ export default function OverviewPage() {
       setLoadingData(true)
       const residentsQuery = supabase
         .from('residents')
-        .select('id, name, phone, phone2, address, project_id, projects(name, cities(name))')
+        .select('id, name, phone, phone2, address, project_id, last_updated_at, projects(name, cities(name))')
         .order('name')
       const scopedResidentsQuery = effectiveProjectIds!.length === 1
         ? residentsQuery.eq('project_id', effectiveProjectIds![0])
@@ -388,9 +410,21 @@ export default function OverviewPage() {
     if (paymentStatusFilters.length > 0) {
       result = result.filter((row) => row.order && paymentStatusFilters.includes(getEffectivePaymentStatus(row.order) as PaymentStatusFilter))
     }
-    if (measuredDateFilter && statusFilters.includes('measured')) {
-      // הסינון לפי תאריך מדידה חל רק על שורות בסטטוס "נמדד"; שאר הסטטוסים הנבחרים לא מוסתרים
-      result = result.filter((row) => row.order?.status !== 'measured' || row.order?.measured_at === measuredDateFilter)
+    // סינון לפי תאריך מדידה (בכל סטטוס, כי התאריך נשמר גם אחרי שינוי סטטוס)
+    if (measuredFrom || measuredTo) {
+      result = result.filter((row) => {
+        const d = row.order?.measured_at
+        if (!d) return false
+        return (!measuredFrom || d >= measuredFrom) && (!measuredTo || d <= measuredTo)
+      })
+    }
+    // סינון לפי תאריך עדכון אחרון של הדייר
+    if (updatedFrom || updatedTo) {
+      result = result.filter((row) => {
+        const d = toLocalDateKey(row.resident.last_updated_at)
+        if (!d) return false
+        return (!updatedFrom || d >= updatedFrom) && (!updatedTo || d <= updatedTo)
+      })
     }
     const term = search.trim().toLowerCase()
     if (term) {
@@ -405,7 +439,7 @@ export default function OverviewPage() {
       })
     }
     return result
-  }, [rows, statusFilters, paymentStatusFilters, measuredDateFilter, search])
+  }, [rows, statusFilters, paymentStatusFilters, measuredFrom, measuredTo, updatedFrom, updatedTo, search])
 
   // Summary counts — נספרים דינמית לפי כל הסטטוסים הקיימים בפייפליין הנוכחי
   const summary = useMemo(() => {
@@ -562,20 +596,39 @@ export default function OverviewPage() {
                 />
               </div>
 
-              {/* Measured date filter - shown only when "measured" is one of the selected statuses */}
-              {statusFilters.includes('measured') && (
-                <div className="space-y-2">
-                  <Label htmlFor="measuredDateFilter">תאריך מדידה</Label>
-                  <input
-                    id="measuredDateFilter"
-                    type="date"
-                    value={measuredDateFilter}
-                    onChange={(e) => setMeasuredDateFilter(e.target.value)}
-                    dir="ltr"
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+              {/* תאריך מדידה (טווח) */}
+              <div className="space-y-2 md:col-span-2 lg:col-span-2">
+                <Label>תאריך מדידה</Label>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <span className="block text-xs text-gray-500">מתאריך</span>
+                    <input type="date" value={measuredFrom} onChange={(e) => setMeasuredFrom(e.target.value)} dir="ltr"
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  <div className="space-y-1">
+                    <span className="block text-xs text-gray-500">עד תאריך</span>
+                    <input type="date" value={measuredTo} onChange={(e) => setMeasuredTo(e.target.value)} dir="ltr"
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
                 </div>
-              )}
+              </div>
+
+              {/* תאריך עדכון אחרון של הדייר (טווח) */}
+              <div className="space-y-2 md:col-span-2 lg:col-span-2">
+                <Label>תאריך עדכון אחרון</Label>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <span className="block text-xs text-gray-500">מתאריך</span>
+                    <input type="date" value={updatedFrom} onChange={(e) => setUpdatedFrom(e.target.value)} dir="ltr"
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  <div className="space-y-1">
+                    <span className="block text-xs text-gray-500">עד תאריך</span>
+                    <input type="date" value={updatedTo} onChange={(e) => setUpdatedTo(e.target.value)} dir="ltr"
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                </div>
+              </div>
             </div>
           )}
         </CardContent>
@@ -670,6 +723,11 @@ export default function OverviewPage() {
                                   {resident.projects.cities?.name} · {resident.projects.name}
                                 </div>
                               )}
+                              {resident.last_updated_at && (
+                                <div className="text-[11px] text-gray-400 mr-5" title="עדכון אחרון של הדייר">
+                                  עדכון אחרון: {formatStatusDate(resident.last_updated_at)}
+                                </div>
+                              )}
                             </td>
                             {multiCategory && (
                               <td className="py-3 px-4 text-gray-600">{categoryNameById.get(order!.category_id) || '—'}</td>
@@ -712,6 +770,11 @@ export default function OverviewPage() {
                               {order!.status_updated_at && (
                                 <div className="text-[11px] text-gray-400 mt-0.5" title="תאריך עדכון הסטטוס">
                                   עודכן: {formatStatusDate(order!.status_updated_at)}
+                                </div>
+                              )}
+                              {order!.measured_at && (
+                                <div className="text-[11px] text-gray-400" title="תאריך מדידה">
+                                  נמדד: {formatStatusDate(order!.measured_at + 'T00:00:00')}
                                 </div>
                               )}
                             </td>

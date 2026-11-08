@@ -1,5 +1,6 @@
 'use client'
 
+import { requestOrderReminder } from "@/lib/sendOrderReminder"
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
@@ -30,6 +31,9 @@ const EMPTY_ORDER = {
   payment_status: 'not_paid',
   notes: '',
   measured_at: '',
+  planned_date: '',
+  planned_time: '',
+  planned_time_to: '',
 }
 
 // חלון הוספת הזמנה לדייר — משותף לכרטיס הדייר ולחלונית ההזמנות ברשימת הדיירים.
@@ -122,8 +126,13 @@ export function AddOrderDialog({
       status: newOrder.status,
       payment_status: newOrder.payment_status,
       notes: stampNewNoteLines('', newOrder.notes),
-      measured_at: newOrder.status === 'measured' ? (newOrder.measured_at || new Date().toISOString().slice(0, 10)) : null,
+      measured_at: newOrder.measured_at || (newOrder.status === 'measured' ? new Date().toISOString().slice(0, 10) : null),
       total_price: totalPrice,
+      // מועד מדידה/התקנה מתוכנן (לתזכורת קולית יום לפני)
+      ...(newOrder.status === 'measurement_scheduled'
+        ? { measurement_planned_time: newOrder.planned_time || null, measurement_planned_time_to: newOrder.planned_time_to || null } : {}),
+      ...(newOrder.status === 'delivery_scheduled' && newOrder.planned_date
+        ? { installation_planned_date: newOrder.planned_date, installation_planned_time: newOrder.planned_time || null, installation_planned_time_to: newOrder.planned_time_to || null } : {}),
     }).select('id').single()
 
     if (!error && orderData) {
@@ -148,6 +157,10 @@ export function AddOrderDialog({
       }
       // הודעה קולית ללקוח על הזמנה חדשה בסטטוס "מעוניין" (לא חוסם את המעבר; כשל לא מפריע ליצירה)
       if (newOrder.status === "interested") fetch("/api/pbx/order-voice", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId: orderData.id }) }).catch(() => {})
+      // מדידה/התקנה למחר אחרי שה-Cron של היום רץ: תזכורת מיידית (השרת מחליט אם בכלל צריך)
+      if ((newOrder.status === "measurement_scheduled" || newOrder.status === "delivery_scheduled") && (newOrder.status === "measurement_scheduled" ? newOrder.measured_at : newOrder.planned_date)) {
+        await requestOrderReminder(orderData.id)
+      }
       router.push(`/orders/${orderData.id}`)
     }
     setSaving(false)
@@ -201,7 +214,7 @@ export function AddOrderDialog({
                 ))}
               </Select>
             </div>
-            {newOrder.status === 'measured' && (
+            {true && (
               <div className="space-y-2">
                 <Label>תאריך מדידה</Label>
                 <Input
@@ -210,6 +223,44 @@ export function AddOrderDialog({
                   onChange={(e) => setNewOrder({ ...newOrder, measured_at: e.target.value })}
                   dir="ltr"
                 />
+              </div>
+            )}
+            {(newOrder.status === 'measurement_scheduled' || newOrder.status === 'delivery_scheduled') && (
+              <div className="space-y-2">
+                <Label>
+                  {newOrder.status === 'measurement_scheduled' ? 'שעות המדידה (לפי "תאריך מדידה")' : 'התקנה מתוכננת'} (תזכורת קולית יום לפני)
+                </Label>
+                <div className={newOrder.status === 'delivery_scheduled' ? 'grid grid-cols-3 gap-2' : 'grid grid-cols-2 gap-2'}>
+                  {newOrder.status === 'delivery_scheduled' && (
+                    <div className="space-y-1">
+                      <span className="text-xs text-gray-500">תאריך</span>
+                      <Input
+                        type="date"
+                        value={newOrder.planned_date}
+                        onChange={(e) => setNewOrder({ ...newOrder, planned_date: e.target.value })}
+                        dir="ltr"
+                      />
+                    </div>
+                  )}
+                  <div className="space-y-1">
+                    <span className="text-xs text-gray-500">משעה</span>
+                    <Input
+                      type="time"
+                      value={newOrder.planned_time}
+                      onChange={(e) => setNewOrder({ ...newOrder, planned_time: e.target.value })}
+                      dir="ltr"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-xs text-gray-500">עד שעה</span>
+                    <Input
+                      type="time"
+                      value={newOrder.planned_time_to}
+                      onChange={(e) => setNewOrder({ ...newOrder, planned_time_to: e.target.value })}
+                      dir="ltr"
+                    />
+                  </div>
+                </div>
               </div>
             )}
             <div className="space-y-2">
