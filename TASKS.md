@@ -38,6 +38,8 @@
   - ⚠️ הכתובות כבר פוצלו במסד (109 דיירים) — עד הפריסה, המערכת החיה מציגה רחוב בלי קומה/דירה. לפרוס בהקדם.
   - מיגרציות שרצו: `spec_upgrade_schema`, `notifications_advance_reminder_type`, `residents_address_original`. נוספה העיר בני ברק (משתמשים עם הרשאת עיר צריכים הרשאה אליה).
 - [x] **שלבים א'-ד' נפרסו לפרודקשן** 2026-11-24 (`dpl_GKqCfFzKAKByjWWWha3ANMaeX6LB`).
+- [x] 24.11 נפרס (`dpl_9opZ9XV61xiF7qKCsemiinHtSUdu`): מייל לקוח בטבלאות; סדר לוח פעולה (מספרים → ממתינים → תזכורות); לשונית "נציגים" (`/representatives`, `lib/commissions.ts`) — דוח עמלות לפי ספק ומוצר.
+- [ ] להוסיף נציגים במערכת (אין עדיין) — המשתמש.
 - [x] **שלבים ה'-ו' + תיקונים נפרסו לפרודקשן** 2026-11-24 (`dpl_4aS2yk1ujLjznDq6ZZ6WrkcRSpd6`).
 - [x] **שלב ה'**: `/calendar` (טבלת `work_days`, `orders.work_day_id`), `components/SupplierCityTable.tsx` במסך הספקים (ערים/מינימום/הסכם), "קבע יום ביומן" ממסך ההזמנות.
 - [x] **שלב ו'**: `/money` (מנהל): KPI, לפי עיר, לגבייה, נציגים ועמלות לפי חודש, הוצאות פרסום, חוב ספקים (`supplier_settlements`).
