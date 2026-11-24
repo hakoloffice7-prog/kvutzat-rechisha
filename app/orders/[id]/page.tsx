@@ -561,12 +561,17 @@ export default function OrderPage() {
                       value={editedOrder.status}
                       onChange={(e) => {
                         const newStatus = e.target.value
+                        // תאריך של היום נכנס אוטומטית (לפי שעון מקומי) כשהשדה ריק — אפשר לשנות אותו
+                        const today = new Date().toLocaleDateString('en-CA')
                         setEditedOrder(prev => ({
                           ...prev,
                           status: newStatus,
-                          measured_at: (newStatus === 'measured' && !prev.measured_at)
-                            ? new Date().toISOString().slice(0, 10)
+                          measured_at: ((newStatus === 'measured' || newStatus === 'measurement_scheduled') && !prev.measured_at)
+                            ? today
                             : prev.measured_at,
+                          installation_planned_date: (newStatus === 'delivery_scheduled' && !prev.installation_planned_date)
+                            ? today
+                            : prev.installation_planned_date,
                         }))
                       }}
                     >
