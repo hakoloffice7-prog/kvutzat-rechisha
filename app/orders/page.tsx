@@ -1,5 +1,6 @@
 'use client'
 
+import { EmailLink } from '@/components/EmailLink'
 import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
@@ -414,7 +415,7 @@ export default function OrdersPage() {
                           {r?.email && (
                                 <div className="flex items-center gap-1 text-xs text-gray-500 whitespace-nowrap mt-1">
                                   <Mail className="h-3 w-3 shrink-0" />
-                                  <a href={`mailto:${r?.email}`} className="hover:text-blue-600 hover:underline" dir="ltr">{r?.email}</a>
+                                  <EmailLink email={r!.email!} />
                                   
                                 </div>
                               )}

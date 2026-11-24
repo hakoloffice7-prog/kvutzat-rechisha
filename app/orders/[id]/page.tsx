@@ -1,5 +1,6 @@
 'use client'
 
+import { EmailLink } from '@/components/EmailLink'
 import { requestOrderReminder } from "@/lib/sendOrderReminder"
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -545,7 +546,7 @@ export default function OrderPage() {
               {order.residents?.email && (
                 <p className="text-gray-600 flex items-center gap-2">
                   <Mail className="h-4 w-4 shrink-0" />
-                  <span dir="ltr">{order.residents.email}</span>
+                  <EmailLink email={order.residents.email} />
                   <CopyButton value={order.residents.email} title="העתק מייל" />
                 </p>
               )}

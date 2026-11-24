@@ -1,5 +1,6 @@
 'use client'
 
+import { EmailLink } from '@/components/EmailLink'
 import { isValidIsraeliPhone } from '@/lib/orderMetrics'
 import { ACCESS_TYPES } from '@/lib/utils'
 import { saveNavList } from '@/components/PrevNextNav'
@@ -561,7 +562,7 @@ export default function ResidentsPage() {
                         {resident.email && (
                                 <div className="flex items-center gap-1 text-xs text-gray-500 whitespace-nowrap mt-1">
                                   <Mail className="h-3 w-3 shrink-0" />
-                                  <a href={`mailto:${resident.email}`} className="hover:text-blue-600 hover:underline" dir="ltr">{resident.email}</a>
+                                  <EmailLink email={resident.email} />
                                   <CopyButton value={resident.email} title="העתק מייל" />
                                 </div>
                               )}
