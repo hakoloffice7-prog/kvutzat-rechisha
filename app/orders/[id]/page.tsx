@@ -28,7 +28,7 @@ import { PrevNextNav } from '@/components/PrevNextNav'
 import {
   STATUS_LABELS, STATUS_COLORS, STATUS_ORDER,
   PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS,
-  formatCurrency, formatDate, getDebtStatus, calcSupplierPrice, defaultProfitPercent,
+  formatCurrency, formatDate, getDebtStatus, calcSupplierPrice, defaultProfitPercent, profitRuleFor, calcSupplierByRule,
   stampNewNoteLines,
   formatStatusDate,
 } from '@/lib/utils'
@@ -162,7 +162,7 @@ export default function OrderPage() {
         .select(`
           *,
           residents(id, name, address, phone, phone2, email, key_location, projects(id, name, cities(name))),
-          categories(id, name),
+          categories(id, name, profit_type, profit_value, unit_label),
           suppliers(id, name),
           order_items(*, order_item_costs(supplier_price)),
           order_payments(*),
@@ -208,12 +208,12 @@ export default function OrderPage() {
               : String(flattened.total_price || itemsRevenue || '')),
         is_global_price: flattened.is_global_price || false,
         global_supplier_price: flattened.global_supplier_price ? String(flattened.global_supplier_price) : '',
-        global_profit_percent: defaultProfitPercent(flattened.categories?.name),
+        global_profit_percent: profitRuleFor(flattened.categories).type === 'percent' ? String(profitRuleFor(flattened.categories).value) : defaultProfitPercent(flattened.categories?.name),
         satisfaction_rating: flattened.satisfaction_rating || 0,
         satisfaction_note: flattened.satisfaction_note || '',
       })
       globalSupplierPriceTouchedRef.current = false
-      setNewItem((prev) => ({ ...prev, profit_percent: defaultProfitPercent(flattened.categories?.name) }))
+      setNewItem((prev) => ({ ...prev, profit_percent: String(profitRuleFor(flattened.categories).value) }))
       updateTotalFromItemsRef.current = false
       setDetailsRows(Object.entries(flattened.details || {}).map(([key, value]) => ({ key, value: String(value) })))
     }
@@ -321,7 +321,7 @@ export default function OrderPage() {
     }
 
     if (!error) {
-      setNewItem({ description: '', model: '', quantity: '1', customer_price: '', supplier_price: '', profit_percent: defaultProfitPercent(order?.categories?.name) })
+      setNewItem({ description: '', model: '', quantity: '1', customer_price: '', supplier_price: '', profit_percent: String(profitRuleFor(order?.categories).value) })
       newItemSupplierPriceTouchedRef.current = false
       setItemDialogOpen(false)
       updateTotalFromItemsRef.current = true
@@ -414,6 +414,8 @@ export default function OrderPage() {
     (a, b) => a.paid_at.localeCompare(b.paid_at) || a.id.localeCompare(b.id)
   )
   const totalPaid = sortedPayments.reduce((sum, p) => sum + (p.amount || 0), 0)
+  // כלל הרווח של הקטגוריה (אחוז / סכום ליחידה) — לחלון הוספת פריט
+  const itemRule = profitRuleFor(order?.categories)
 
   // totalRevenue/totalCost הם המקור האמיתי - order.total_price בטבלה יכול
   // להישאר תקוע על 0 בהזמנות ישנות שנוצרו לפני שהיה סנכרון אוטומטי, אז אסור
@@ -1052,7 +1054,7 @@ export default function OrderPage() {
                       ) : (
                         <>
                           <div className="space-y-2">
-                            <Label>כמות (אפשר עשרוני, למשל 5.5)</Label>
+                            <Label>{itemRule.type === 'per_unit' ? `כמות (${itemRule.unit}) — אפשר עשרוני, למשל 5.5` : 'כמות (אפשר עשרוני, למשל 5.5)'}</Label>
                             <Input
                               type="number"
                               step="any"
@@ -1065,7 +1067,7 @@ export default function OrderPage() {
                           </div>
                           <div className={isAdmin ? 'grid grid-cols-3 gap-4' : ''}>
                             <div className="space-y-2">
-                              <Label>מחיר לקוח ליחידה (₪)</Label>
+                              <Label>{itemRule.type === 'per_unit' ? `מחיר לקוח ל${itemRule.unit} (₪)` : 'מחיר לקוח ליחידה (₪)'}</Label>
                               <Input
                                 type="number"
                               step="any"
@@ -1078,7 +1080,7 @@ export default function OrderPage() {
                                     customer_price: e.target.value,
                                     supplier_price: newItemSupplierPriceTouchedRef.current
                                       ? prev.supplier_price
-                                      : String(calcSupplierPrice(customer, percent)),
+                                      : String(calcSupplierByRule(customer, percent, itemRule.type)),
                                   }))
                                 }}
                                 placeholder="0"
@@ -1088,7 +1090,7 @@ export default function OrderPage() {
                             {isAdmin && (
                               <>
                                 <div className="space-y-2">
-                                  <Label>אחוז רווח (%)</Label>
+                                  <Label>{itemRule.type === 'per_unit' ? `רווח ל${itemRule.unit} (₪)` : 'אחוז רווח (%)'}</Label>
                                   <Input
                                     type="number"
                               step="any"
@@ -1101,7 +1103,7 @@ export default function OrderPage() {
                                         profit_percent: e.target.value,
                                         supplier_price: newItemSupplierPriceTouchedRef.current
                                           ? prev.supplier_price
-                                          : String(calcSupplierPrice(customer, percent)),
+                                          : String(calcSupplierByRule(customer, percent, itemRule.type)),
                                       }))
                                     }}
                                     placeholder="10"

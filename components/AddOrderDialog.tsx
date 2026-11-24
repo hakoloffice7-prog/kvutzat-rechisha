@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Plus, Loader2, X } from 'lucide-react'
-import { STATUS_LABELS, STATUS_ORDER, calcSupplierPrice, defaultProfitPercent, stampNewNoteLines } from '@/lib/utils'
+import { STATUS_LABELS, STATUS_ORDER, stampNewNoteLines, profitRuleFor, calcSupplierByRule } from '@/lib/utils'
 import { useIsAdmin } from '@/components/RoleProvider'
 
 type Category = { id: string; name: string }
@@ -22,6 +22,7 @@ type NewOrderItem = {
   supplier_price: string
   profit_percent: string
   supplier_price_touched: boolean
+  quantity: string // רלוונטי לקטגוריה עם רווח ליחידה (למשל מספר חלונות / מטרים)
 }
 
 const EMPTY_ORDER = {
@@ -71,23 +72,28 @@ export function AddOrderDialog({
     })()
   }, [open])
 
-  const selectedCategoryName = categories.find(c => c.id === newOrder.category_id)?.name
+  const selectedCategory = categories.find(c => c.id === newOrder.category_id)
+  const rule = profitRuleFor(selectedCategory)
+  const perUnit = rule.type === 'per_unit'
+  const gridCols = !isAdmin
+    ? 'grid-cols-[2fr_1fr_auto]'
+    : perUnit ? 'grid-cols-[2fr_1fr_0.6fr_0.7fr_1fr_auto]' : 'grid-cols-[2fr_1fr_0.7fr_1fr_auto]'
 
   // שינוי קטגוריה מעדכן את אחוז הרווח של פריטים שמחיר הספק שלהם עוד לא נערך ידנית
   function changeCategory(categoryId: string) {
     setNewOrder(prev => ({ ...prev, category_id: categoryId, supplier_id: '' }))
-    const percent = defaultProfitPercent(categories.find(c => c.id === categoryId)?.name)
+    const r = profitRuleFor(categories.find(c => c.id === categoryId))
     setNewOrderItems(prev => prev.map(item => item.supplier_price_touched ? item : {
       ...item,
-      profit_percent: percent,
-      supplier_price: String(calcSupplierPrice(parseFloat(item.customer_price) || 0, parseFloat(percent) || 0)),
+      profit_percent: String(r.value),
+      supplier_price: String(calcSupplierByRule(parseFloat(item.customer_price) || 0, r.value, r.type, parseFloat(item.quantity) || 1)),
     }))
   }
 
   function addNewOrderItem() {
     setNewOrderItems(prev => [...prev, {
-      description: '', model: '', customer_price: '', supplier_price: '',
-      profit_percent: defaultProfitPercent(selectedCategoryName), supplier_price_touched: false,
+      description: '', model: '', customer_price: '', supplier_price: '', quantity: '1',
+      profit_percent: String(rule.value), supplier_price_touched: false,
     }])
   }
   function updateNewOrderItem(idx: number, field: keyof NewOrderItem, value: string) {
@@ -96,12 +102,12 @@ export function AddOrderDialog({
       if (field === 'supplier_price') {
         return { ...item, supplier_price: value, supplier_price_touched: true }
       }
-      if (field === 'customer_price' || field === 'profit_percent') {
+      if (field === 'customer_price' || field === 'profit_percent' || field === 'quantity') {
         const updated = { ...item, [field]: value }
         if (!item.supplier_price_touched) {
-          const customer = parseFloat(field === 'customer_price' ? value : item.customer_price) || 0
-          const percent = parseFloat(field === 'profit_percent' ? value : item.profit_percent) || 0
-          updated.supplier_price = String(calcSupplierPrice(customer, percent))
+          const customer = parseFloat(updated.customer_price) || 0
+          const profit = parseFloat(updated.profit_percent) || 0
+          updated.supplier_price = String(calcSupplierByRule(customer, profit, rule.type, parseFloat(updated.quantity) || 1))
         }
         return updated
       }
@@ -295,15 +301,16 @@ export function AddOrderDialog({
             </div>
             {newOrderItems.length > 0 && (
               <div className="space-y-2">
-                <div className={`grid ${isAdmin ? 'grid-cols-[2fr_1fr_0.7fr_1fr_auto]' : 'grid-cols-[2fr_1fr_auto]'} gap-2 text-xs text-gray-500 px-1`}>
+                <div className={`grid ${gridCols} gap-2 text-xs text-gray-500 px-1`}>
                   <span>תיאור</span>
                   <span>מחיר לקוח ₪</span>
-                  {isAdmin && <span>רווח %</span>}
+                  {isAdmin && perUnit && <span>כמות ({rule.unit})</span>}
+                  {isAdmin && <span>{perUnit ? `רווח ל${rule.unit} ₪` : 'רווח %'}</span>}
                   {isAdmin && <span>מחיר ספק ₪</span>}
                   <span></span>
                 </div>
                 {newOrderItems.map((item, idx) => (
-                  <div key={idx} className={`grid ${isAdmin ? 'grid-cols-[2fr_1fr_0.7fr_1fr_auto]' : 'grid-cols-[2fr_1fr_auto]'} gap-2 items-center`}>
+                  <div key={idx} className={`grid ${gridCols} gap-2 items-center`}>
                     <Input
                       value={item.description}
                       onChange={(e) => updateNewOrderItem(idx, 'description', e.target.value)}
@@ -321,6 +328,17 @@ export function AddOrderDialog({
                     />
                     {isAdmin && (
                       <>
+                        {perUnit && (
+                          <Input
+                            type="number"
+                            step="any"
+                            value={item.quantity}
+                            onChange={(e) => updateNewOrderItem(idx, 'quantity', e.target.value)}
+                            placeholder="1"
+                            className="h-8 text-sm"
+                            dir="ltr"
+                          />
+                        )}
                         <Input
                           type="number"
                               step="any"

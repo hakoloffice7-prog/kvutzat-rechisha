@@ -23,6 +23,32 @@ export function defaultProfitPercent(categoryName?: string | null): string {
   return categoryName && categoryName.includes('השלמת מטבח') ? '15' : '10'
 }
 
+// כלל רווח לקטגוריה (מוגדר במסך קטגוריות): אחוז מהמחיר, או סכום קבוע ליחידה
+// (למשל רשתות 20 ₪ לחלון, וילונות 35 ₪ למטר). בלי הגדרה — ברירת המחדל הישנה לפי השם.
+export type ProfitType = 'percent' | 'per_unit'
+export type ProfitRule = { type: ProfitType; value: number; unit: string }
+export type CategoryProfitFields = {
+  name?: string | null
+  profit_type?: string | null
+  profit_value?: number | string | null
+  unit_label?: string | null
+}
+
+export function profitRuleFor(cat?: CategoryProfitFields | null): ProfitRule {
+  const value = cat?.profit_value != null && cat.profit_value !== '' ? Number(cat.profit_value) : NaN
+  if (cat?.profit_type === 'per_unit' && !Number.isNaN(value)) {
+    return { type: 'per_unit', value, unit: cat.unit_label || 'יחידה' }
+  }
+  if (!Number.isNaN(value)) return { type: 'percent', value, unit: '' }
+  return { type: 'percent', value: parseFloat(defaultProfitPercent(cat?.name)), unit: '' }
+}
+
+// מחיר ספק לפי הכלל. customer = מחיר לקוח של השורה; qty = כמה יחידות בשורה (לסכום ליחידה)
+export function calcSupplierByRule(customer: number, value: number, type: ProfitType, qty = 1): number {
+  if (type === 'per_unit') return Math.round((customer - value * qty) * 100) / 100
+  return calcSupplierPrice(customer, value)
+}
+
 export function formatDate(dateString: string): string {
   return new Intl.DateTimeFormat('he-IL', {
     year: 'numeric',

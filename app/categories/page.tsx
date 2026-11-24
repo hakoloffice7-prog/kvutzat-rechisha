@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useIsAdmin } from '@/components/RoleProvider'
+import { profitRuleFor } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -19,6 +21,15 @@ type Category = {
   id: string
   name: string
   created_at: string
+  profit_type?: 'percent' | 'per_unit' | null
+  profit_value?: number | null
+  unit_label?: string | null
+}
+
+// תיאור קצר של כלל הרווח לכרטיס הקטגוריה
+function profitText(c: Category) {
+  const r = profitRuleFor(c)
+  return r.type === 'per_unit' ? `רווח: ${r.value} ₪ ל${r.unit}` : `רווח: ${r.value}%`
 }
 
 export default function CategoriesPage() {
@@ -31,6 +42,19 @@ export default function CategoriesPage() {
   const [editing, setEditing] = useState<Category | null>(null)
   const [editName, setEditName] = useState('')
   const [renaming, setRenaming] = useState(false)
+  const isAdmin = useIsAdmin()
+  const [editProfitType, setEditProfitType] = useState<'percent' | 'per_unit'>('percent')
+  const [editProfitValue, setEditProfitValue] = useState('')
+  const [editUnit, setEditUnit] = useState('')
+
+  function openEdit(category: Category) {
+    const r = profitRuleFor(category)
+    setEditing(category)
+    setEditName(category.name)
+    setEditProfitType(r.type)
+    setEditProfitValue(String(r.value))
+    setEditUnit(r.type === 'per_unit' ? r.unit : '')
+  }
   const supabase = createClient()
 
   useEffect(() => {
@@ -82,10 +106,17 @@ export default function CategoriesPage() {
       return
     }
     setRenaming(true)
-    const { error } = await supabase.from('categories').update({ name: editName.trim() }).eq('id', editing.id)
+    const value = parseFloat(editProfitValue)
+    const update: Record<string, unknown> = { name: editName.trim() }
+    if (isAdmin) {
+      update.profit_type = editProfitType
+      update.profit_value = Number.isNaN(value) ? null : value
+      update.unit_label = editProfitType === 'per_unit' ? (editUnit.trim() || 'יחידה') : null
+    }
+    const { error } = await supabase.from('categories').update(update).eq('id', editing.id)
     setRenaming(false)
     if (error) {
-      alert('שגיאה בעדכון שם הקטגוריה')
+      alert('שגיאה בעדכון הקטגוריה')
       return
     }
     setEditing(null)
@@ -199,15 +230,16 @@ export default function CategoriesPage() {
                       {usageText(category.id) && (
                         <p className="text-xs text-gray-400">{usageText(category.id)}</p>
                       )}
+                      {isAdmin && <p className="text-xs text-green-700">{profitText(category)}</p>}
                     </div>
                   </div>
                   <div className="flex items-center">
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => { setEditing(category); setEditName(category.name) }}
+                      onClick={() => openEdit(category)}
                       className="text-gray-400 hover:text-blue-600 h-8 w-8 p-0"
-                      title="עריכת שם"
+                      title={isAdmin ? 'עריכת שם ורווח' : 'עריכת שם'}
                     >
                       <Pencil className="h-4 w-4" />
                     </Button>
@@ -231,7 +263,7 @@ export default function CategoriesPage() {
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>עריכת שם קטגוריה</DialogTitle>
+            <DialogTitle>{isAdmin ? 'עריכת קטגוריה' : 'עריכת שם קטגוריה'}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
@@ -243,9 +275,37 @@ export default function CategoriesPage() {
               />
               <p className="text-xs text-gray-500">השם החדש יתעדכן אוטומטית בכל המקומות (הזמנות, ספקים, דוחות).</p>
             </div>
+            {isAdmin && (
+              <div className="space-y-2 border-t pt-4">
+                <Label>רווח בהזמנות חדשות</Label>
+                <div className="flex gap-4 text-sm">
+                  <label className="flex items-center gap-1">
+                    <input type="radio" checked={editProfitType === 'percent'} onChange={() => setEditProfitType('percent')} />
+                    אחוז מהמחיר
+                  </label>
+                  <label className="flex items-center gap-1">
+                    <input type="radio" checked={editProfitType === 'per_unit'} onChange={() => setEditProfitType('per_unit')} />
+                    סכום קבוע ליחידה
+                  </label>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <span className="text-xs text-gray-500">{editProfitType === 'per_unit' ? 'רווח ליחידה (₪)' : 'אחוז רווח (%)'}</span>
+                    <Input type="number" step="any" value={editProfitValue} onChange={(e) => setEditProfitValue(e.target.value)} dir="ltr" />
+                  </div>
+                  {editProfitType === 'per_unit' && (
+                    <div className="space-y-1">
+                      <span className="text-xs text-gray-500">יחידה (למשל: חלון, מטר)</span>
+                      <Input value={editUnit} onChange={(e) => setEditUnit(e.target.value)} placeholder="יחידה" />
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-gray-500">משמש לחישוב אוטומטי של מחיר הספק בפריטים חדשים. אפשר עדיין לשנות ידנית בכל הזמנה. הזמנות קיימות לא משתנות.</p>
+              </div>
+            )}
             <div className="flex gap-2 justify-end">
               <Button variant="outline" onClick={() => setEditing(null)}>ביטול</Button>
-              <Button onClick={renameCategory} disabled={renaming || !editName.trim() || editName.trim() === editing?.name}>
+              <Button onClick={renameCategory} disabled={renaming || !editName.trim() || (!isAdmin && editName.trim() === editing?.name)}>
                 {renaming ? <Loader2 className="h-4 w-4 animate-spin" /> : 'שמור'}
               </Button>
             </div>
