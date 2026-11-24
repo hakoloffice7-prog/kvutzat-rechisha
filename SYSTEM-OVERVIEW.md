@@ -2,6 +2,8 @@
 
 Handoff document for any agent picking up this project. It covers what the system is, how it is built, how its external connections work, how to deploy, and the pitfalls already hit. **No secrets are stored here.** Env var *names* are listed; values live in Vercel and in the gitignored `.env.local`.
 
+**Read `TASKS.md` too** — it tracks what was done, what is open, and what to ask the user. Update it at the end of every session.
+
 The UI language is **Hebrew (RTL)**. The user communicates in Hebrew (sometimes English). Code comments are mostly Hebrew.
 
 ---
@@ -87,7 +89,8 @@ Hierarchy: `cities → projects → residents → orders` (+ `order_items`, `ord
   `lead → no_answer / will_email → interested / considering → measurement_scheduled → measured → quoted → ordered → delivery_scheduled → done`, and `cancelled`.
 - **Payment status:** `not_paid / advance / partial / paid_full`.
 - **Voice/reminder columns** on `orders` (added by migrations, **not in `schema.sql`**): `voice_notified_at`, `status_updated_at`, `measurement_planned_time`, `measurement_planned_time_to`, `installation_planned_date`, `installation_planned_time`, `installation_planned_time_to`, `measurement_reminder_sent_at`, `installation_reminder_sent_at`. A voice-templates table backs `lib/voiceTemplates.ts` (see `migration_voice_templates.sql`).
-- Categories seeded: מזגנים, סורגים, רשתות, ווילונות, מטבחים / השלמת מטבח, שיש, בדק בית, הדברה, ניקיון, ריהוט, מוצרי חשמל.
+- Categories seeded: מזגנים, סורגים, רשתות, ווילונות, מטבחים / השלמת מטבח, שיש, בדק בית, הדברה, ניקיון, ריהוט, מוצרי חשמל. Live DB (2026-11-24) has **14**, incl. מעצבת and מתכנת של התוכנה (the latter may be a test entry — ask).
+- **Row counts:** `list_tables` in the Supabase MCP shows *estimated* counts that can be far off (it showed 1 category when there were 14). Always use `select count(*)` before quoting numbers to the user.
 
 > **Schema drift warning:** `schema.sql` is a clean-install script and is behind the live DB. The incremental `migration_*.sql` files hold later changes. Treat the **live Supabase DB** as the source of truth.
 
@@ -136,7 +139,8 @@ Only used by the standalone `agents/` CLI (`ANTHROPIC_API_KEY` in `agents/.env`,
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Vercel + `.env.local` | public by design |
 | `SUPABASE_SERVICE_ROLE_KEY` | Vercel (server) | **yes** |
 | `PBX_API_KEY` | Vercel | **yes** |
-| `PBX_API_BASE_URL`, `PBX_AGENT_EXTENSION`, `PBX_CALLER_ID` | Vercel | config |
+| `PBX_API_BASE_URL`, `PBX_CALLER_ID` | Vercel (not set → defaults) | config |
+| `PBX_AGENT_EXTENSION` | Vercel production = `104` (set 2026-11-24; was missing, click-to-call failed) | config |
 | `CRON_SECRET` | Vercel | **yes** |
 | `ANTHROPIC_API_KEY` | `agents/.env` only | **yes** |
 
@@ -146,12 +150,22 @@ Only used by the standalone `agents/` CLI (`ANTHROPIC_API_KEY` in `agents/.env`,
 
 - Remote: `https://github.com/hakoloffice7-prog/kvutzat-rechisha` (moved from `YehudaGivtovski/kvutzat-rechisha`; history rewritten to drop a leaked `agents/.env`), branch `main`. Commit messages in this repo are written in Hebrew.
 - `.gitignore` excludes: `node_modules`, `.next`, `.vercel`, `.env*`, `*.sql`, `*.xlsx`, `*.py`, `*.tsbuildinfo`, `next-env.d.ts`, `.claude/`, `.idea/`, `/סודי`, `/שמות והזמנות הלקוחות/`. Never commit client data or secrets.
-- **A `git push` does NOT deploy** (see §9.1).
+- The repo is currently **public** (so never commit secrets, client data or security details; GitHub push protection blocks known secret formats). Making it private is an open decision (see §9.1).
+- **A `git push` does NOT deploy** (see §9.0 / §9.1). The Vercel project has no git link.
 
 ## 9. Deployment (read carefully — non-obvious)
 
 - Vercel project `kvutzat-rechisha` (project id `prj_WH3T5x6T9X8OjJvNTZO2awUSWLC1`, org `team_D3elgtCFCrw2ar1YPGAgYAPB`), production URL `https://kvutzat-rechisha-theta.vercel.app`. Account `hakoloffice7-6187`, scope `yehudahakol`.
-- The Vercel CLI is installed globally and logged in on the user's machine. Prefer the CLI over the Vercel MCP connector (unauthenticated). The user has several Vercel accounts, and logging into one can invalidate another's session. Run `vercel whoami` first. If you get `Not authorized`, ask the user to run `vercel login`.
+- **Local machine only:** the Vercel CLI is installed globally and logged in on the user's machine. Prefer the CLI over the Vercel MCP connector (unauthenticated). The user has several Vercel accounts, and logging into one can invalidate another's session. Run `vercel whoami` first. If you get `Not authorized`, ask the user to run `vercel login`.
+
+### 9.0 Cloud session (claude.ai/code) — current method
+Used for the 2026-11-24 deploys. No Vercel CLI, no `.git` tricks needed.
+1. `npm ci`, `npx tsc --noEmit`, `npm run build` (needs `.env.local`; if missing ask the user to upload it — never commit it).
+2. Back up the DB first (§13).
+3. `python3 -I deploy.py <repo_dir> preview` — uploads only the source files listed in §9.3 step 1 via the Vercel REST API (`/v2/files` + `/v13/deployments`), so no git metadata is attached. The script is in the Drive folder (§13); `*.py` is gitignored.
+4. Send the user the preview URL. Warn: preview uses the **same live Supabase DB**, and PBX/admin/cron don't work there (those env vars are production-only).
+5. After the user approves: `python3 -I deploy.py <repo_dir> production`, poll `readyState` until `READY`, confirm the project's production target points at the new deployment and `crons` are present, then check `get_runtime_errors`.
+- Deploying via `create_deployment` with a GitHub `gitSource` fails with a GitHub rate-limit 429 (Vercel's GitHub app is not connected to the new repo). Inline-file deploys via MCP are too large (~700KB). Use `deploy.py`.
 
 ### 9.1 Why normal deploys are blocked
 The project is on the **Hobby plan with a private repo**. Vercel blocks any deploy whose git commit author (`YehudaGivtovski` on GitHub) is not a team member, and Hobby allows one member. So both `git push` auto-deploy and a plain `vercel --prod` fail with commit-author / email errors, and the build never starts (0 ms build). `vercel git disconnect` does **not** fix it. The CLI attaches git metadata whenever a `.git` folder exists. The real fix is to hide git metadata while deploying (or upgrade to Pro / make the repo public).
@@ -174,6 +188,18 @@ If the rename fails with "Permission denied" (an IDE or app holds `.git`):
 - Clean up old deployments with `vercel rm <url> --yes`, **one explicit command per deployment** (loops with variables get blocked).
 - Run any required SQL migration in Supabase **before** the code that depends on it goes live.
 
+## 13. Connections, credentials and backups (cloud sessions)
+
+- **Cloud environment `kvutzat-rechisha`** (personal): allowed hosts `api.vercel.com`, `api.supabase.com`, `njlyykkswyzhkbnmhwgt.supabase.co`. Network secrets saved on it (injected by the proxy; never in code or env vars):
+  - `api.supabase.com` — Supabase access token, **read-only**, project-scoped, 90 days (from 2026-11-24). Used for backups via `POST /v1/projects/<ref>/database/query`.
+  - `api.vercel.com` — Vercel token, scope `yehudahakol`, 90 days (from 2026-11-24). Used by `deploy.py`.
+  - When they expire (~2026-02-22) the user must create new ones; walk them through it step by step (they are not technical).
+- **MCP connectors** on the user's claude.ai account: GitHub, Supabase (read/write, incl. `execute_sql`, `apply_migration`), Vercel (needs team access approval for `yehudahakol` via `authorize_team_access` the first time), Google Drive.
+- **Google Drive folder "מערכת קבוצת רכישה"** (`19Ieuv4ES-1NHJJBgaVgkcblmb-0tcWcH`, private): Excel backups (one sheet per table + a summary sheet `_גיבוי`), plus `backup.py` and `deploy.py`. Backups contain client PII — never share or commit them.
+- **Backup routine:** `python3 -I backup.py <out.xlsx>`, verify row counts against `select count(*)`, upload to the Drive folder. Do it before any DB change and before every production deploy.
+- **NetFree:** the user's network uses NetFree filtering. Local Claude Code / Claude Desktop fails with a certificate error until the NetFree CA is trusted via `NODE_EXTRA_CA_CERTS` (user contacted NetFree support).
+- **No machine attached** to cloud sessions yet (Remote Control folders exist on `DESKTOP-VV31CA0` but were not offered to cloud sessions).
+
 ## 10. The `agents/` folder
 A separate, standalone Node CLI (`agents/package.json`, Anthropic SDK) that runs a small multi-agent workflow (archi / devi / esti: spec, build, review) in Hebrew. It has no connection to the web app or the deployment and is excluded from deploys. Ignore it unless asked.
 
@@ -181,11 +207,13 @@ A separate, standalone Node CLI (`agents/package.json`, Anthropic SDK) that runs
 - **Batch workflow:** the user sends changes one at a time. For each, **just implement it**: no build, no typecheck, no dev server, no deploy. Only when the user says the batch is finished: test everything together, then deploy once (with confirmation).
 - **No login credentials:** the agent can't log into the app, so it cannot visually verify screens. Say so plainly and report what was actually checked (typecheck, build, code review). Never imply the UI was seen working.
 - Reply in **Hebrew** unless the user writes in English.
-- Never commit or push unless asked. Don't commit secrets, client data, `.sql`, `.xlsx`.
+- Don't commit secrets, client data, `.sql`, `.xlsx`. In cloud sessions the user wants each change committed **and pushed** to GitHub right away (the container is temporary), with a Hebrew commit message; deploy only at the end of a batch, after a preview the user approves.
+- The user is not technical: give click-by-click instructions, links, and ask for screenshots when stuck. Their keyboard sometimes sends Hebrew typed in English layout (e.g. `NV` = "מה").
 
 ## 12. Open items and gotchas
 - Holiday list is intentionally empty (`lib/holidays.ts`). The client had not decided.
 - Open question: installation spanning several days / several orders per customer: one reminder per order, or one message per customer.
 - `/overview` is missing from the middleware `protectedPaths` list; verify intent.
+- Click-to-call rings extension 104 first, then the customer. The user asked whether it can dial the customer directly; suggested asking Technoline about auto-answer on 104 for click2call (pending their reply).
 - `schema.sql` does not reflect the live DB (see §5).
 - Untracked handoff file `HANDOFF-תזכורות-שיחות.md` describes the reminders task in more detail (written before it was implemented; part of that scope is now built).
