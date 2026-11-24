@@ -115,6 +115,7 @@ export function stampNewNoteLines(previous: string | null | undefined, next: str
 
 // פייפליין ההזמנה: מעוניין -> ממתין לבחירת צורה ודגם -> אושר צורה ודגם -> תיאום מדידות -> נמדד -> אישור -> תיאום אספקה -> בוצע -> בוטל
 export const STATUS_LABELS: Record<string, string> = {
+  inquiring: 'מתעניין',
   interested: 'מעוניין',
   awaiting_selection: 'ממתין לבחירת צורה ודגם',
   selection_approved: 'אושר צורה ודגם',
@@ -130,11 +131,12 @@ export const STATUS_LABELS: Record<string, string> = {
 
 // סדר הצגה לפייפליין (לתפריטים ולמסכי סקירה)
 export const STATUS_ORDER = [
-  'interested', 'awaiting_selection', 'selection_approved', 'measurement_scheduled', 'measured', 'awaiting_quote', 'awaiting_approval', 'quoted',
+  'inquiring', 'interested', 'awaiting_selection', 'selection_approved', 'measurement_scheduled', 'measured', 'awaiting_quote', 'awaiting_approval', 'quoted',
   'delivery_scheduled', 'done', 'cancelled',
 ] as const
 
 export const STATUS_COLORS: Record<string, string> = {
+  inquiring: 'outline',
   interested: 'secondary',
   awaiting_selection: 'warning',
   selection_approved: 'info',
