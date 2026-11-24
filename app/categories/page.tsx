@@ -24,6 +24,8 @@ type Category = {
   profit_type?: 'percent' | 'per_unit' | null
   profit_value?: number | null
   unit_label?: string | null
+  all_profit?: boolean | null
+  kind?: string | null
 }
 
 // תיאור קצר של כלל הרווח לכרטיס הקטגוריה
@@ -46,6 +48,8 @@ export default function CategoriesPage() {
   const [editProfitType, setEditProfitType] = useState<'percent' | 'per_unit'>('percent')
   const [editProfitValue, setEditProfitValue] = useState('')
   const [editUnit, setEditUnit] = useState('')
+  const [editAllProfit, setEditAllProfit] = useState(false)
+  const [editStaff, setEditStaff] = useState(false)
 
   function openEdit(category: Category) {
     const r = profitRuleFor(category)
@@ -54,6 +58,8 @@ export default function CategoriesPage() {
     setEditProfitType(r.type)
     setEditProfitValue(String(r.value))
     setEditUnit(r.type === 'per_unit' ? r.unit : '')
+    setEditAllProfit(!!category.all_profit)
+    setEditStaff(category.kind === 'staff')
   }
   const supabase = createClient()
 
@@ -112,6 +118,8 @@ export default function CategoriesPage() {
       update.profit_type = editProfitType
       update.profit_value = Number.isNaN(value) ? null : value
       update.unit_label = editProfitType === 'per_unit' ? (editUnit.trim() || 'יחידה') : null
+      update.all_profit = editAllProfit
+      update.kind = editStaff ? 'staff' : 'product'
     }
     const { error } = await supabase.from('categories').update(update).eq('id', editing.id)
     setRenaming(false)
@@ -230,7 +238,8 @@ export default function CategoriesPage() {
                       {usageText(category.id) && (
                         <p className="text-xs text-gray-400">{usageText(category.id)}</p>
                       )}
-                      {isAdmin && <p className="text-xs text-green-700">{profitText(category)}</p>}
+                      {isAdmin && <p className="text-xs text-green-700">{profitText(category)}{category.all_profit ? ' · כל הרווח שלנו' : ''}</p>}
+                      {category.kind === 'staff' && <p className="text-xs text-purple-700">איש צוות</p>}
                     </div>
                   </div>
                   <div className="flex items-center">
@@ -301,6 +310,14 @@ export default function CategoriesPage() {
                   )}
                 </div>
                 <p className="text-xs text-gray-500">משמש לחישוב אוטומטי של מחיר הספק בפריטים חדשים. אפשר עדיין לשנות ידנית בכל הזמנה. הזמנות קיימות לא משתנות.</p>
+                <label className="flex items-center gap-2 text-sm pt-2">
+                  <input type="checkbox" checked={editAllProfit} onChange={(e) => setEditAllProfit(e.target.checked)} />
+                  כל הרווח שלנו (לעמלות נציגים — למשל רשתות, הדברה, התקנת מזגנים)
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={editStaff} onChange={(e) => setEditStaff(e.target.checked)} />
+                  איש צוות, לא מוצר (למשל מעצבת) — לא יופיע בהזמנות ובספירות
+                </label>
               </div>
             )}
             <div className="flex gap-2 justify-end">
