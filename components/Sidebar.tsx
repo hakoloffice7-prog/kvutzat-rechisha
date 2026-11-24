@@ -48,7 +48,7 @@ export default function Sidebar({ role, name }: { role: Role; name: string | nul
   const [isOpen, setIsOpen] = useState(false)
 
   const items = role === 'admin'
-    ? [...navItems, { href: '/money', label: 'כסף ונציגים', icon: Wallet }, { href: '/admin/users', label: 'ניהול משתמשים', icon: ShieldCheck }]
+    ? [...navItems, { href: '/money', label: 'כסף ונציגים', icon: Wallet }, { href: '/representatives', label: 'נציגים', icon: UserCircle }, { href: '/admin/users', label: 'ניהול משתמשים', icon: ShieldCheck }]
     : navItems
 
   // מספר ההזמנות התקועות ליד "לוח פעולה", ומספר התזכורות להיום בכפתור הפעמון
