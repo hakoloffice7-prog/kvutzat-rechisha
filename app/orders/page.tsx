@@ -11,6 +11,7 @@ import { ShoppingCart, Loader2, Search, X } from 'lucide-react'
 import { OrderNumber } from '@/components/OrderNumber'
 import { ClickToCallButton } from '@/components/ClickToCallButton'
 import { saveNavList } from '@/components/PrevNextNav'
+import { ImportRegistrantsDialog } from '@/components/ImportRegistrantsDialog'
 import {
   STATUS_LABELS, STATUS_COLORS, STATUS_ORDER, formatCurrency, formatStatusDate, digitsOnly, phoneSearchDigits, fullAddress, missingAddressParts,
 } from '@/lib/utils'
@@ -91,6 +92,7 @@ export default function OrdersPage() {
   const [bulkStatus, setBulkStatus] = useState('')
   const [bulkSaving, setBulkSaving] = useState(false)
   const [showAllNotes, setShowAllNotes] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   // הזמנות עם תזכורת פתוחה — מסומנות בפעמון בעמודת ההערות
   const [remindedOrders, setRemindedOrders] = useState<Set<string>>(new Set())
 
@@ -234,10 +236,14 @@ export default function OrdersPage() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">הזמנות</h1>
-        <p className="text-gray-500 mt-1">{orders.length} הזמנות במערכת</p>
+      <div className="flex items-start justify-between flex-wrap gap-2">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">הזמנות</h1>
+          <p className="text-gray-500 mt-1">{orders.length} הזמנות במערכת</p>
+        </div>
+        <Button onClick={() => setImportOpen(true)}>+ הוסף הזמנות / קליטת נרשמים</Button>
       </div>
+      <ImportRegistrantsDialog open={importOpen} onOpenChange={setImportOpen} onDone={fetchAll} />
 
       {/* סינונים */}
       <Card>
