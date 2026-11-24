@@ -9,7 +9,8 @@ import { Badge } from '@/components/ui/badge'
 import { CopyButton } from '@/components/CopyButton'
 import { ClickToCallButton } from '@/components/ClickToCallButton'
 import { Label } from '@/components/ui/label'
-import { Loader2, BarChart2, Phone, MapPin, Plus, CalendarClock } from 'lucide-react'
+import { Loader2, BarChart2, Phone, MapPin, Plus, CalendarClock, Mail } from 'lucide-react'
+import { saveNavList } from '@/components/PrevNextNav'
 import { ResidentRemindersDialog } from '@/components/ResidentRemindersDialog'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -34,6 +35,7 @@ type Resident = {
   name: string
   phone: string
   phone2?: string | null
+  email?: string | null
   address: string
   project_id: string
   last_updated_at?: string | null
@@ -333,6 +335,15 @@ export default function OverviewPage() {
 
   // קישור לעמוד הדייר שזוכר את מצב המסך (פילטרים + השורה שנלחצה), כדי
   // שכפתור "חזור" יחזיר בדיוק למקום שבו היינו
+  // לחיצה על שורה: פותחת את ההזמנה עצמה, ושומרת את סדר הרשימה לכפתורי קודם/הבא
+  function openOrder(orderId: string) {
+    const params = new URLSearchParams(window.location.search)
+    params.set('row', orderId)
+    const from = `${pathname}?${params.toString()}`
+    saveNavList('orders', filteredRows.map((r) => r.order!.id), from)
+    router.push(`/orders/${orderId}?from=${encodeURIComponent(from)}`)
+  }
+
   function residentHref(residentId: string, orderId: string) {
     const params = new URLSearchParams(window.location.search)
     params.set('row', orderId)
@@ -340,10 +351,15 @@ export default function OverviewPage() {
   }
 
   // גלילה לשורה שממנה יצאנו, אחרי שהנתונים נטענו
+  // רק פעם אחת — אחרת כל עדכון/חיפוש היה "מקפיץ" את המסך חזרה לשורה הזו
+  const scrolledToReturnRow = useRef(false)
   useEffect(() => {
-    if (!returnRowId || loadingData) return
+    if (!returnRowId || loadingData || scrolledToReturnRow.current) return
     const el = document.getElementById(`row-${returnRowId}`)
-    if (el) el.scrollIntoView({ block: 'center' })
+    if (el) {
+      el.scrollIntoView({ block: 'center' })
+      scrolledToReturnRow.current = true
+    }
   }, [returnRowId, loadingData, orders])
 
   // כפתור "הצג הכל": כל הערים, הפרויקטים, המוצרים, הסטטוסים וסוגי התשלום,
@@ -382,7 +398,7 @@ export default function OverviewPage() {
       setLoadingData(true)
       const residentsQuery = supabase
         .from('residents')
-        .select('id, name, phone, phone2, address, project_id, last_updated_at, projects(name, cities(name))')
+        .select('id, name, phone, phone2, email, address, project_id, last_updated_at, projects(name, cities(name))')
         .order('name')
       const scopedResidentsQuery = effectiveProjectIds!.length === 1
         ? residentsQuery.eq('project_id', effectiveProjectIds![0])
@@ -704,7 +720,7 @@ export default function OverviewPage() {
               <CardTitle className="text-lg">
                 דיירים ({filteredRows.length}{filteredRows.length !== rows.length ? ` מתוך ${rows.length}` : ''})
               </CardTitle>
-              <p className="text-xs text-gray-400">לחיצה על שם הדייר פותחת שורת פירוט (לצילום מסך ושליחה לבעל מקצוע)</p>
+              <p className="text-xs text-gray-400">לחיצה על השורה פותחת את ההזמנה · לחיצה על שם הדייר פותחת שורת פירוט (לצילום מסך ושליחה לבעל מקצוע)</p>
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
@@ -732,7 +748,17 @@ export default function OverviewPage() {
 
                       return (
                         <Fragment key={order!.id}>
-                          <tr id={`row-${order!.id}`} className={`border-b hover:bg-gray-50 transition-colors ${order!.id === returnRowId ? 'bg-yellow-50' : ''}`}>
+                          <tr
+                            id={`row-${order!.id}`}
+                            onClick={(e) => {
+                              // לחיצה על כפתור/קישור/בחירה בתוך השורה ממשיכה לעבוד כרגיל
+                              if ((e.target as HTMLElement).closest('button, a, select, input, textarea, label')) return
+                              if (window.getSelection()?.toString()) return // סימון טקסט להעתקה — לא לנווט
+                              openOrder(order!.id)
+                            }}
+                            className={`border-b hover:bg-gray-50 transition-colors cursor-pointer ${order!.id === returnRowId ? 'bg-yellow-50' : ''}`}
+                            title="לחץ לפתיחת ההזמנה"
+                          >
                             <td className="py-3 px-4 text-gray-400">{idx + 1}</td>
                             <td className="py-3 px-4 font-medium">
                               <div className="flex items-center gap-2">
@@ -773,11 +799,16 @@ export default function OverviewPage() {
                             )}
                             <td className="py-3 px-4 text-gray-600">{resident.address || '—'}</td>
                             <td className="py-3 px-4 text-left">
-                              {resident.phone
-                                ? <div className="flex items-center gap-2">
-                                    <span className="text-gray-600" dir="ltr">{resident.phone}</span>
-                                    <ClickToCallButton phone={resident.phone} name={resident.name} className="p-1" />
-                                    <CopyButton value={resident.phone} title="העתק טלפון" />
+                              {resident.phone || resident.phone2
+                                ? <div className="space-y-1">
+                                    {[resident.phone, resident.phone2].filter(Boolean).map((ph, i) => (
+                                      <div key={i} className="flex items-center gap-2">
+                                        <span className="text-gray-600" dir="ltr">{ph}</span>
+                                        {i === 1 && resident.phone && <span className="text-[10px] text-gray-400">(נוסף)</span>}
+                                        <ClickToCallButton phone={ph!} name={resident.name} className="p-1" />
+                                        <CopyButton value={ph!} title="העתק טלפון" />
+                                      </div>
+                                    ))}
                                   </div>
                                 : <span className="text-gray-400">—</span>}
                             </td>
@@ -894,6 +925,21 @@ export default function OverviewPage() {
                                       <Phone className="h-4 w-4 shrink-0" />
                                       <span dir="ltr">{resident.phone}</span>
                                       <CopyButton value={resident.phone} title="העתק טלפון" />
+                                    </div>
+                                  )}
+                                  {resident.phone2 && (
+                                    <div className="flex items-center gap-2 text-gray-700">
+                                      <Phone className="h-4 w-4 shrink-0" />
+                                      <span dir="ltr">{resident.phone2}</span>
+                                      <span className="text-xs text-gray-400">(נוסף)</span>
+                                      <CopyButton value={resident.phone2} title="העתק טלפון" />
+                                    </div>
+                                  )}
+                                  {resident.email && (
+                                    <div className="flex items-center gap-2 text-gray-700">
+                                      <Mail className="h-4 w-4 shrink-0" />
+                                      <span dir="ltr">{resident.email}</span>
+                                      <CopyButton value={resident.email} title="העתק מייל" />
                                     </div>
                                   )}
                                   {!!order?.total_price && (

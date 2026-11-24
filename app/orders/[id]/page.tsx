@@ -24,6 +24,7 @@ import { NotesSection } from '@/components/NotesSection'
 import { CopyButton } from '@/components/CopyButton'
 import { ClickToCallButton } from '@/components/ClickToCallButton'
 import { OrderNumber } from '@/components/OrderNumber'
+import { PrevNextNav } from '@/components/PrevNextNav'
 import {
   STATUS_LABELS, STATUS_COLORS, STATUS_ORDER,
   PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS,
@@ -463,14 +464,18 @@ export default function OrderPage() {
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">
-            {order.categories?.name} - {order.residents?.name}
+            {order.categories?.name} -{' '}
+            <Link href={`/residents/${order.residents?.id}`} className="hover:text-blue-600 hover:underline" title="לתיק הדייר">
+              {order.residents?.name}
+            </Link>
           </h1>
           <OrderNumber orderNumber={order.order_number} className="text-sm" />
           <p className="text-gray-500 mt-1">
             {order.residents?.projects?.name}, {order.residents?.projects?.cities?.name}
           </p>
         </div>
-        <div className="flex gap-2 items-center">
+        <div className="flex gap-2 items-center flex-wrap justify-end">
+          <PrevNextNav kind="orders" currentId={orderId} basePath="/orders" label="הזמנה" />
           <Badge variant={STATUS_COLORS[order.status] as any} className="text-sm px-3 py-1">
             {STATUS_LABELS[order.status]}
           </Badge>
@@ -494,7 +499,13 @@ export default function OrderPage() {
               <CardTitle>פרטי לקוח</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
-              <div className="font-semibold text-gray-900 text-base">{order.residents?.name}</div>
+              <Link
+                href={`/residents/${order.residents?.id}`}
+                className="block font-semibold text-blue-700 text-base hover:underline"
+                title="לתיק הדייר"
+              >
+                {order.residents?.name}
+              </Link>
               {order.residents?.address && (
                 <p className="text-gray-600 flex items-center gap-2">
                   <MapPin className="h-4 w-4 shrink-0" />
