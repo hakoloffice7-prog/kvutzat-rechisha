@@ -150,6 +150,30 @@ export function ActionBoard() {
 
   return (
     <div className="space-y-6">
+      {/* שורת מספרים */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <Link href="/orders?status=g:open" className={tile}>
+          <p className="text-sm text-gray-500">הזמנות פתוחות</p>
+          <p className="text-2xl font-bold text-gray-900">{stats.open.length}</p>
+        </Link>
+        <Link href="/orders?status=g:stuck" className={tile}>
+          <p className="text-sm text-gray-500">תקועות (מעל {STUCK_DAYS} ימים)</p>
+          <p className={`text-2xl font-bold ${stats.stuck.length ? 'text-orange-600' : 'text-gray-900'}`}>{stats.stuck.length}</p>
+        </Link>
+        <Link href="/orders?pay=g:debt" className={tile}>
+          <p className="text-sm text-gray-500">כסף שלא נגבה</p>
+          <p className="text-2xl font-bold text-red-600">{formatCurrency(stats.debt)}</p>
+        </Link>
+        <Link href="/orders?status=g:week" className={tile}>
+          <p className="text-sm text-gray-500">מדידות והתקנות ב-7 ימים</p>
+          <p className="text-2xl font-bold text-gray-900">{stats.week.length}</p>
+        </Link>
+        <Link href="/residents?missing=address" className={tile}>
+          <p className="text-sm text-gray-500">דיירים בלי כתובת / קומה / דירה</p>
+          <p className="text-2xl font-bold text-gray-900">{stats.missingAddress.length}</p>
+        </Link>
+      </div>
+
       {/* ממתינים לפי עיר × מוצר */}
       <Card>
         <CardHeader>
@@ -209,30 +233,6 @@ export function ActionBoard() {
 
       {/* תזכורות פתוחות */}
       <RemindersPanel title="תזכורות פתוחות" />
-
-      {/* שורת מספרים */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <Link href="/orders?status=g:open" className={tile}>
-          <p className="text-sm text-gray-500">הזמנות פתוחות</p>
-          <p className="text-2xl font-bold text-gray-900">{stats.open.length}</p>
-        </Link>
-        <Link href="/orders?status=g:stuck" className={tile}>
-          <p className="text-sm text-gray-500">תקועות (מעל {STUCK_DAYS} ימים)</p>
-          <p className={`text-2xl font-bold ${stats.stuck.length ? 'text-orange-600' : 'text-gray-900'}`}>{stats.stuck.length}</p>
-        </Link>
-        <Link href="/orders?pay=g:debt" className={tile}>
-          <p className="text-sm text-gray-500">כסף שלא נגבה</p>
-          <p className="text-2xl font-bold text-red-600">{formatCurrency(stats.debt)}</p>
-        </Link>
-        <Link href="/orders?status=g:week" className={tile}>
-          <p className="text-sm text-gray-500">מדידות והתקנות ב-7 ימים</p>
-          <p className="text-2xl font-bold text-gray-900">{stats.week.length}</p>
-        </Link>
-        <Link href="/residents?missing=address" className={tile}>
-          <p className="text-sm text-gray-500">דיירים בלי כתובת / קומה / דירה</p>
-          <p className="text-2xl font-bold text-gray-900">{stats.missingAddress.length}</p>
-        </Link>
-      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* הזמנות תקועות */}
