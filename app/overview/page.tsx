@@ -177,7 +177,16 @@ export default function OverviewPage() {
 
   const [residents, setResidents] = useState<Resident[]>([])
   const [orders, setOrders] = useState<Order[]>([])
-  const [expandedResidentId, setExpandedResidentId] = useState<string>('')
+  // אפשר לפתוח כמה דיירים במקביל — פתיחת שורה לא סוגרת את האחרות
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+  function toggleExpanded(id: string) {
+    setExpandedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
   const [remindersResident, setRemindersResident] = useState<{ id: string; name: string } | null>(null)
   const [notesDialog, setNotesDialog] = useState<{ name: string; orderId: string } | null>(null)
   const [savingOrderIds, setSavingOrderIds] = useState<Set<string>>(new Set())
@@ -719,7 +728,7 @@ export default function OverviewPage() {
                       const effectiveStatus = order!.status
                       const statusLabel = STATUS_LABELS[effectiveStatus] || effectiveStatus
                       const statusVariant = STATUS_COLORS[effectiveStatus] || 'outline'
-                      const isExpanded = expandedResidentId === order!.id
+                      const isExpanded = expandedIds.has(order!.id)
 
                       return (
                         <Fragment key={order!.id}>
@@ -729,7 +738,7 @@ export default function OverviewPage() {
                               <div className="flex items-center gap-2">
                                 <button
                                   type="button"
-                                  onClick={() => setExpandedResidentId(isExpanded ? '' : order!.id)}
+                                  onClick={() => toggleExpanded(order!.id)}
                                   className="flex items-center gap-1 text-blue-700 hover:underline text-right"
                                   title="הצג פרטי הזמנה"
                                 >
