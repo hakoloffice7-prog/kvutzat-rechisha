@@ -20,6 +20,7 @@ import Link from 'next/link'
 import { formatCurrency } from '@/lib/utils'
 import { useIsAdmin } from '@/components/RoleProvider'
 import { CopyButton } from '@/components/CopyButton'
+import { SupplierCityTable } from '@/components/SupplierCityTable'
 
 type Supplier = {
   id: string
@@ -237,6 +238,8 @@ export default function SuppliersPage() {
           </DialogContent>
         </Dialog>
       </div>
+
+      <SupplierCityTable />
 
       {/* Filter */}
       <div className="flex items-center gap-4">
