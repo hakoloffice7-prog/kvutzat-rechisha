@@ -88,6 +88,9 @@ export default function OrdersPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkStatus, setBulkStatus] = useState('')
   const [bulkSaving, setBulkSaving] = useState(false)
+  const [showAllNotes, setShowAllNotes] = useState(false)
+  // הזמנות עם תזכורת פתוחה — מסומנות בפעמון בעמודת ההערות
+  const [remindedOrders, setRemindedOrders] = useState<Set<string>>(new Set())
 
   // הסינונים נשמרים לחלון הנוכחי, כדי שחזרה מהזמנה תחזיר לאותה רשימה
   // קישור מלוח הפעולה (למשל ?city=..&category=..&status=g:awaiting) גובר על הסינון השמור
@@ -119,12 +122,19 @@ export default function OrdersPage() {
         ),
       supabase.from('cities').select('id, name').order('name'),
       supabase.from('projects').select('id, name, city_id').order('name'),
-      supabase.from('categories').select('id, name').order('name'),
+      supabase.from('categories').select('id, name, kind').order('name'),
     ])
+    const { data: rem } = await supabase
+      .from('notifications')
+      .select('order_id')
+      .in('type', ['manual_reminder', 'advance_reminder'])
+      .eq('is_read', false)
+      .not('order_id', 'is', null)
+    setRemindedOrders(new Set((rem || []).map((r: any) => r.order_id)))
     setOrders((ordersData || []) as unknown as Order[])
     setCities(citiesData || [])
     setProjects((projectsData || []) as Project[])
-    setCategories(catsData || [])
+    setCategories(((catsData || []) as any[]).filter((c) => c.kind !== 'staff'))
     setLoading(false)
   }
 
@@ -269,6 +279,10 @@ export default function OrdersPage() {
             <select className={selectClass} value={filters.sort} onChange={(e) => set({ sort: e.target.value as SortKey })} title="מיון">
               {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => <option key={k} value={k}>מיון: {SORT_LABELS[k]}</option>)}
             </select>
+            <label className="flex items-center gap-1 text-sm text-gray-600">
+              <input type="checkbox" checked={showAllNotes} onChange={(e) => setShowAllNotes(e.target.checked)} />
+              הצג את כל ההערות
+            </label>
             {anyFilter && (
               <Button variant="ghost" size="sm" onClick={() => setFilters({ ...EMPTY_FILTERS, sort: filters.sort })}>
                 <X className="h-4 w-4 ml-1" />
@@ -397,13 +411,20 @@ export default function OrdersPage() {
                         <td className="py-3 px-3 whitespace-nowrap">
                           <Badge variant={PAY_COLORS[ps] as any}>{PAY_LABELS[ps]}</Badge>
                         </td>
-                        <td className="py-3 px-3 text-gray-600 max-w-[220px]">
+                        <td className={`py-3 px-3 text-gray-600 ${showAllNotes ? 'min-w-[260px]' : 'max-w-[220px]'}`}>
+                          {remindedOrders.has(o.id) && <span title="יש תזכורת פתוחה" className="ml-1">🔔</span>}
                           {notes.length > 0 ? (
-                            <div>
-                              <div className="truncate" title={notes.join('\n')}>{notes[notes.length - 1]}</div>
-                              {notes.length > 1 && <div className="text-[11px] text-gray-400">+ עוד {notes.length - 1}</div>}
-                            </div>
-                          ) : <span className="text-gray-400">—</span>}
+                            showAllNotes ? (
+                              <ul className="space-y-0.5 text-xs">
+                                {notes.map((n, i) => <li key={i}>{n}</li>)}
+                              </ul>
+                            ) : (
+                              <div className="inline">
+                                <div className="truncate" title={notes.join('\n')}>{notes[notes.length - 1]}</div>
+                                {notes.length > 1 && <div className="text-[11px] text-gray-400">+ עוד {notes.length - 1}</div>}
+                              </div>
+                            )
+                          ) : !remindedOrders.has(o.id) && <span className="text-gray-400">—</span>}
                         </td>
                       </tr>
                     )

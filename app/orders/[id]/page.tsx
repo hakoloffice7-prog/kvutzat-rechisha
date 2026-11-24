@@ -25,6 +25,7 @@ import { CopyButton } from '@/components/CopyButton'
 import { ClickToCallButton } from '@/components/ClickToCallButton'
 import { OrderNumber } from '@/components/OrderNumber'
 import { PrevNextNav } from '@/components/PrevNextNav'
+import { maybeCreateAdvanceReminder, createOrderReminder } from '@/lib/reminders'
 import {
   STATUS_LABELS, STATUS_COLORS, STATUS_ORDER,
   PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS,
@@ -282,10 +283,12 @@ export default function OrderPage() {
     const { data: current } = await supabase.from('orders').select('notes').eq('id', orderId).single()
     const previous = current?.notes || ''
     const next = stampNewNoteLines(previous, previous ? previous + '\n' + text : text)
-    const { error } = await supabase.from('orders').update({ notes: next }).eq('id', orderId)
+    // הערה חדשה מעדכנת "עודכן לאחרונה" (מפרט, סעיף 4)
+    const { error } = await supabase.from('orders').update({ notes: next, updated_at: new Date().toISOString() }).eq('id', orderId)
     if (error) return false
     setOrder((prev) => (prev ? { ...prev, notes: next } : prev))
     setEditedOrder((prev) => ({ ...prev, notes: next }))
+    maybeCreateAdvanceReminder(supabase, orderId, text)
     return true
   }
 
@@ -790,7 +793,12 @@ export default function OrderPage() {
                     )}
                   </div>
 
-                  <NotesSection notes={editedOrder.notes} onAdd={addOrderNote} onReplace={replaceOrderNotes} />
+                  <NotesSection
+                    notes={editedOrder.notes}
+                    onAdd={addOrderNote}
+                    onReplace={replaceOrderNotes}
+                    onRemind={(date, line) => createOrderReminder(supabase, orderId, date, line)}
+                  />
 
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">

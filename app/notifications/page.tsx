@@ -38,6 +38,8 @@ const NOTIFICATION_MESSAGES: Record<string, (n: Notification) => string> = {
     `הזמנת ${n.orders?.categories?.name || 'מוצר'} של ${n.residents?.name || 'דייר'} בתיאום אספקה ולא שולמה`,
   manual_reminder: (n) =>
     `${n.residents?.name || 'דייר'}: ${n.message || 'תזכורת'}`,
+  advance_reminder: (n) =>
+    `${n.residents?.name || 'דייר'}: ${n.message || 'לוודא שהמקדמה הועברה'}`,
 }
 
 function pad(n: number) {
@@ -368,7 +370,7 @@ export default function NotificationsPage() {
       ) : (
         <div className="space-y-3">
           {notifications.map((notification) => {
-            const isManual = notification.type === 'manual_reminder'
+            const isManual = notification.type === 'manual_reminder' || notification.type === 'advance_reminder'
             const remindTime = notification.remind_time ? notification.remind_time.slice(0, 5) : ''
             const isFuture = isManual && !!notification.remind_at && (
               notification.remind_at > today ||

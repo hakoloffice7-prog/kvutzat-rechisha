@@ -11,6 +11,7 @@ import { ClickToCallButton } from '@/components/ClickToCallButton'
 import { Label } from '@/components/ui/label'
 import { Loader2, BarChart2, Phone, MapPin, Plus, CalendarClock, Mail } from 'lucide-react'
 import { saveNavList } from '@/components/PrevNextNav'
+import { maybeCreateAdvanceReminder, createOrderReminder } from '@/lib/reminders'
 import { ResidentRemindersDialog } from '@/components/ResidentRemindersDialog'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -306,10 +307,12 @@ export default function OverviewPage() {
     const { data: current } = await supabase.from('orders').select('notes').eq('id', orderId).single()
     const previous = current?.notes || ''
     const next = stampNewNoteLines(previous, previous ? previous + '\n' + text : text)
-    const { error } = await supabase.from('orders').update({ notes: next }).eq('id', orderId)
+    // הערה חדשה מעדכנת "עודכן לאחרונה" (מפרט, סעיף 4)
+    const { error } = await supabase.from('orders').update({ notes: next, updated_at: new Date().toISOString() }).eq('id', orderId)
     if (error) return false
     setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, notes: next } : o)))
     touchResidentOfOrder(orderId)
+    maybeCreateAdvanceReminder(supabase, orderId, text)
     return true
   }
 
@@ -1026,6 +1029,7 @@ export default function OverviewPage() {
             <NotesSection
               notes={orders.find((o) => o.id === notesDialog.orderId)?.notes}
               onAdd={(text) => addOrderNote(notesDialog.orderId, text)}
+              onRemind={(date, line) => createOrderReminder(supabase, notesDialog.orderId, date, line)}
               onReplace={(next) => replaceOrderNotes(notesDialog.orderId, next)}
             />
           )}

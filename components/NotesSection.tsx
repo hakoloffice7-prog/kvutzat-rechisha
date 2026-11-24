@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Loader2, Plus, Pencil, Trash2, Check, X } from 'lucide-react'
+import { Loader2, Plus, Pencil, Trash2, Check, X, BellPlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 
@@ -13,6 +13,7 @@ export function NotesSection({
   onReplace,
   labelClassName,
   icon,
+  onRemind,
 }: {
   notes: string | null | undefined
   onAdd: (text: string) => Promise<boolean>
@@ -20,12 +21,27 @@ export function NotesSection({
   onReplace: (nextNotes: string) => Promise<boolean>
   labelClassName?: string
   icon?: React.ReactNode
+  // "הזכר לי בתאריך" ליד כל הערה (בהזמנה)
+  onRemind?: (date: string, noteLine: string) => Promise<boolean>
 }) {
   const [text, setText] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [editText, setEditText] = useState('')
+
+  const [remindIndex, setRemindIndex] = useState<number | null>(null)
+  const [remindDate, setRemindDate] = useState('')
+  const [remindDone, setRemindDone] = useState<number | null>(null)
+
+  async function saveReminder(line: string, index: number) {
+    if (!onRemind || !remindDate) return
+    setSaving(true)
+    const ok = await onRemind(remindDate, line)
+    setSaving(false)
+    if (ok) { setRemindIndex(null); setRemindDone(index) }
+    else setError('שמירת התזכורת נכשלה')
+  }
 
   const lines = (notes || '').split('\n').map((line, index) => ({ line, index })).filter((l) => l.line.trim())
 
@@ -92,7 +108,37 @@ export function NotesSection({
                 </div>
               ) : (
                 <div className="flex items-start gap-2">
-                  <span className="flex-1 whitespace-pre-wrap">{line}</span>
+                  <span className="flex-1 whitespace-pre-wrap">
+                    {line}
+                    {remindDone === index && <span className="text-xs text-green-600 mr-2">✓ נקבעה תזכורת</span>}
+                    {remindIndex === index && (
+                      <span className="flex items-center gap-1 mt-1">
+                        <input
+                          type="date"
+                          value={remindDate}
+                          onChange={(e) => setRemindDate(e.target.value)}
+                          className="border border-gray-300 rounded px-1 py-0.5 text-xs"
+                          dir="ltr"
+                        />
+                        <button type="button" disabled={saving || !remindDate} onClick={() => saveReminder(line, index)} className="text-xs text-blue-600 hover:underline disabled:opacity-50">שמור תזכורת</button>
+                        <button type="button" onClick={() => setRemindIndex(null)} className="text-xs text-gray-500 hover:underline">ביטול</button>
+                      </span>
+                    )}
+                  </span>
+                  {onRemind && (
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={() => {
+                        const d = new Date(); d.setDate(d.getDate() + 1)
+                        setRemindDate(d.toLocaleDateString('en-CA')); setRemindIndex(index); setRemindDone(null)
+                      }}
+                      className="p-1 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded"
+                      title="הזכר לי בתאריך"
+                    >
+                      <BellPlus className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                   <button
                     type="button"
                     disabled={saving}
