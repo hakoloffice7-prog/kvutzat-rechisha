@@ -2,6 +2,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { isHoliday } from '@/lib/holidays'
 import { normalizePhone, sendVoiceMessage } from '@/lib/integration/pbx'
+import { loadVoiceTemplate, renderVoiceText } from '@/lib/voiceTemplates'
 
 export type ReminderKind = 'measurement' | 'installation'
 
@@ -96,8 +97,8 @@ function whenWord(eventDate: string, today: string): string {
 
 // אין שעה מוגדרת - הלקוח מקבל טווח שעות ("בין השעות 10:00 ל-12:00")
 function timePhrase(from: string | null, to: string | null): string {
-  if (from && to) return ` בין השעות ${from.slice(0, 5)} ל-${to.slice(0, 5)}`
-  if (from) return ` החל מהשעה ${from.slice(0, 5)}`
+  if (from && to) return `בין השעות ${from.slice(0, 5)} ל-${to.slice(0, 5)}`
+  if (from) return `החל מהשעה ${from.slice(0, 5)}`
   return ''
 }
 
@@ -155,11 +156,15 @@ export async function sendOrderReminder(
   const when = whenWord(eventDate, today)
   const category = row.categories?.name
   const timeText = timePhrase(eventTime, eventTimeTo)
-  const outro = 'נא לוודא שיש מי שנמצא בבית. אם יש שינוי או שאלה, אפשר לחזור אלינו. בברכה, קבוצת הכל.'
-  // הנוסח לפי בקשת הלקוח
-  const text = kind === 'measurement'
-    ? `שלום ${name}. מדברים מקבוצת הכל. זוהי תזכורת ש${when} מגיע אליכם בעל מקצוע לביצוע מדידות של ${category ?? 'ההזמנה'}${timeText}. ${outro}`
-    : `שלום ${name}. מדברים מקבוצת הכל. זוהי תזכורת ש${when} מגיע אליכם בעל מקצוע מטעמנו לביצוע ${category ?? 'ההזמנה'}${timeText}. ${outro}`
+  // הנוסח נערך על ידי הלקוח במסך "הודעות קוליות"; בלי נוסח שמור - ברירת המחדל מהקוד
+  const templateKey = kind === 'measurement' ? 'measurement_reminder' : 'installation_reminder'
+  const template = await loadVoiceTemplate(admin, templateKey)
+  const text = renderVoiceText(template, {
+    שם: name,
+    קטגוריה: category ?? 'ההזמנה',
+    מתי: when,
+    שעה: timeText,
+  })
 
   try {
     await sendVoiceMessage(phone, text, `${kind === 'measurement' ? 'מדידה' : 'התקנה'} ${row.order_number ?? orderId}`)

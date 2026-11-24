@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { normalizePhone, sendVoiceMessage } from '@/lib/integration/pbx'
+import { loadVoiceTemplate, renderVoiceText } from '@/lib/voiceTemplates'
 
 export const dynamic = 'force-dynamic'
 
@@ -39,10 +40,13 @@ export async function POST(request: Request) {
     .select('id')
   if (!claimed?.length) return NextResponse.json({ ok: true, skipped: 'already' })
 
-  const text =
-    `שלום ${resident?.name ?? ''}. מדברים מקבוצת הכל. ` +
-    `הזמנתך${category ? ` בתחום ${category}` : ''}, מספר ${data.order_number ?? ''}, התקבלה אצלנו בהצלחה. ` +
-    `נעדכן אותך בהמשך על התקדמות ההזמנה. תודה ויום טוב.`
+  // הנוסח נערך על ידי הלקוח במסך "הודעות קוליות"; בלי נוסח שמור - ברירת המחדל מהקוד
+  const template = await loadVoiceTemplate(supabase, 'purchase')
+  const text = renderVoiceText(template, {
+    שם: resident?.name ?? '',
+    קטגוריה: category ?? 'כללי',
+    מספר_הזמנה: String(data.order_number ?? ''),
+  })
 
   try {
     const { campaignId } = await sendVoiceMessage(phone, text, String(data.order_number ?? body.orderId))

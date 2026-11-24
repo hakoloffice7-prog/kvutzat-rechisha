@@ -13,7 +13,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { Plus, Package, Loader2, Trash2 } from 'lucide-react'
+import { Plus, Package, Loader2, Trash2, Pencil } from 'lucide-react'
 
 type Category = {
   id: string
@@ -27,6 +27,10 @@ export default function CategoriesPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [newName, setNewName] = useState('')
   const [saving, setSaving] = useState(false)
+  const [usage, setUsage] = useState<Record<string, { orders: number; suppliers: number }>>({})
+  const [editing, setEditing] = useState<Category | null>(null)
+  const [editName, setEditName] = useState('')
+  const [renaming, setRenaming] = useState(false)
   const supabase = createClient()
 
   useEffect(() => {
@@ -41,7 +45,51 @@ export default function CategoriesPage() {
       .order('name')
 
     if (data) setCategories(data)
+
+    // שימוש בקטגוריות: הזמנות וספקים המקושרים אליהן
+    const [{ data: ordersData }, { data: suppliersData }] = await Promise.all([
+      supabase.from('orders').select('category_id'),
+      supabase.from('suppliers').select('category_id'),
+    ])
+    const next: Record<string, { orders: number; suppliers: number }> = {}
+    for (const o of ordersData || []) {
+      if (!o.category_id) continue
+      next[o.category_id] = next[o.category_id] || { orders: 0, suppliers: 0 }
+      next[o.category_id].orders++
+    }
+    for (const sp of suppliersData || []) {
+      if (!sp.category_id) continue
+      next[sp.category_id] = next[sp.category_id] || { orders: 0, suppliers: 0 }
+      next[sp.category_id].suppliers++
+    }
+    setUsage(next)
     setLoading(false)
+  }
+
+  function usageText(id: string) {
+    const u = usage[id]
+    if (!u) return ''
+    const parts = []
+    if (u.orders) parts.push(`${u.orders} הזמנות`)
+    if (u.suppliers) parts.push(`${u.suppliers} ספקים`)
+    return parts.join(' · ')
+  }
+
+  async function renameCategory() {
+    if (!editing || !editName.trim()) return
+    if (categories.some((c) => c.id !== editing.id && c.name.trim() === editName.trim())) {
+      alert('קיימת כבר קטגוריה בשם זה')
+      return
+    }
+    setRenaming(true)
+    const { error } = await supabase.from('categories').update({ name: editName.trim() }).eq('id', editing.id)
+    setRenaming(false)
+    if (error) {
+      alert('שגיאה בעדכון שם הקטגוריה')
+      return
+    }
+    setEditing(null)
+    fetchCategories()
   }
 
   async function addCategory() {
@@ -59,7 +107,17 @@ export default function CategoriesPage() {
   }
 
   async function deleteCategory(id: string) {
-    if (!confirm('האם למחוק קטגוריה זו? הדבר ישפיע על הזמנות קיימות.')) return
+    // בדיקה מחדש מול השרת כדי לא להסתמך על נתון ישן במסך
+    const [{ count: ordersCount }, { count: suppliersCount }] = await Promise.all([
+      supabase.from('orders').select('id', { count: 'exact', head: true }).eq('category_id', id),
+      supabase.from('suppliers').select('id', { count: 'exact', head: true }).eq('category_id', id),
+    ])
+    if ((ordersCount || 0) > 0 || (suppliersCount || 0) > 0) {
+      alert(`לא ניתן למחוק קטגוריה שבשימוש (${ordersCount || 0} הזמנות, ${suppliersCount || 0} ספקים). יש להסיר אותה קודם מהם.`)
+      fetchCategories()
+      return
+    }
+    if (!confirm('האם למחוק קטגוריה זו?')) return
     await supabase.from('categories').delete().eq('id', id)
     fetchCategories()
   }
@@ -136,22 +194,64 @@ export default function CategoriesPage() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Package className="h-5 w-5 text-blue-500" />
-                    <span className="font-medium text-gray-900">{category.name}</span>
+                    <div>
+                      <span className="font-medium text-gray-900">{category.name}</span>
+                      {usageText(category.id) && (
+                        <p className="text-xs text-gray-400">{usageText(category.id)}</p>
+                      )}
+                    </div>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => deleteCategory(category.id)}
-                    className="text-red-400 hover:text-red-600 h-8 w-8 p-0"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  <div className="flex items-center">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => { setEditing(category); setEditName(category.name) }}
+                      className="text-gray-400 hover:text-blue-600 h-8 w-8 p-0"
+                      title="עריכת שם"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => deleteCategory(category.id)}
+                      disabled={!!usage[category.id]}
+                      title={usage[category.id] ? `בשימוש: ${usageText(category.id)} - לא ניתן למחוק` : 'מחיקה'}
+                      className="text-red-400 hover:text-red-600 h-8 w-8 p-0 disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
           ))}
         </div>
       )}
+      <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>עריכת שם קטגוריה</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>שם הקטגוריה</Label>
+              <Input
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && renameCategory()}
+              />
+              <p className="text-xs text-gray-500">השם החדש יתעדכן אוטומטית בכל המקומות (הזמנות, ספקים, דוחות).</p>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setEditing(null)}>ביטול</Button>
+              <Button onClick={renameCategory} disabled={renaming || !editName.trim() || editName.trim() === editing?.name}>
+                {renaming ? <Loader2 className="h-4 w-4 animate-spin" /> : 'שמור'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

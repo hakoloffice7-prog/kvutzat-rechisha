@@ -337,6 +337,18 @@ export default function OverviewPage() {
     if (el) el.scrollIntoView({ block: 'center' })
   }, [returnRowId, loadingData, orders])
 
+  // כפתור "הצג הכל": כל הערים, הפרויקטים, המוצרים, הסטטוסים וסוגי התשלום,
+  // ומנקה גם את חיפוש הדייר החופשי (התאריכים נשארים)
+  function showAll() {
+    pendingProjectIdRef.current = ALL_PROJECTS
+    setSelectedCityId(ALL_CITIES)
+    setSelectedProjectId(ALL_PROJECTS)
+    setSelectedCategoryIds(categories.map((c) => c.id))
+    setStatusFilters(STATUS_FILTER_OPTIONS.map((o) => o.value))
+    setPaymentStatusFilters(PAYMENT_STATUS_FILTER_OPTIONS.map((o) => o.value) as PaymentStatusFilter[])
+    setSearch('')
+  }
+
   function toggleStatusFilter(value: StatusValue) {
     setStatusFilters((prev) => prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value])
   }
@@ -528,6 +540,7 @@ export default function OverviewPage() {
                 emptyLabel="-- בחר קטגוריה --"
                 pluralLabel="קטגוריות"
                 clearLabel="נקה בחירה"
+                selectAllLabel="בחר את כל המוצרים"
               />
 
               {/* Status filter (multi-select) */}
@@ -552,10 +565,17 @@ export default function OverviewPage() {
                     <div className="absolute z-10 mt-1 w-full max-h-64 overflow-y-auto bg-white border border-gray-300 rounded-md shadow-lg py-1">
                       <button
                         type="button"
+                        onClick={() => setStatusFilters(STATUS_FILTER_OPTIONS.map((o) => o.value))}
+                        className="w-full text-right px-3 py-1.5 text-sm hover:bg-gray-50 text-blue-600 font-medium"
+                      >
+                        בחר הכל
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => setStatusFilters([])}
                         className="w-full text-right px-3 py-1.5 text-sm hover:bg-gray-50 text-blue-600"
                       >
-                        נקה בחירה (הכל)
+                        נקה בחירה
                       </button>
                       {STATUS_FILTER_OPTIONS.map((opt) => (
                         <label key={opt.value} className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50 cursor-pointer">
@@ -580,7 +600,8 @@ export default function OverviewPage() {
                 onChange={(v) => setPaymentStatusFilters(v as PaymentStatusFilter[])}
                 emptyLabel="הכל"
                 pluralLabel="סטטוסים"
-                clearLabel="נקה בחירה (הכל)"
+                clearLabel="נקה בחירה"
+                selectAllLabel="בחר הכל"
               />
 
               {/* חיפוש דייר */}
@@ -598,7 +619,16 @@ export default function OverviewPage() {
 
               {/* תאריך מדידה (טווח) */}
               <div className="space-y-2 md:col-span-2 lg:col-span-2">
-                <Label>תאריך מדידה</Label>
+                <div className="flex items-center justify-between gap-2">
+                  <Label>תאריך מדידה</Label>
+                  <button
+                    type="button"
+                    onClick={showAll}
+                    className="text-xs border border-blue-600 text-blue-600 rounded-md px-3 py-1 hover:bg-blue-50"
+                  >
+                    הצג הכל (כל הפילטרים)
+                  </button>
+                </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <span className="block text-xs text-gray-500">מתאריך</span>

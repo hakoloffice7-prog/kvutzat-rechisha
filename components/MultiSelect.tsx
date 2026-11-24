@@ -5,7 +5,7 @@ import { ChevronDown } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 
 export function MultiSelect({
-  label, options, selected, onChange, emptyLabel, pluralLabel, clearLabel, disabled,
+  label, options, selected, onChange, emptyLabel, pluralLabel, clearLabel, selectAllLabel, disabled,
 }: {
   label: string
   options: { value: string; label: string }[]
@@ -14,6 +14,7 @@ export function MultiSelect({
   emptyLabel: string
   pluralLabel: string
   clearLabel: string
+  selectAllLabel?: string
   disabled?: boolean
 }) {
   const [open, setOpen] = useState(false)
@@ -51,6 +52,15 @@ export function MultiSelect({
         </button>
         {open && !disabled && (
           <div className="absolute z-10 mt-1 w-full max-h-64 overflow-y-auto bg-white border border-gray-300 rounded-md shadow-lg py-1">
+            {selectAllLabel && (
+              <button
+                type="button"
+                onClick={() => onChange(options.map((o) => o.value))}
+                className="w-full text-right px-3 py-1.5 text-sm hover:bg-gray-50 text-blue-600 font-medium"
+              >
+                {selectAllLabel}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => onChange([])}

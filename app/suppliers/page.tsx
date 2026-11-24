@@ -165,7 +165,6 @@ export default function SuppliersPage() {
           <p className="text-gray-500 mt-1">ניהול ספקים וקשר עם קטגוריות</p>
         </div>
 
-        {isAdmin && (
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
             <Button>
@@ -237,7 +236,6 @@ export default function SuppliersPage() {
             </div>
           </DialogContent>
         </Dialog>
-        )}
       </div>
 
       {/* Filter */}

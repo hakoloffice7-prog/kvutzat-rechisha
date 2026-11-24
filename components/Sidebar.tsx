@@ -18,6 +18,7 @@ import {
   BarChart2,
   ShieldCheck,
   UserCircle,
+  Mic,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
@@ -30,6 +31,7 @@ const navItems = [
   { href: '/overview', label: 'סקירת פרויקט', icon: BarChart2 },
   { href: '/suppliers', label: 'ספקים', icon: Truck },
   { href: '/categories', label: 'קטגוריות', icon: Package },
+  { href: '/voice-messages', label: 'הודעות קוליות', icon: Mic },
   { href: '/reports', label: 'דוחות', icon: FileSpreadsheet },
   { href: '/notifications', label: 'התראות', icon: Bell },
 ]
