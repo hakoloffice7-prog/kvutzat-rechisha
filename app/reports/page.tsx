@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { FileSpreadsheet, FileText, Download, Loader2 } from 'lucide-react'
-import { formatCurrency, PAYMENT_STATUS_LABELS, STATUS_LABELS, STATUS_ORDER } from '@/lib/utils'
+import { formatCurrency, PAYMENT_STATUS_LABELS, STATUS_LABELS, STATUS_ORDER, fullAddress } from '@/lib/utils'
 import { useIsAdmin } from '@/components/RoleProvider'
 import { MultiSelect } from '@/components/MultiSelect'
 
@@ -116,7 +116,7 @@ export default function ReportsPage() {
         supplier_id,
         is_global_price,
         total_price,
-        residents!inner(name, address, phone, project_id),
+        residents!inner(name, address, floor, apartment, phone, project_id),
         categories(name),
         suppliers(name),
         order_items(description, model, customer_price, order_item_costs(supplier_price)),
@@ -181,7 +181,7 @@ export default function ReportsPage() {
           rows.push({
             ...(multiProject ? { 'פרויקט': projectNameOf(resident?.project_id) } : {}),
             'שם דייר': resident?.name || '',
-            'כתובת': resident?.address || '',
+            'כתובת': fullAddress(resident) || '',
             'טלפון': resident?.phone || '',
             'קטגוריה': order.categories?.name || '',
             'ספק': order.suppliers?.name || '',
@@ -247,7 +247,7 @@ export default function ReportsPage() {
         const head = first ? `
           ${multiProject ? `<td ${span}>${esc(projectNameOf(resident?.project_id))}</td>` : ''}
           <td ${span} class="strong">${esc(resident?.name)}</td>
-          <td ${span}>${esc(resident?.address)}</td>
+          <td ${span}>${esc(fullAddress(resident))}</td>
           <td ${span} dir="ltr" class="num">${esc(resident?.phone)}</td>
           <td ${span}>${esc(order.categories?.name || '-')}</td>
           <td ${span}>${esc(order.suppliers?.name || '-')}</td>
@@ -487,7 +487,7 @@ ${mode === 'print' ? '<script>window.onload = function () { setTimeout(function 
                             <>
                               {multiProject && <td className="py-2 px-3" rowSpan={displayRows.length}>{projectNameOf(resident?.project_id)}</td>}
                               <td className="py-2 px-3 font-medium" rowSpan={displayRows.length}>{resident?.name}</td>
-                              <td className="py-2 px-3" rowSpan={displayRows.length}>{resident?.address}</td>
+                              <td className="py-2 px-3" rowSpan={displayRows.length}>{fullAddress(resident)}</td>
                               <td className="py-2 px-3" rowSpan={displayRows.length}>{resident?.phone}</td>
                               <td className="py-2 px-3" rowSpan={displayRows.length}>{order.categories?.name || '-'}</td>
                               <td className="py-2 px-3" rowSpan={displayRows.length}>{order.suppliers?.name || '-'}</td>

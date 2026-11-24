@@ -185,3 +185,24 @@ export const DEBT_STATUS_COLORS: Record<DebtStatus, string> = {
   partial: 'warning',
   paid_full: 'success',
 }
+
+// כתובת מלאה של דייר: רחוב ומספר + קומה + דירה (מפרט, סעיף 5)
+export function fullAddress(r?: { address?: string | null; floor?: string | null; apartment?: string | null } | null): string {
+  if (!r) return ''
+  const parts = [r.address?.trim()]
+  if (r.floor?.trim()) parts.push(`קומה ${r.floor.trim()}`)
+  if (r.apartment?.trim()) parts.push(`דירה ${r.apartment.trim()}`)
+  return parts.filter(Boolean).join(', ')
+}
+
+// מה חסר בכתובת הדייר (לסימון כתום)
+export function missingAddressParts(r?: { address?: string | null; floor?: string | null; apartment?: string | null } | null): string[] {
+  const missing: string[] = []
+  if (!r?.address?.trim()) missing.push('כתובת')
+  if (!r?.floor?.trim()) missing.push('קומה')
+  if (!r?.apartment?.trim()) missing.push('דירה')
+  return missing
+}
+
+// מי פותח את הדירה לבעל המקצוע
+export const ACCESS_TYPES = ['הדייר בבית', 'שוכר גר בדירה', 'מפתח אצל שכן', 'מפתח אצל קרוב משפחה', 'אחר'] as const

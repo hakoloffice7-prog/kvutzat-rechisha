@@ -18,7 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import Link from 'next/link'
 import { MultiSelect } from '@/components/MultiSelect'
 import { NotesSection } from '@/components/NotesSection'
-import { STATUS_LABELS, STATUS_ORDER, STATUS_COLORS, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, getDebtStatus, formatStatusDate, stampNewNoteLines, digitsOnly, phoneSearchDigits, type DebtStatus } from '@/lib/utils'
+import { STATUS_LABELS, STATUS_ORDER, STATUS_COLORS, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, getDebtStatus, formatStatusDate, stampNewNoteLines, digitsOnly, phoneSearchDigits, fullAddress, type DebtStatus } from '@/lib/utils'
 
 // ערכי "סינטינל" לבחירת "כל הערים" / "כל הפרויקטים" בבוררים, כדי לאפשר
 // תצוגה חוצת ערים/פרויקטים (למשל כל מי שרוצה וילונות, מכל המערכת)
@@ -38,6 +38,11 @@ type Resident = {
   phone2?: string | null
   email?: string | null
   address: string
+  floor?: string | null
+  apartment?: string | null
+  access_type?: string | null
+  access_contact_name?: string | null
+  access_contact_phone?: string | null
   project_id: string
   last_updated_at?: string | null
   projects: { name: string; cities: { name: string } } | null
@@ -401,7 +406,7 @@ export default function OverviewPage() {
       setLoadingData(true)
       const residentsQuery = supabase
         .from('residents')
-        .select('id, name, phone, phone2, email, address, project_id, last_updated_at, projects(name, cities(name))')
+        .select('id, name, phone, phone2, email, address, floor, apartment, access_type, access_contact_name, access_contact_phone, project_id, last_updated_at, projects(name, cities(name))')
         .order('name')
       const scopedResidentsQuery = effectiveProjectIds!.length === 1
         ? residentsQuery.eq('project_id', effectiveProjectIds![0])
@@ -800,7 +805,7 @@ export default function OverviewPage() {
                             {multiCategory && (
                               <td className="py-3 px-4 text-gray-600">{categoryNameById.get(order!.category_id) || '—'}</td>
                             )}
-                            <td className="py-3 px-4 text-gray-600">{resident.address || '—'}</td>
+                            <td className="py-3 px-4 text-gray-600">{fullAddress(resident) || '—'}</td>
                             <td className="py-3 px-4 text-left">
                               {resident.phone || resident.phone2
                                 ? <div className="space-y-1">
@@ -917,10 +922,17 @@ export default function OverviewPage() {
                                       </>
                                     )}
                                   </div>
+                                  {resident.access_type && (
+                                    <div className="text-gray-700">
+                                      <span className="text-gray-500">גישה לדירה: </span>{resident.access_type}
+                                      {resident.access_contact_name && ` · ${resident.access_contact_name}`}
+                                      {resident.access_contact_phone && <span dir="ltr"> {resident.access_contact_phone}</span>}
+                                    </div>
+                                  )}
                                   {resident.address && (
                                     <div className="flex items-center gap-2 text-gray-700">
                                       <MapPin className="h-4 w-4 shrink-0" />
-                                      {resident.address}
+                                      {fullAddress(resident)}
                                     </div>
                                   )}
                                   {resident.phone && (

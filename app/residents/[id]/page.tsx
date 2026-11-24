@@ -19,7 +19,7 @@ import { Plus, ShoppingCart, Loader2, Trash2, Phone, MapPin, ArrowLeft, Edit2, M
 import Link from 'next/link'
 import { PrevNextNav } from '@/components/PrevNextNav'
 import { useParams, useRouter } from 'next/navigation'
-import { STATUS_LABELS, STATUS_COLORS, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, formatCurrency, getDebtStatus, stampNewNoteLines, digitsOnly, formatStatusDate } from '@/lib/utils'
+import { STATUS_LABELS, STATUS_COLORS, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, formatCurrency, getDebtStatus, stampNewNoteLines, digitsOnly, formatStatusDate, ACCESS_TYPES } from '@/lib/utils'
 import { useIsAdmin } from '@/components/RoleProvider'
 import { CopyButton } from '@/components/CopyButton'
 import { ClickToCallButton } from '@/components/ClickToCallButton'
@@ -38,6 +38,11 @@ type Resident = {
   email: string | null
   key_location: string | null
   notes: string | null
+  floor: string | null
+  apartment: string | null
+  access_type: string | null
+  access_contact_name: string | null
+  access_contact_phone: string | null
   projects: { id: string; name: string; cities: { name: string } }
 }
 
@@ -71,6 +76,7 @@ export default function ResidentPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [residentForm, setResidentForm] = useState({
     name: '', address: '', phone: '', phone2: '', email: '', key_location: '', project_id: '', notes: '',
+    floor: '', apartment: '', access_type: '', access_contact_name: '', access_contact_phone: '',
   })
   const [savingResident, setSavingResident] = useState(false)
   const [residentDirty, setResidentDirty] = useState(false)
@@ -112,6 +118,11 @@ export default function ResidentPage() {
         email: residentData.email || '',
         key_location: residentData.key_location || '',
         project_id: residentData.project_id || '',
+        floor: residentData.floor || '',
+        apartment: residentData.apartment || '',
+        access_type: residentData.access_type || '',
+        access_contact_name: residentData.access_contact_name || '',
+        access_contact_phone: residentData.access_contact_phone || '',
         notes: residentData.notes || '',
       })
       setResidentDirty(false)
@@ -147,6 +158,11 @@ export default function ResidentPage() {
         email: residentForm.email.trim(),
         key_location: residentForm.key_location.trim(),
         project_id: residentForm.project_id,
+        floor: residentForm.floor.trim() || null,
+        apartment: residentForm.apartment.trim() || null,
+        access_type: residentForm.access_type || null,
+        access_contact_name: residentForm.access_contact_name.trim() || null,
+        access_contact_phone: residentForm.access_contact_phone.trim() || null,
       })
       .eq('id', residentId)
     if (!error) {
@@ -290,13 +306,23 @@ export default function ResidentPage() {
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="residentFormAddress" className="text-xs text-gray-500 flex items-center gap-1">
-                    <MapPin className="h-3.5 w-3.5" /> כתובת
+                    <MapPin className="h-3.5 w-3.5" /> רחוב ומספר
                   </Label>
                   <Input
                     id="residentFormAddress"
                     value={residentForm.address}
                     onChange={(e) => updateResidentField('address', e.target.value)}
                   />
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <div>
+                      <span className="text-xs text-gray-500">קומה</span>
+                      <Input value={residentForm.floor} onChange={(e) => updateResidentField('floor', e.target.value)} placeholder="למשל 2 / קרקע" />
+                    </div>
+                    <div>
+                      <span className="text-xs text-gray-500">דירה</span>
+                      <Input value={residentForm.apartment} onChange={(e) => updateResidentField('apartment', e.target.value)} />
+                    </div>
+                  </div>
                 </div>
                 {resident && (
                   <ResidentProjectPicker
@@ -307,6 +333,28 @@ export default function ResidentPage() {
                     labelClassName="text-xs text-gray-500"
                   />
                 )}
+              </div>
+              {/* גישה לדירה — מי פותח לבעל המקצוע */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs text-gray-500 flex items-center gap-1"><KeyRound className="h-3.5 w-3.5" /> מי פותח את הדירה</Label>
+                  <select
+                    value={residentForm.access_type}
+                    onChange={(e) => updateResidentField('access_type', e.target.value)}
+                    className="h-10 w-full rounded-md border border-gray-200 bg-white px-2 text-sm"
+                  >
+                    <option value="">לא ידוע</option>
+                    {ACCESS_TYPES.map((a) => <option key={a} value={a}>{a}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-gray-500">איש קשר לגישה — שם</Label>
+                  <Input value={residentForm.access_contact_name} onChange={(e) => updateResidentField('access_contact_name', e.target.value)} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-gray-500">איש קשר לגישה — טלפון</Label>
+                  <Input value={residentForm.access_contact_phone} onChange={(e) => updateResidentField('access_contact_phone', digitsOnly(e.target.value))} dir="ltr" />
+                </div>
               </div>
               {/* שורה 2: טלפון, נייד נוסף, מייל */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

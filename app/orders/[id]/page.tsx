@@ -29,7 +29,7 @@ import { maybeCreateAdvanceReminder, createOrderReminder } from '@/lib/reminders
 import {
   STATUS_LABELS, STATUS_COLORS, STATUS_ORDER,
   PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS,
-  formatCurrency, formatDate, getDebtStatus, calcSupplierPrice, defaultProfitPercent, profitRuleFor, calcSupplierByRule,
+  formatCurrency, formatDate, getDebtStatus, fullAddress, calcSupplierPrice, defaultProfitPercent, profitRuleFor, calcSupplierByRule,
   stampNewNoteLines,
   formatStatusDate,
 } from '@/lib/utils'
@@ -78,6 +78,11 @@ type Order = {
     phone2: string | null
     email: string | null
     key_location: string | null
+    floor?: string | null
+    apartment?: string | null
+    access_type?: string | null
+    access_contact_name?: string | null
+    access_contact_phone?: string | null
     projects: { id: string; name: string; cities: { name: string } }
   }
   categories: { id: string; name: string }
@@ -162,7 +167,7 @@ export default function OrderPage() {
         .from('orders')
         .select(`
           *,
-          residents(id, name, address, phone, phone2, email, key_location, projects(id, name, cities(name))),
+          residents(id, name, address, floor, apartment, access_type, access_contact_name, access_contact_phone, phone, phone2, email, key_location, projects(id, name, cities(name))),
           categories(id, name, profit_type, profit_value, unit_label),
           suppliers(id, name),
           order_items(*, order_item_costs(supplier_price)),
@@ -515,8 +520,8 @@ export default function OrderPage() {
               {order.residents?.address && (
                 <p className="text-gray-600 flex items-center gap-2">
                   <MapPin className="h-4 w-4 shrink-0" />
-                  {order.residents.address}
-                  <CopyButton value={order.residents.address} title="העתק כתובת" />
+                  {fullAddress(order.residents)}
+                  <CopyButton value={fullAddress(order.residents)} title="העתק כתובת" />
                 </p>
               )}
               {order.residents?.phone && (
@@ -548,6 +553,19 @@ export default function OrderPage() {
                   <KeyRound className="h-4 w-4 shrink-0" />
                   {order.residents.key_location}
                   <CopyButton value={order.residents.key_location} title="העתק מיקום מפתח" />
+                </p>
+              )}
+              {order.residents?.access_type && (
+                <p className="text-gray-600 flex items-center gap-2 flex-wrap">
+                  <KeyRound className="h-4 w-4 shrink-0" />
+                  {order.residents.access_type}
+                  {order.residents.access_contact_name && <span>· {order.residents.access_contact_name}</span>}
+                  {order.residents.access_contact_phone && (
+                    <>
+                      <span dir="ltr">{order.residents.access_contact_phone}</span>
+                      <ClickToCallButton phone={order.residents.access_contact_phone} name={order.residents.access_contact_name || undefined} className="p-1" />
+                    </>
+                  )}
                 </p>
               )}
             </CardContent>

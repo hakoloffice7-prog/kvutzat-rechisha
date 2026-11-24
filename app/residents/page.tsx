@@ -1,5 +1,7 @@
 'use client'
 
+import { isValidIsraeliPhone } from '@/lib/orderMetrics'
+import { ACCESS_TYPES } from '@/lib/utils'
 import { saveNavList } from '@/components/PrevNextNav'
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
@@ -36,6 +38,10 @@ type Resident = {
   phone2: string
   email: string
   key_location: string
+  floor?: string | null
+  apartment?: string | null
+  access_type?: string | null
+  orders?: { count: number }[]
   projects?: { name: string; city_id: string } | null
 }
 type OrderItem = { id: string; description: string; model: string; customer_price: number }
@@ -52,6 +58,17 @@ type SimpleOrder = {
 
 const ALL = 'all'
 const PAGE_SIZE = 25
+const EMPTY_NEW_RESIDENT = {
+  name: '', address: '', floor: '', apartment: '', access_type: '', phone: '', phone2: '', email: '', key_location: '', project_id: '',
+}
+// סינון "חסר": חסרה כתובת/קומה/דירה, או חסר פרט כלשהו (גם טלפון / גישה לדירה)
+type MissingFilter = '' | 'address' | 'any'
+const MISSING_ADDRESS_OR = 'address.is.null,address.eq.,floor.is.null,floor.eq.,apartment.is.null,apartment.eq.'
+const MISSING_ANY_OR = MISSING_ADDRESS_OR + ',phone.is.null,phone.eq.,access_type.is.null'
+
+function missingCount(r: Resident) {
+  return [r.address, r.floor, r.apartment, r.phone, r.access_type].filter((v) => !v || !String(v).trim()).length
+}
 
 export default function ResidentsPage() {
   const router = useRouter()
@@ -68,7 +85,7 @@ export default function ResidentsPage() {
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [newResident, setNewResident] = useState({ name: '', address: '', phone: '', phone2: '', email: '', key_location: '', project_id: '' })
+  const [newResident, setNewResident] = useState({ ...EMPTY_NEW_RESIDENT })
   const [editingResident, setEditingResident] = useState<Resident | null>(null)
 
   const [remindersResident, setRemindersResident] = useState<{ id: string; name: string } | null>(null)
@@ -96,8 +113,23 @@ export default function ResidentsPage() {
   const searchInputRef = useRef<HTMLInputElement>(null)
   // Phone validation
   const [phoneError, setPhoneError] = useState('')
+  const [missingFilter, setMissingFilter] = useState<MissingFilter>('')
+  // שמות שמופיעים יותר מפעם אחת במערכת (לסימון "כפול?")
+  const [duplicateNames, setDuplicateNames] = useState<Set<string>>(new Set())
+  const addOrderAfterSaveRef = useRef(false)
 
   useEffect(() => {
+    // קישורים מלוח הפעולה: ?missing=address / ?search=שם
+    const params = new URLSearchParams(window.location.search)
+    const m = params.get('missing')
+    if (m === 'address' || m === 'any') setMissingFilter(m)
+    const sq = params.get('search')
+    if (sq) { setNameSearch(sq); setDebouncedSearch(sq) }
+    supabase.from('residents').select('name').then(({ data }) => {
+      const counts: Record<string, number> = {}
+      for (const r of data || []) { const n = (r.name || '').trim(); counts[n] = (counts[n] || 0) + 1 }
+      setDuplicateNames(new Set(Object.keys(counts).filter((n) => counts[n] > 1)))
+    })
     fetchCities()
     try {
       if (sessionStorage.getItem('residents-pending-add') === '1') {
@@ -134,7 +166,7 @@ export default function ResidentsPage() {
           setSelectedProjectId(pending)
           if (pendingAddDialogRef.current) {
             pendingAddDialogRef.current = false
-            setNewResident({ name: '', address: '', phone: '', phone2: '', email: '', key_location: '', project_id: pending !== ALL ? pending : '' })
+            setNewResident({ ...EMPTY_NEW_RESIDENT, project_id: pending !== ALL ? pending : '' })
             setPhoneError('')
             setAddDialogOpen(true)
           }
@@ -158,7 +190,7 @@ export default function ResidentsPage() {
 
   useEffect(() => {
     fetchResidents()
-  }, [selectedCityId, selectedProjectId, page, debouncedSearch])
+  }, [selectedCityId, selectedProjectId, page, debouncedSearch, missingFilter])
 
   useEffect(() => {
     try {
@@ -198,12 +230,14 @@ export default function ResidentsPage() {
       .from('residents')
       .select(
         cityFiltered
-          ? 'id, project_id, name, address, phone, phone2, email, key_location, projects!inner(name, city_id)'
-          : 'id, project_id, name, address, phone, phone2, email, key_location, projects(name, city_id)',
+          ? 'id, project_id, name, address, floor, apartment, access_type, phone, phone2, email, key_location, orders(count), projects!inner(name, city_id)'
+          : 'id, project_id, name, address, floor, apartment, access_type, phone, phone2, email, key_location, orders(count), projects(name, city_id)',
         { count: 'exact' }
       )
     if (selectedProjectId !== ALL) q = q.eq('project_id', selectedProjectId)
     else if (cityFiltered) q = q.eq('projects.city_id', selectedCityId)
+    if (missingFilter === 'address') q = q.or(MISSING_ADDRESS_OR)
+    if (missingFilter === 'any') q = q.or(MISSING_ANY_OR)
     const term = debouncedSearch.replace(/[,()%*]/g, ' ').trim()
     if (term) {
       // טלפון: מתעלמים מ-"-" — מחפשים את הספרות גם עם מקף בכל מיקום, בשני שדות הטלפון
@@ -231,7 +265,7 @@ export default function ResidentsPage() {
 
   function openAddDialog() {
     // אם כבר נבחר פרויקט מסוים בסינון - מציעים אותו כברירת מחדל; אחרת הכל נעול עד בחירת עיר ופרויקט
-    setNewResident({ name: '', address: '', phone: '', phone2: '', email: '', key_location: '', project_id: selectedProjectId && selectedProjectId !== ALL ? selectedProjectId : '' })
+    setNewResident({ ...EMPTY_NEW_RESIDENT, project_id: selectedProjectId && selectedProjectId !== ALL ? selectedProjectId : '' })
     setPhoneError('')
     setAddDialogOpen(true)
   }
@@ -276,16 +310,27 @@ export default function ResidentsPage() {
       project_id: newResident.project_id,
       name: newResident.name.trim(),
       address: newResident.address.trim(),
+      floor: newResident.floor.trim() || null,
+      apartment: newResident.apartment.trim() || null,
+      access_type: newResident.access_type || null,
       phone: phone,
       phone2: newResident.phone2.trim(),
       email: newResident.email.trim(),
       key_location: newResident.key_location.trim(),
     }).select('id').single()
     if (!error && created) {
-      setNewResident({ name: '', address: '', phone: '', phone2: '', email: '', key_location: '', project_id: '' })
+      setNewResident({ ...EMPTY_NEW_RESIDENT })
       setAddDialogOpen(false)
-      router.refresh()
       setSaving(false)
+      if (addOrderAfterSaveRef.current) {
+        // "שמור והוסף הזמנה": ממשיכים ישר להזמנה חדשה לדייר
+        addOrderAfterSaveRef.current = false
+        setOrdersResident({ id: created.id, name: newResident.name.trim() } as Resident)
+        setAddOrderOpen(true)
+        fetchResidents()
+        return
+      }
+      router.refresh()
       router.push('/residents/' + created.id)
       return
     }
@@ -437,7 +482,18 @@ export default function ResidentsPage() {
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
-              <CardTitle className="text-lg">דיירים ({totalCount})</CardTitle>
+              <div className="flex items-center gap-3 flex-wrap">
+                <CardTitle className="text-lg">דיירים ({totalCount})</CardTitle>
+                <select
+                  value={missingFilter}
+                  onChange={(e) => { setMissingFilter(e.target.value as MissingFilter); setPage(0) }}
+                  className="h-8 rounded-md border border-gray-200 bg-white px-2 text-sm"
+                >
+                  <option value="">כל הדיירים</option>
+                  <option value="address">חסרה כתובת / קומה / דירה</option>
+                  <option value="any">חסר פרט כלשהו</option>
+                </select>
+              </div>
               <Input
                 ref={searchInputRef}
                 value={nameSearch}
@@ -454,8 +510,13 @@ export default function ResidentsPage() {
                   <tr className="border-b text-gray-500">
                     <th className="text-right py-3 px-4 font-medium">שם</th>
                     {selectedProjectId === ALL && <th className="text-right py-3 px-4 font-medium">פרויקט</th>}
-                    <th className="text-right py-3 px-4 font-medium">כתובת</th>
+                    <th className="text-right py-3 px-4 font-medium">רחוב</th>
+                    <th className="text-right py-3 px-2 font-medium">קומה</th>
+                    <th className="text-right py-3 px-2 font-medium">דירה</th>
                     <th className="text-right py-3 px-4 font-medium">טלפון</th>
+                    <th className="text-right py-3 px-4 font-medium">גישה לדירה</th>
+                    <th className="text-right py-3 px-2 font-medium">הזמנות</th>
+                    <th className="text-right py-3 px-2 font-medium">חסר</th>
                     <th className="py-3 px-4"></th>
                   </tr>
                 </thead>
@@ -473,11 +534,16 @@ export default function ResidentsPage() {
                         >
                           {resident.name}
                         </button>
+                        {duplicateNames.has(resident.name.trim()) && (
+                          <span className="mr-1 text-[10px] rounded bg-yellow-100 text-yellow-800 px-1" title="יש עוד דייר באותו שם">כפול?</span>
+                        )}
                       </td>
                       {selectedProjectId === ALL && (
                         <td className="py-3 px-4 text-gray-600">{resident.projects?.name || '—'}</td>
                       )}
-                      <td className="py-3 px-4 text-gray-600">{resident.address || '—'}</td>
+                      <td className="py-3 px-4 text-gray-600">{resident.address || <span className="text-xs rounded bg-orange-100 text-orange-700 px-1.5 py-0.5">חסרה</span>}</td>
+                      <td className="py-3 px-2 text-gray-600">{resident.floor || <span className="text-orange-600">?</span>}</td>
+                      <td className="py-3 px-2 text-gray-600">{resident.apartment || <span className="text-orange-600">?</span>}</td>
                       <td className="py-3 px-4">
                         {resident.phone || resident.phone2
                           ? <div className="space-y-1">
@@ -485,12 +551,20 @@ export default function ResidentsPage() {
                                 <div key={i} className="flex items-center gap-2">
                                   <span className="text-gray-600" dir="ltr">{ph}</span>
                                   {i === 1 && resident.phone && <span className="text-[10px] text-gray-400">(נוסף)</span>}
+                                  {!isValidIsraeliPhone(ph) && <span className="text-[10px] rounded bg-red-100 text-red-700 px-1">לא תקין</span>}
                                   <ClickToCallButton phone={ph!} name={resident.name} className="p-1" />
                                   <CopyButton value={ph!} title="העתק טלפון" />
                                 </div>
                               ))}
                             </div>
                           : <span className="text-gray-400">—</span>}
+                      </td>
+                      <td className="py-3 px-4 text-gray-600 text-xs">{resident.access_type || '—'}</td>
+                      <td className="py-3 px-2 text-gray-600 text-center">{resident.orders?.[0]?.count ?? 0}</td>
+                      <td className="py-3 px-2 text-center">
+                        {missingCount(resident) > 0
+                          ? <span className="text-xs rounded bg-orange-100 text-orange-700 px-1.5 py-0.5">{missingCount(resident)}</span>
+                          : <span className="text-green-600">✓</span>}
                       </td>
                       <td className="py-3 px-4">
                         <div className="flex gap-1 justify-end">
@@ -589,14 +663,38 @@ export default function ResidentsPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="residentAddress">כתובת</Label>
+              <Label htmlFor="residentAddress">רחוב ומספר</Label>
               <Input
                 disabled={!newResident.project_id}
                 id="residentAddress"
                 value={newResident.address}
                 onChange={(e) => setNewResident({ ...newResident, address: e.target.value })}
-                placeholder="לדוגמה: רחוב הרצל 1, דירה 5"
+                placeholder="לדוגמה: הרצל 18"
               />
+              <div className="grid grid-cols-3 gap-2">
+                <Input
+                  disabled={!newResident.project_id}
+                  value={newResident.floor}
+                  onChange={(e) => setNewResident({ ...newResident, floor: e.target.value })}
+                  placeholder="קומה"
+                />
+                <Input
+                  disabled={!newResident.project_id}
+                  value={newResident.apartment}
+                  onChange={(e) => setNewResident({ ...newResident, apartment: e.target.value })}
+                  placeholder="דירה"
+                />
+                <select
+                  disabled={!newResident.project_id}
+                  value={newResident.access_type}
+                  onChange={(e) => setNewResident({ ...newResident, access_type: e.target.value })}
+                  className="h-10 rounded-md border border-gray-200 bg-white px-2 text-sm"
+                  title="מי פותח את הדירה"
+                >
+                  <option value="">מי פותח?</option>
+                  {ACCESS_TYPES.map((a) => <option key={a} value={a}>{a}</option>)}
+                </select>
+              </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="residentPhone">טלפון</Label>
@@ -647,7 +745,14 @@ export default function ResidentsPage() {
             </div>
             <div className="flex gap-2 justify-end">
               <Button variant="outline" onClick={() => setAddDialogOpen(false)}>ביטול</Button>
-              <Button onClick={addResident} disabled={saving || !newResident.project_id || !newResident.name.trim()}>
+              <Button
+                variant="outline"
+                onClick={() => { addOrderAfterSaveRef.current = true; addResident() }}
+                disabled={saving || !newResident.project_id || !newResident.name.trim()}
+              >
+                שמור והוסף הזמנה
+              </Button>
+              <Button onClick={() => { addOrderAfterSaveRef.current = false; addResident() }} disabled={saving || !newResident.project_id || !newResident.name.trim()}>
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'הוסף דייר'}
               </Button>
             </div>

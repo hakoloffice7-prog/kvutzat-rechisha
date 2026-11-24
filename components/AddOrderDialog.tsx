@@ -67,7 +67,8 @@ export function AddOrderDialog({
         supabase.from('categories').select('*').order('name'),
         supabase.from('suppliers').select('*').order('name'),
       ])
-      if (cats) setCategories(cats)
+      // אנשי צוות (מעצבת / מתכנת) אינם מוצרים להזמנה
+      if (cats) setCategories(cats.filter((c: any) => c.kind !== 'staff'))
       if (sups) setSuppliers(sups)
     })()
   }, [open])

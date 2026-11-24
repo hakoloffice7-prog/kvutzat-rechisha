@@ -16,7 +16,7 @@ import {
 import { Plus, Users, ChevronLeft, Loader2, Trash2, Phone, MapPin, ArrowRight, TrendingUp } from 'lucide-react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
-import { STATUS_LABELS, STATUS_COLORS, STATUS_ORDER, formatCurrency } from '@/lib/utils'
+import { STATUS_LABELS, STATUS_COLORS, STATUS_ORDER, formatCurrency, fullAddress } from '@/lib/utils'
 
 type Project = {
   id: string
@@ -193,7 +193,7 @@ export default function ProjectPage() {
                     {resident.address && (
                       <p className="text-sm text-gray-500 flex items-center gap-1">
                         <MapPin className="h-3.5 w-3.5" />
-                        {resident.address}
+                        {fullAddress(resident)}
                       </p>
                     )}
                     {resident.phone && (

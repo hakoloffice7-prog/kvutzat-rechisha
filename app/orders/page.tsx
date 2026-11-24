@@ -12,7 +12,7 @@ import { OrderNumber } from '@/components/OrderNumber'
 import { ClickToCallButton } from '@/components/ClickToCallButton'
 import { saveNavList } from '@/components/PrevNextNav'
 import {
-  STATUS_LABELS, STATUS_COLORS, STATUS_ORDER, formatCurrency, formatStatusDate, digitsOnly, phoneSearchDigits,
+  STATUS_LABELS, STATUS_COLORS, STATUS_ORDER, formatCurrency, formatStatusDate, digitsOnly, phoneSearchDigits, fullAddress, missingAddressParts,
 } from '@/lib/utils'
 import {
   CLOSED_STATUSES as CLOSED, AWAITING_STATUSES as AWAITING, STUCK_DAYS, VERY_STUCK_DAYS, PAY_LABELS, PAY_COLORS,
@@ -42,6 +42,8 @@ type Order = {
     phone: string | null
     phone2: string | null
     address: string | null
+    floor: string | null
+    apartment: string | null
     projects: { id: string; name: string; city_id: string; cities: { id: string; name: string } | null } | null
   } | null
   categories: { id: string; name: string } | null
@@ -118,7 +120,7 @@ export default function OrdersPage() {
         .from('orders')
         .select(
           'id, order_number, status, status_updated_at, updated_at, created_at, total_price, is_global_price, measured_at, installation_planned_date, notes, category_id, supplier_id, ' +
-          'residents(id, name, phone, phone2, address, projects(id, name, city_id, cities(id, name))), categories(id, name), suppliers(id, name), order_payments(amount), order_items(customer_price)'
+          'residents(id, name, phone, phone2, address, floor, apartment, projects(id, name, city_id, cities(id, name))), categories(id, name), suppliers(id, name), order_payments(amount), order_items(customer_price)'
         ),
       supabase.from('cities').select('id, name').order('name'),
       supabase.from('projects').select('id, name, city_id').order('name'),
@@ -385,9 +387,12 @@ export default function OrdersPage() {
                           ) : <span className="text-gray-400">—</span>}
                         </td>
                         <td className="py-3 px-3 text-gray-600 max-w-[180px]">
-                          {r?.address
-                            ? r.address
-                            : <span className="text-xs rounded bg-orange-100 text-orange-700 px-1.5 py-0.5 whitespace-nowrap">חסרה כתובת</span>}
+                          {r?.address && <div>{fullAddress(r)}</div>}
+                          {missingAddressParts(r).length > 0 && (
+                            <span className="text-xs rounded bg-orange-100 text-orange-700 px-1.5 py-0.5 whitespace-nowrap">
+                              {r?.address ? missingAddressParts(r).map((m) => `${m}?`).join(' ') : 'חסרה כתובת'}
+                            </span>
+                          )}
                         </td>
                         <td className="py-3 px-3 text-gray-600 whitespace-nowrap">
                           <div>{proj?.cities?.name || '—'}</div>
