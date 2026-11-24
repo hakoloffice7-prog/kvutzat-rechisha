@@ -417,6 +417,7 @@ export default function SuppliersPage() {
                     <p className="text-xs text-gray-500">עבור מקרים בהם אנחנו נותנים לספק מקדמה על ביצוע עבודה</p>
                     <Input
                       type="number"
+                              step="any"
                       value={editingSupplier.advance_amount ?? ''}
                       onChange={(e) => setEditingSupplier({ ...editingSupplier, advance_amount: parseFloat(e.target.value) || 0 })}
                       placeholder="0"

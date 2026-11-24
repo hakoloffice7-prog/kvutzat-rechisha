@@ -507,6 +507,7 @@ export default function SupplierPaymentsPage() {
                           <Label className="shrink-0">עמלה ששולמה</Label>
                           <Input
                             type="number"
+                              step="any"
                             className="h-8 text-sm"
                             dir="ltr"
                             value={editForm.commission_paid}
@@ -580,6 +581,7 @@ export default function SupplierPaymentsPage() {
                           <Label className="shrink-0">שולם בפועל</Label>
                           <Input
                             type="number"
+                              step="any"
                             className="h-8 text-sm"
                             dir="ltr"
                             value={editForm.rep_paid}

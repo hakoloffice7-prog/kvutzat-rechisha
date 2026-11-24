@@ -301,7 +301,8 @@ export default function OrderPage() {
     if (!newItem.description.trim()) return
     setSaving(true)
 
-    const qty = Math.max(1, parseInt(newItem.quantity) || 1)
+    // כמות יכולה להיות עשרונית (למשל 5.5 מטר)
+    const qty = parseFloat(newItem.quantity) > 0 ? parseFloat(newItem.quantity) : 1
     const unitCustomer = parseFloat(newItem.customer_price) || 0
     const unitSupplier = parseFloat(newItem.supplier_price) || 0
 
@@ -309,13 +310,13 @@ export default function OrderPage() {
       order_id: orderId,
       description: newItem.description.trim(),
       model: newItem.model.trim(),
-      customer_price: unitCustomer * qty,
+      customer_price: Math.round(unitCustomer * qty * 100) / 100,
     }).select('id').single()
 
     if (!error && insertedItem && isAdmin) {
       await supabase.from('order_item_costs').upsert({
         order_item_id: insertedItem.id,
-        supplier_price: unitSupplier * qty,
+        supplier_price: Math.round(unitSupplier * qty * 100) / 100,
       })
     }
 
@@ -719,6 +720,7 @@ export default function OrderPage() {
                           <Label>מחיר לתשלום ללקוח (₪)</Label>
                           <Input
                             type="number"
+                              step="any"
                             value={editedOrder.total_price}
                             onChange={(e) => {
                               const customer = parseFloat(e.target.value) || 0
@@ -741,6 +743,7 @@ export default function OrderPage() {
                               <Label>אחוז רווח (%)</Label>
                               <Input
                                 type="number"
+                              step="any"
                                 value={editedOrder.global_profit_percent}
                                 onChange={(e) => {
                                   const percent = parseFloat(e.target.value) || 0
@@ -761,6 +764,7 @@ export default function OrderPage() {
                               <Label>מחיר לתשלום לספק (₪)</Label>
                               <Input
                                 type="number"
+                              step="any"
                                 value={editedOrder.global_supplier_price}
                                 onChange={(e) => {
                                   globalSupplierPriceTouchedRef.current = true
@@ -1043,10 +1047,11 @@ export default function OrderPage() {
                       ) : (
                         <>
                           <div className="space-y-2">
-                            <Label>כמות יחידות</Label>
+                            <Label>כמות (אפשר עשרוני, למשל 5.5)</Label>
                             <Input
                               type="number"
-                              min="1"
+                              step="any"
+                              min="0"
                               value={newItem.quantity}
                               onChange={(e) => setNewItem({ ...newItem, quantity: e.target.value })}
                               placeholder="1"
@@ -1058,6 +1063,7 @@ export default function OrderPage() {
                               <Label>מחיר לקוח ליחידה (₪)</Label>
                               <Input
                                 type="number"
+                              step="any"
                                 value={newItem.customer_price}
                                 onChange={(e) => {
                                   const customer = parseFloat(e.target.value) || 0
@@ -1080,6 +1086,7 @@ export default function OrderPage() {
                                   <Label>אחוז רווח (%)</Label>
                                   <Input
                                     type="number"
+                              step="any"
                                     value={newItem.profit_percent}
                                     onChange={(e) => {
                                       const percent = parseFloat(e.target.value) || 0
@@ -1100,6 +1107,7 @@ export default function OrderPage() {
                                   <Label>מחיר ספק ליחידה (₪)</Label>
                                   <Input
                                     type="number"
+                              step="any"
                                     value={newItem.supplier_price}
                                     onChange={(e) => {
                                       newItemSupplierPriceTouchedRef.current = true
@@ -1114,8 +1122,8 @@ export default function OrderPage() {
                           </div>
                           {isAdmin && newItem.customer_price && newItem.supplier_price && (
                             <div className="bg-gray-50 p-3 rounded-lg text-sm text-gray-600 space-y-1">
-                              {parseInt(newItem.quantity) > 1 && (
-                                <p>סה"כ לקוח: <strong>{formatCurrency((parseFloat(newItem.customer_price) || 0) * (parseInt(newItem.quantity) || 1))}</strong></p>
+                              {parseFloat(newItem.quantity) > 0 && parseFloat(newItem.quantity) !== 1 && (
+                                <p>סה"כ לקוח: <strong>{formatCurrency((parseFloat(newItem.customer_price) || 0) * (parseFloat(newItem.quantity) || 1))}</strong></p>
                               )}
                               <p>
                                 רווח צפוי:{' '}
@@ -1123,7 +1131,7 @@ export default function OrderPage() {
                                   (parseFloat(newItem.customer_price) - parseFloat(newItem.supplier_price)) >= 0
                                     ? 'text-green-600' : 'text-red-600'
                                 }`}>
-                                  {formatCurrency((parseFloat(newItem.customer_price) - parseFloat(newItem.supplier_price)) * (parseInt(newItem.quantity) || 1))}
+                                  {formatCurrency((parseFloat(newItem.customer_price) - parseFloat(newItem.supplier_price)) * (parseFloat(newItem.quantity) || 1))}
                                 </span>
                               </p>
                             </div>
@@ -1195,6 +1203,7 @@ export default function OrderPage() {
                                     <td className="py-2">
                                       <Input
                                         type="number"
+                              step="any"
                                         value={editingItemData.customer_price}
                                         onChange={(e) => setEditingItemData({ ...editingItemData, customer_price: e.target.value })}
                                         className="h-8 text-sm"
@@ -1206,6 +1215,7 @@ export default function OrderPage() {
                                         <td className="py-2">
                                           <Input
                                             type="number"
+                              step="any"
                                             value={editingItemData.supplier_price}
                                             onChange={(e) => setEditingItemData({ ...editingItemData, supplier_price: e.target.value })}
                                             className="h-8 text-sm"
@@ -1339,6 +1349,7 @@ export default function OrderPage() {
                         <Label>סכום (₪) *</Label>
                         <Input
                           type="number"
+                              step="any"
                           value={newPayment.amount}
                           onChange={(e) => setNewPayment({ ...newPayment, amount: e.target.value })}
                           placeholder="0"

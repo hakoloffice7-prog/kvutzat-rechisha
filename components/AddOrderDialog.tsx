@@ -312,6 +312,7 @@ export function AddOrderDialog({
                     />
                     <Input
                       type="number"
+                              step="any"
                       value={item.customer_price}
                       onChange={(e) => updateNewOrderItem(idx, 'customer_price', e.target.value)}
                       placeholder="0"
@@ -322,6 +323,7 @@ export function AddOrderDialog({
                       <>
                         <Input
                           type="number"
+                              step="any"
                           value={item.profit_percent}
                           onChange={(e) => updateNewOrderItem(idx, 'profit_percent', e.target.value)}
                           placeholder="10"
@@ -330,6 +332,7 @@ export function AddOrderDialog({
                         />
                         <Input
                           type="number"
+                              step="any"
                           value={item.supplier_price}
                           onChange={(e) => updateNewOrderItem(idx, 'supplier_price', e.target.value)}
                           placeholder="0"
