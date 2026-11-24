@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { scanAlerts } from '@/lib/integration/alertsScan'
 import { REMINDER_KINDS, cronTargetDate, sendOrderReminder, type ReminderKind, type ReminderResult } from '@/lib/integration/reminders'
 
 export const dynamic = 'force-dynamic'
@@ -14,10 +15,13 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 
-  const target = cronTargetDate()
-  if (!target) return NextResponse.json({ ok: true, skipped: 'no-send-day' })
-
   const admin = createAdminClient()
+  // סריקת התראות (מתעניין מעל שבוע / תיאום אספקה שלא שולם) — בכל ריצה, גם ביום בלי תזכורות קוליות
+  const alerts = await scanAlerts(admin).catch((e) => ({ created: 0, error: String(e) }))
+
+  const target = cronTargetDate()
+  if (!target) return NextResponse.json({ ok: true, skipped: 'no-send-day', alerts })
+
   const results: ReminderResult[] = []
 
   for (const kind of Object.keys(REMINDER_KINDS) as ReminderKind[]) {
@@ -39,5 +43,5 @@ export async function GET(request: Request) {
   }
 
   const count = (r: ReminderResult['result']) => results.filter(x => x.result === r).length
-  return NextResponse.json({ ok: true, target, sent: count('sent'), skipped: count('skipped'), failed: count('failed'), results })
+  return NextResponse.json({ ok: true, alerts, target, sent: count('sent'), skipped: count('skipped'), failed: count('failed'), results })
 }
