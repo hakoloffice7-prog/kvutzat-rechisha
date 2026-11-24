@@ -29,10 +29,13 @@ export const REMINDER_KINDS: Record<ReminderKind, {
   },
 }
 
-// שעות הרצת ה-Cron ב-UTC (חייב להתאים ל-vercel.json). ב-Hobby החלון הוא עד שעה אחרי.
-// אחר הצהריים (ימים א'-ה') ובשישי בבוקר (לאירוע של יום ראשון).
-export const CRON_AFTERNOON_UTC_HOUR = 12
-export const CRON_FRIDAY_UTC_HOUR = 7
+// ה-Cron רץ כל 30 דקות (ראה vercel.json); השליחה בפועל מוגבלת לחלון השעות בשעון ישראל.
+// ימים א'-ה': 09:00-20:00. שישי וערב חג: 09:00-12:00 בלבד (הרבה לפני כניסת שבת/חג).
+export const SEND_START_HOUR = 9
+export const SEND_END_HOUR = 20
+export const SEND_END_HOUR_EREV = 12
+// שליחה מיידית בשמירת אירוע ל"מחר" מותרת עד 23:00 (כמו קודם), כי ה-Cron כבר לא ירוץ עד מחר.
+export const IMMEDIATE_END_HOUR = 23
 
 const HEBREW_DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת']
 
@@ -71,22 +74,28 @@ export function nextEventDate(today: string): string {
   return d
 }
 
-// התאריך שאליו ה-Cron מחפש אירועים; null = לא שולחים היום
+// האם השעה הנוכחית (שעון ישראל) בתוך חלון השליחה של היום
+export function withinSendHours(now = new Date(), regularEndHour = SEND_END_HOUR): boolean {
+  const il = israelNow(now)
+  if (!canSendOn(il.date)) return false
+  const tomorrow = addDays(il.date, 1)
+  const erev = weekday(tomorrow) === 6 || isHoliday(tomorrow)
+  const end = erev ? SEND_END_HOUR_EREV : regularEndHour
+  return il.hour >= SEND_START_HOUR && il.hour < end
+}
+
+// התאריך שאליו ה-Cron מחפש אירועים; null = לא שולחים עכשיו
 export function cronTargetDate(now = new Date()): string | null {
-  const today = israelNow(now).date
-  return canSendOn(today) ? nextEventDate(today) : null
+  if (!withinSendHours(now)) return null
+  return nextEventDate(israelNow(now).date)
 }
 
 // האם להוציא תזכורת מיד עם שמירת אירוע בתאריך eventDate:
-// רק אם האירוע הוא "מחר" (היום העבודה הבא), ה-Cron של היום כבר רץ, והשעה בישראל לפני 23:00.
+// רק אם האירוע הוא "מחר" (היום העבודה הבא) והשעה 09:00-23:00 (בשישי/ערב חג עד 12:00).
+// לפני 09:00 - ה-Cron (כל 30 דקות) ישלח כשהחלון ייפתח.
 export function shouldSendNow(eventDate: string, now = new Date()): boolean {
-  const il = israelNow(now)
-  if (!canSendOn(il.date)) return false
-  if (eventDate !== nextEventDate(il.date)) return false
-  if (il.hour >= 23) return false
-  const cronHour = weekday(il.date) === 5 ? CRON_FRIDAY_UTC_HOUR : CRON_AFTERNOON_UTC_HOUR
-  // ה-Cron יכול לרוץ בכל רגע בשעה שאחרי cronHour (חלון Hobby), לכן מחכים לסיומה
-  return now.getUTCHours() >= cronHour + 1
+  if (!withinSendHours(now, IMMEDIATE_END_HOUR)) return false
+  return eventDate === nextEventDate(israelNow(now).date)
 }
 
 // ---------- שליחה ----------

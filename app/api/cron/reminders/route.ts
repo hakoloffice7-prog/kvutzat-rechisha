@@ -7,7 +7,7 @@ export const maxDuration = 300
 
 // Vercel Cron: תזכורות קוליות יום לפני מדידה / התקנה.
 // מאובטח ב-CRON_SECRET (Vercel שולח Authorization: Bearer <CRON_SECRET>).
-// הנתיב עצמו מחשב את היום וכללי שבת/חג, כי ב-Hobby אין שליטה בשעה מדויקת.
+// רץ כל 30 דקות; הנתיב עצמו מחשב את היום, חלון השעות וכללי שבת/חג.
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET
   if (!secret || request.headers.get('authorization') !== `Bearer ${secret}`) {
@@ -15,7 +15,7 @@ export async function GET(request: Request) {
   }
 
   const target = cronTargetDate()
-  if (!target) return NextResponse.json({ ok: true, skipped: 'no-send-day' })
+  if (!target) return NextResponse.json({ ok: true, skipped: 'outside-send-window' })
 
   const admin = createAdminClient()
   const results: ReminderResult[] = []
