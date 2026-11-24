@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Building2, Users, ShoppingCart, Bell, TrendingUp } from 'lucide-react'
 import { formatCurrency, STATUS_LABELS, PAYMENT_STATUS_LABELS, getDebtStatus } from '@/lib/utils'
 import Link from 'next/link'
+import { ActionBoard } from '@/components/ActionBoard'
 
 export default async function DashboardPage() {
   const supabase = createServerClient()
@@ -76,9 +77,13 @@ export default async function DashboardPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-gray-900">דשבורד</h1>
-        <p className="text-gray-500 mt-1">סקירה כללית של מערכת ניהול קבוצות הרכישה</p>
+        <h1 className="text-3xl font-bold text-gray-900">לוח פעולה</h1>
+        <p className="text-gray-500 mt-1">מה צריך לעשות היום</p>
       </div>
+
+      <ActionBoard />
+
+      <h2 className="text-xl font-semibold text-gray-700 pt-4 border-t">סיכום כללי</h2>
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   LayoutDashboard,
   Building2,
@@ -19,15 +19,21 @@ import {
   ShieldCheck,
   UserCircle,
   Mic,
+  ShoppingCart,
+  CalendarDays,
+  Wallet,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
+import { isStuck } from '@/lib/orderMetrics'
 import type { Role } from '@/components/RoleProvider'
 
 const navItems = [
-  { href: '/dashboard', label: 'דשבורד', icon: LayoutDashboard },
-  { href: '/cities', label: 'ערים ופרויקטים', icon: Building2 },
+  { href: '/dashboard', label: 'לוח פעולה', icon: LayoutDashboard },
+  { href: '/orders', label: 'הזמנות', icon: ShoppingCart },
   { href: '/residents', label: 'דיירים', icon: Users },
+  { href: '/calendar', label: 'יומן התקנות', icon: CalendarDays },
+  { href: '/cities', label: 'ערים ופרויקטים', icon: Building2 },
   { href: '/overview', label: 'סקירת פרויקט', icon: BarChart2 },
   { href: '/suppliers', label: 'ספקים', icon: Truck },
   { href: '/categories', label: 'קטגוריות', icon: Package },
@@ -42,8 +48,28 @@ export default function Sidebar({ role, name }: { role: Role; name: string | nul
   const [isOpen, setIsOpen] = useState(false)
 
   const items = role === 'admin'
-    ? [...navItems, { href: '/admin/users', label: 'ניהול משתמשים', icon: ShieldCheck }]
+    ? [...navItems, { href: '/money', label: 'כסף ונציגים', icon: Wallet }, { href: '/admin/users', label: 'ניהול משתמשים', icon: ShieldCheck }]
     : navItems
+
+  // מספר ההזמנות התקועות ליד "לוח פעולה", ומספר התזכורות להיום בכפתור הפעמון
+  const [stuckCount, setStuckCount] = useState(0)
+  const [dueCount, setDueCount] = useState(0)
+  useEffect(() => {
+    async function load() {
+      const today = new Date().toLocaleDateString('en-CA')
+      const [{ data: ords }, { count }] = await Promise.all([
+        supabase.from('orders').select('status, updated_at, status_updated_at, created_at'),
+        supabase.from('notifications').select('id', { count: 'exact', head: true })
+          .in('type', ['manual_reminder', 'advance_reminder']).eq('is_read', false).lte('remind_at', today),
+      ])
+      setStuckCount((ords || []).filter((o) => isStuck(o)).length)
+      setDueCount(count || 0)
+    }
+    load()
+    window.addEventListener('reminders-changed', load)
+    const t = setInterval(load, 5 * 60_000)
+    return () => { window.removeEventListener('reminders-changed', load); clearInterval(t) }
+  }, [])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -109,6 +135,9 @@ export default function Sidebar({ role, name }: { role: Role; name: string | nul
               >
                 <Icon className="h-5 w-5 flex-shrink-0 md:h-4 md:w-4" />
                 {item.label}
+                {item.href === '/dashboard' && stuckCount > 0 && (
+                  <span className="rounded-full bg-orange-500 text-white text-[11px] px-1.5 leading-5" title="הזמנות תקועות">{stuckCount}</span>
+                )}
               </Link>
             )
           })}
@@ -121,6 +150,15 @@ export default function Sidebar({ role, name }: { role: Role; name: string | nul
               <span className="truncate">{name}</span>
             </div>
           )}
+          <button
+            onClick={() => { setIsOpen(false); window.dispatchEvent(new Event('open-reminders')) }}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-blue-50 hover:bg-white/15 hover:text-white w-full transition-colors md:w-auto md:gap-2 md:py-2"
+            title="תזכורות שהגיע זמנן"
+          >
+            <Bell className="h-5 w-5 md:h-4 md:w-4" />
+            תזכורות
+            {dueCount > 0 && <span className="rounded-full bg-red-500 text-white text-[11px] px-1.5 leading-5">{dueCount}</span>}
+          </button>
           <button
             onClick={handleLogout}
             className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-blue-50 hover:bg-white/15 hover:text-white w-full transition-colors md:w-auto md:gap-2 md:py-2"

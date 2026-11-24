@@ -14,6 +14,10 @@ import { saveNavList } from '@/components/PrevNextNav'
 import {
   STATUS_LABELS, STATUS_COLORS, STATUS_ORDER, formatCurrency, formatStatusDate, digitsOnly, phoneSearchDigits,
 } from '@/lib/utils'
+import {
+  CLOSED_STATUSES as CLOSED, AWAITING_STATUSES as AWAITING, STUCK_DAYS, VERY_STUCK_DAYS, PAY_LABELS, PAY_COLORS,
+  type PayState, orderAmount, orderBalance, payState, lastUpdated, daysSince, scheduledDate, isScheduledThisWeek,
+} from '@/lib/orderMetrics'
 
 // מסך ההזמנות (שלב א' במפרט): טבלה מלאה עם טלפון, כתובת, עיר/פרויקט, ספק, עדכון אחרון,
 // תשלום והערות, סינונים לפי עיר/פרויקט/מוצר/סטטוס/תשלום, חיפוש, מיון ושינוי סטטוס לכמה הזמנות יחד.
@@ -49,19 +53,11 @@ type Order = {
 type Option = { id: string; name: string }
 type Project = Option & { city_id: string }
 
-type PayState = 'paid' | 'partial' | 'not_paid' | 'no_price'
-const PAY_LABELS: Record<PayState, string> = { paid: 'שולם', partial: 'חלקי', not_paid: 'לא שולם', no_price: 'אין מחיר' }
-const PAY_COLORS: Record<PayState, string> = { paid: 'success', partial: 'info', not_paid: 'destructive', no_price: 'outline' }
-
-const CLOSED = new Set(['done', 'cancelled'])
-// "ממתינות לתיאום" — מחכות לתיאום עם בעל המקצוע (מפרט, סעיף 2)
-const AWAITING = new Set(['interested', 'awaiting_selection', 'selection_approved'])
-const STUCK_DAYS = 7
-
 const STATUS_GROUPS: { value: string; label: string }[] = [
   { value: 'g:open', label: 'כל הפתוחות' },
   { value: 'g:awaiting', label: 'ממתינות לתיאום' },
   { value: 'g:stuck', label: `תקועות מעל ${STUCK_DAYS} ימים` },
+  { value: 'g:week', label: 'מדידה/התקנה ב-7 הימים הקרובים' },
 ]
 
 type SortKey = 'stale' | 'recent' | 'number' | 'amount'
@@ -76,34 +72,6 @@ type Filters = { city: string; project: string; category: string; status: string
 const EMPTY_FILTERS: Filters = { city: '', project: '', category: '', status: '', pay: '', search: '', sort: 'stale' }
 const FILTERS_KEY = 'ordersFilters'
 
-function orderAmount(o: Order) {
-  if (o.total_price && o.total_price > 0) return o.total_price
-  if (o.is_global_price) return 0
-  return (o.order_items || []).reduce((s, i) => s + (i.customer_price || 0), 0)
-}
-function orderPaid(o: Order) {
-  return (o.order_payments || []).reduce((s, p) => s + (p.amount || 0), 0)
-}
-function payState(o: Order): PayState {
-  const amount = orderAmount(o)
-  if (!amount) return 'no_price'
-  const paid = orderPaid(o)
-  if (paid >= amount) return 'paid'
-  if (paid > 0) return 'partial'
-  return 'not_paid'
-}
-function lastUpdated(o: Order): string {
-  return [o.updated_at, o.status_updated_at, o.created_at].filter(Boolean).sort().pop() as string
-}
-function daysSince(iso: string) {
-  const ms = Date.now() - new Date(iso).getTime()
-  return Math.max(0, Math.floor(ms / 86_400_000))
-}
-function scheduledDate(o: Order): string | null {
-  if (o.status === 'measurement_scheduled') return o.measured_at
-  if (o.status === 'delivery_scheduled') return o.installation_planned_date
-  return null
-}
 function noteLines(notes: string | null) {
   return (notes || '').split('\n').map((l) => l.trim()).filter(Boolean)
 }
@@ -122,7 +90,16 @@ export default function OrdersPage() {
   const [bulkSaving, setBulkSaving] = useState(false)
 
   // הסינונים נשמרים לחלון הנוכחי, כדי שחזרה מהזמנה תחזיר לאותה רשימה
+  // קישור מלוח הפעולה (למשל ?city=..&category=..&status=g:awaiting) גובר על הסינון השמור
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const keys: (keyof Filters)[] = ['city', 'project', 'category', 'status', 'pay', 'search']
+    if (keys.some((k) => params.has(k))) {
+      const next: Filters = { ...EMPTY_FILTERS }
+      for (const k of keys) if (params.has(k)) (next as any)[k] = params.get(k) || ''
+      setFilters(next)
+      return
+    }
     try {
       const raw = sessionStorage.getItem(FILTERS_KEY)
       if (raw) setFilters({ ...EMPTY_FILTERS, ...JSON.parse(raw) })
@@ -167,9 +144,12 @@ export default function OrdersPage() {
         if (filters.status === 'g:open' && CLOSED.has(o.status)) return false
         if (filters.status === 'g:awaiting' && !AWAITING.has(o.status)) return false
         if (filters.status === 'g:stuck' && (CLOSED.has(o.status) || daysSince(lastUpdated(o)) <= STUCK_DAYS)) return false
+        if (filters.status === 'g:week' && !isScheduledThisWeek(o)) return false
         if (!filters.status.startsWith('g:') && o.status !== filters.status) return false
       }
-      if (filters.pay && payState(o) !== filters.pay) return false
+      if (filters.pay === 'g:debt') {
+        if (o.status === 'cancelled' || orderBalance(o) <= 0) return false
+      } else if (filters.pay && payState(o) !== filters.pay) return false
       if (term) {
         // שם, מספר הזמנה, טלפון (עם/בלי מקף), כתובת, או מילה מתוך ההערות
         const r = o.residents
@@ -283,6 +263,7 @@ export default function OrdersPage() {
             </select>
             <select className={selectClass} value={filters.pay} onChange={(e) => set({ pay: e.target.value })}>
               <option value="">כל מצבי התשלום</option>
+              <option value="g:debt">יש יתרה לגבות</option>
               {(Object.keys(PAY_LABELS) as PayState[]).map((k) => <option key={k} value={k}>{PAY_LABELS[k]}</option>)}
             </select>
             <select className={selectClass} value={filters.sort} onChange={(e) => set({ sort: e.target.value as SortKey })} title="מיון">
@@ -356,7 +337,7 @@ export default function OrdersPage() {
                     const updated = lastUpdated(o)
                     const days = daysSince(updated)
                     const open = !CLOSED.has(o.status)
-                    const daysClass = open && days > 21 ? 'text-red-600 font-medium' : open && days > STUCK_DAYS ? 'text-orange-600 font-medium' : 'text-gray-400'
+                    const daysClass = open && days > VERY_STUCK_DAYS ? 'text-red-600 font-medium' : open && days > STUCK_DAYS ? 'text-orange-600 font-medium' : 'text-gray-400'
                     const ps = payState(o)
                     const amount = orderAmount(o)
                     const notes = noteLines(o.notes)

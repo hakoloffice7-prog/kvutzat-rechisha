@@ -1,22 +1,16 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { CalendarClock } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { fetchOpenReminders, ReminderRow, type Reminder } from '@/components/RemindersPanel'
 
-type DueReminder = {
-  id: string
-  message: string | null
-  remind_at: string
-  remind_time: string | null
-  residents: { id: string; name: string } | null
-}
-
+const SESSION_KEY = 'reminder-popup-shown'
 const SEEN_KEY = 'reminder-popup-seen'
-const POLL_MS = 30_000
+const POLL_MS = 60_000
 
 function pad(n: number) {
   return String(n).padStart(2, '0')
@@ -36,98 +30,85 @@ function writeSeen(ids: Set<string>) {
   } catch {}
 }
 
-// חלון קופץ גלובלי: מציג תזכורות ידניות שהגיע זמנן ועדיין לא סומנו כנקראו.
-// תזכורת שהוצגה פעם אחת בדפדפן הזה לא קופצת שוב (אך נשארת בלתי נקראת במסך ההתראות).
+// חלון התזכורות (מפרט, סעיף 4.3): נפתח פעם אחת בכניסה למערכת עם כל התזכורות שהגיע זמנן או עבר,
+// וגם בלחיצה על כפתור "תזכורות" בתפריט. בזמן העבודה קופצת רק תזכורת חדשה שהגיעה שעתה.
 export function ReminderPopup() {
   const supabase = createClient()
-  const [due, setDue] = useState<DueReminder[]>([])
+  const [due, setDue] = useState<Reminder[]>([])
   const [open, setOpen] = useState(false)
   const openRef = useRef(false)
   openRef.current = open
 
+  const isDueNow = (r: Reminder) => {
+    const now = new Date()
+    const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+    if (r.remind_at < today) return true
+    const t = r.remind_time ? r.remind_time.slice(0, 5) : ''
+    return !t || t <= `${pad(now.getHours())}:${pad(now.getMinutes())}`
+  }
+
+  const load = useCallback(async () => {
+    const list = (await fetchOpenReminders(supabase, true)).filter(isDueNow)
+    setDue(list)
+    return list
+  }, [])
+
   useEffect(() => {
     let cancelled = false
 
-    async function check() {
+    async function check(first: boolean) {
       if (openRef.current) return
-      const now = new Date()
-      const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
-      const nowTime = `${pad(now.getHours())}:${pad(now.getMinutes())}`
-      const { data } = await supabase
-        .from('notifications')
-        .select('id, message, remind_at, remind_time, residents(id, name)')
-        .eq('type', 'manual_reminder')
-        .eq('is_read', false)
-        .lte('remind_at', today)
-      if (cancelled || !data) return
+      const list = await load()
+      if (cancelled || list.length === 0) return
+      let shownThisSession = false
+      try { shownThisSession = sessionStorage.getItem(SESSION_KEY) === '1' } catch {}
       const seen = readSeen()
-      const fresh = (data as unknown as DueReminder[]).filter((r) => {
-        if (seen.has(r.id)) return false
-        if (r.remind_at < today) return true
-        const t = r.remind_time ? r.remind_time.slice(0, 5) : ''
-        return !t || t <= nowTime
-      })
-      if (fresh.length > 0) {
-        setDue(fresh)
+      const fresh = list.filter((r) => !seen.has(r.id))
+      if ((first && !shownThisSession) || fresh.length > 0) {
+        try { sessionStorage.setItem(SESSION_KEY, '1') } catch {}
         setOpen(true)
       }
     }
 
-    check()
-    const timer = setInterval(check, POLL_MS)
-    return () => { cancelled = true; clearInterval(timer) }
-  }, [])
+    function openFromMenu() {
+      load().then(() => setOpen(true))
+    }
 
-  function rememberShown() {
+    check(true)
+    const timer = setInterval(() => check(false), POLL_MS)
+    window.addEventListener('open-reminders', openFromMenu)
+    return () => { cancelled = true; clearInterval(timer); window.removeEventListener('open-reminders', openFromMenu) }
+  }, [load])
+
+  function close() {
     const seen = readSeen()
     due.forEach((r) => seen.add(r.id))
     writeSeen(seen)
-  }
-
-  function close() {
-    rememberShown()
     setOpen(false)
-    setDue([])
   }
 
-  async function markAllRead() {
-    await supabase.from('notifications').update({ is_read: true }).in('id', due.map((r) => r.id))
-    close()
+  async function refresh() {
+    await load()
+    window.dispatchEvent(new Event('reminders-changed'))
   }
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) close() }}>
-      <DialogContent dir="rtl">
+      <DialogContent dir="rtl" className="max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <CalendarClock className="h-5 w-5 text-blue-600" />
-            {due.length > 1 ? `${due.length} תזכורות` : 'תזכורת'}
+            {due.length === 0 ? 'אין תזכורות שהגיע זמנן' : due.length > 1 ? `${due.length} תזכורות` : 'תזכורת'}
           </DialogTitle>
         </DialogHeader>
-        <div className="space-y-3 max-h-[50vh] overflow-y-auto">
-          {due.map((r) => (
-            <div key={r.id} className="rounded-md border border-yellow-300 bg-yellow-50 p-3 text-sm">
-              <p className="font-medium text-gray-900">
-                {r.residents ? (
-                  <Link href={`/residents/${r.residents.id}`} onClick={close} className="hover:text-blue-600 underline">
-                    {r.residents.name}
-                  </Link>
-                ) : 'דייר'}
-                {': '}{r.message || 'תזכורת'}
-              </p>
-              <p className="text-xs text-gray-500 mt-1">
-                {new Date(r.remind_at).toLocaleDateString('he-IL', { day: 'numeric', month: 'long', year: 'numeric' })}
-                {r.remind_time && ` · ${r.remind_time.slice(0, 5)}`}
-              </p>
-            </div>
-          ))}
+        <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+          {due.map((r) => <ReminderRow key={r.id} r={r} onChange={refresh} />)}
         </div>
         <div className="flex gap-2 justify-end">
-          <Button variant="outline" onClick={close}>סגור</Button>
           <Link href="/notifications" onClick={close}>
-            <Button variant="outline">למסך ההתראות</Button>
+            <Button variant="outline">כל התזכורות</Button>
           </Link>
-          <Button onClick={markAllRead}>סמן כנקרא</Button>
+          <Button onClick={close}>סגור</Button>
         </div>
       </DialogContent>
     </Dialog>
