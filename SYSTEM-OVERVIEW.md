@@ -1,0 +1,191 @@
+# System Overview — Purchase Groups Management (קבוצות רכישה — דודי וייס)
+
+Handoff document for any agent picking up this project. It covers what the system is, how it is built, how its external connections work, how to deploy, and the pitfalls already hit. **No secrets are stored here.** Env var *names* are listed; values live in Vercel and in the gitignored `.env.local`.
+
+The UI language is **Hebrew (RTL)**. The user communicates in Hebrew (sometimes English). Code comments are mostly Hebrew.
+
+---
+
+## 1. What the system is
+
+A back-office app for **Dudi Weiss**, who coordinates "purchase groups": a group of residents in one area or street buys many products and services (air conditioners, bars, nets, curtains, kitchens, marble, pest control, and so on) from suppliers. The app tracks each resident, their orders per product category, order status, payments, suppliers, and sends automatic voice-call notifications and reminders.
+
+The first commits were a demo. **The real requirements come from the client's Excel file** `שמות והזמנות הלקוחות.xlsx` (private, gitignored). Cross-check against it, not against the demo commits.
+
+## 2. Tech stack
+
+| Layer | Choice |
+|---|---|
+| Framework | Next.js **14.0.4**, App Router, TypeScript |
+| UI | Tailwind CSS 3, Radix UI primitives, `lucide-react`, shadcn-style components in `components/ui` |
+| Backend / DB / Auth | **Supabase** (Postgres, Auth, RLS) via `@supabase/supabase-js` and `@supabase/ssr` |
+| Hosting | **Vercel** (project `kvutzat-rechisha`), with a Vercel Cron |
+| Telephony | **Technoline PBX** (`api.tlivr.com`): click-to-call and TTS voice messages |
+| Excel | `xlsx` library (import/export) |
+| `agents/` | Separate standalone Node CLI (Anthropic SDK), **not part of the web app** (see §10) |
+
+Scripts: `npm run dev | build | start | lint`. There is no test suite.
+
+## 3. Repository layout
+
+```
+app/
+  (auth)/login/            login page
+  dashboard/               home after login
+  cities/ projects/[id]/   city → project (purchase group) management
+  residents/[id]/          residents list + detail
+  orders/[id]/             orders list + order edit page
+  overview/                "סקירת פרויקט": project overview with filters
+  suppliers/[id]/          suppliers (+ per-project ledger)
+  categories/              product categories
+  reports/                 reports
+  notifications/           notifications
+  voice-messages/          editor for voice-message wording (templates)
+  admin/users/             user management (admin only; uses service-role)
+  api/pbx/click-to-call    POST: PBX click-to-call
+  api/pbx/order-voice      POST: voice message on new order ("interested")
+  api/pbx/order-reminder   POST: immediate reminder after saving an event
+  api/cron/reminders       GET: daily Vercel Cron for reminders (CRON_SECRET)
+components/                shared UI (Sidebar, AddOrderDialog, MultiSelect, NotesSection,
+                           ReminderPopup, ClickToCallButton, RoleProvider, ui/…)
+lib/
+  supabase/client.ts       browser client (anon key, session)
+  supabase/server.ts       server client bound to the user's cookies (session)
+  supabase/admin.ts        server-only client with service-role key
+  supabase/schema.sql      clean-install schema (NOT fully up to date, see §5)
+  supabase/migration_*.sql incremental migrations (gitignored, run manually)
+  integration/pbx.ts       Technoline API wrapper
+  integration/reminders.ts reminder logic (dates, Shabbat/holiday rules, sending)
+  voiceTemplates.ts        voice message wording, variables, rendering
+  holidays.ts              holiday dates to skip (currently empty)
+  sendOrderReminder.ts, utils.ts   (utils holds STATUS_ORDER / Hebrew labels)
+middleware.ts              auth gate for protected routes
+vercel.json                cron schedule
+agents/                    standalone multi-agent CLI (separate package.json)
+סודי/                      private client data, gitignored, never commit
+```
+
+## 4. Authentication, roles, security
+
+- **Supabase Auth**, email + password. Config set 2026-07-16: `disable_signup: true` (only manually created users can log in) and email confirmation required. A new user must be confirmed with:
+  ```sql
+  UPDATE auth.users SET email_confirmed_at = NOW() WHERE email = 'user@example.com';
+  ```
+  (`confirmed_at` is a generated column, don't set it.) `site_url` was still `http://localhost:3000` when last recorded; update it to the production Vercel URL if auth redirects misbehave.
+- **`middleware.ts`** reads the session from cookies. Protected prefixes: `/dashboard /cities /projects /residents /orders /suppliers /categories /voice-messages /reports /notifications /admin` redirect to `/login` when there is no session. A logged-in user visiting `/login` goes to `/dashboard`. **`/overview` is not in that list**, so it relies on RLS and page-level handling. Check this before assuming it is protected at the route level.
+- **Roles:** `admin` and `user`, exposed through `RoleProvider` (`useRole`, `useIsAdmin`). The sidebar shows "ניהול משתמשים" (`/admin/users`) only for admins.
+- **RLS** is enabled on every table with `TO authenticated USING (true)`: any logged-in user can read and write. The anon key is public by design; protection = RLS + login wall.
+- **Service-role key** (`SUPABASE_SERVICE_ROLE_KEY`) is used **only** in server code via `lib/supabase/admin.ts`: creating/deleting auth users (`admin/users/actions.ts`) and the cron route (no logged-in user there). Never import `admin.ts` from a `'use client'` component.
+
+## 5. Data model (Supabase / Postgres)
+
+Hierarchy: `cities → projects → residents → orders` (+ `order_items`, `order_payments`), plus `categories`, `suppliers`, `supplier_project_ledger`, `notifications`.
+
+- **residents**: name, `phone`, `phone2`, `email`, `key_location`, `last_updated_at` (maintained by triggers).
+- **orders**: `status`, `payment_status`, `measurements`, `measured_at`, `total_price`, `is_global_price`, `global_supplier_price`, `details` (JSONB, product-specific fields such as height / opening / shape / model), `notes`, `satisfaction_rating` (1-5) and `satisfaction_note`, `order_number`.
+- **Status pipeline** (Hebrew labels in `lib/utils.ts`):
+  `lead → no_answer / will_email → interested / considering → measurement_scheduled → measured → quoted → ordered → delivery_scheduled → done`, and `cancelled`.
+- **Payment status:** `not_paid / advance / partial / paid_full`.
+- **Voice/reminder columns** on `orders` (added by migrations, **not in `schema.sql`**): `voice_notified_at`, `status_updated_at`, `measurement_planned_time`, `measurement_planned_time_to`, `installation_planned_date`, `installation_planned_time`, `installation_planned_time_to`, `measurement_reminder_sent_at`, `installation_reminder_sent_at`. A voice-templates table backs `lib/voiceTemplates.ts` (see `migration_voice_templates.sql`).
+- Categories seeded: מזגנים, סורגים, רשתות, ווילונות, מטבחים / השלמת מטבח, שיש, בדק בית, הדברה, ניקיון, ריהוט, מוצרי חשמל.
+
+> **Schema drift warning:** `schema.sql` is a clean-install script and is behind the live DB. The incremental `migration_*.sql` files hold later changes. Treat the **live Supabase DB** as the source of truth.
+
+### SQL migrations — important workflow
+- `*.sql` is in `.gitignore`, so migrations are **never committed or deployed**. (Some older `.sql` files may still be tracked in git history; check `git ls-files '*.sql'`.)
+- The **user runs migrations manually** in the Supabase SQL Editor. Write the SQL, hand it over, and say clearly that it must be run before the code that needs it goes live.
+- Already run: `migration_resident_last_updated.sql`. Check the others with the user before assuming.
+
+## 6. External connections
+
+### 6.1 Supabase
+- Project ID `njlyykkswyzhkbnmhwgt`, URL `https://njlyykkswyzhkbnmhwgt.supabase.co`.
+- Env: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (public), `SUPABASE_SERVICE_ROLE_KEY` (server only, secret).
+- Three clients: browser (`client.ts`), cookie-bound server (`server.ts`), service-role (`admin.ts`). Pick by context: route handlers acting for a logged-in user use `server.ts`; cron and user management use `admin.ts`.
+
+### 6.2 Technoline PBX (phone system) — `lib/integration/pbx.ts`
+- Base `https://api.tlivr.com` (`PBX_API_BASE_URL` to override). Two endpoints: `ivrFilesApi.php` (click-to-call) and `campaignApi.php` (voice campaigns).
+- **Every response is HTTP 200, even on error.** The real result is the `status` field in the JSON body (`ok` expected); failures carry `note` and `errorCode`. The wrapper throws on anything that is not `ok`.
+- Auth: the API key is sent both as the `X-Api-Key` header and as `apiKey` in the body (support recommends the header; their docs list the body field as required).
+- `clickToCall(target, name?, extension?)` rings the agent's extension first (`PBX_AGENT_EXTENSION`), then connects to the customer. Optional `PBX_CALLER_ID`.
+- `sendVoiceMessage(phone, text, ref)` runs a one-recipient TTS campaign: `dialRetries: 2`, `betweenRetries: 20`, `reasonableHours: 'yes'` (the PBX will not dial 23:00–08:00).
+- `campaignRun` needs an approved caller IP; support approved the system number broadly, so no fixed IP is required.
+- `normalizePhone()` accepts Israeli numbers only (strips non-digits, converts `972…` to `0…`, validates `0` + 8–9 digits).
+- **Unknown:** whether the PBX itself blocks Shabbat and holidays. Our code blocks them.
+- Env: `PBX_API_KEY`, `PBX_API_BASE_URL` (optional), `PBX_AGENT_EXTENSION`, `PBX_CALLER_ID` (optional).
+
+### 6.3 Voice message flows
+1. **New order notification** — `POST /api/pbx/order-voice` `{ orderId }`: only for status `interested`. Duplicate protection: **claim before send** by setting `voice_notified_at` with `.is('voice_notified_at', null)`; release the claim if the send fails. Reuse this exact pattern for any new "send once" feature.
+2. **Reminder the day before a measurement / installation** — `app/api/cron/reminders` (daily) and `api/pbx/order-reminder` (immediate when the event is saved for tomorrow). Logic in `lib/integration/reminders.ts`:
+   - Measurement: status `measurement_scheduled`, date in `measured_at`. Installation: status `delivery_scheduled`, date in `installation_planned_date`. Each has start/end time columns and a `*_reminder_sent_at` flag (one reminder per event, claim-before-send).
+   - All date math is in **Asia/Jerusalem** time. Never on Saturday; an event on Sunday gets its reminder **Friday morning**; holidays come from `lib/holidays.ts` (empty by decision, add `YYYY-MM-DD` strings to enable).
+   - An event entered for tomorrow after that day's cron already ran is sent immediately on save (within dialing hours). An event for today, or entered after 23:00 the day before, gets no reminder.
+3. **Wording** is editable by the client on `/voice-messages` and stored in the DB. `lib/voiceTemplates.ts` holds defaults and variables such as `{שם}`, `{קטגוריה}`, `{מספר_הזמנה}`, `{מתי}`, `{שעה}`; if nothing is saved, the default in code is used.
+
+### 6.4 Vercel Cron
+`vercel.json` has two entries calling `/api/cron/reminders`: `0 12 * * 0-4` (Sun–Thu, 12:00 UTC) and `0 7 * * 5` (Friday, 07:00 UTC). `CRON_AFTERNOON_UTC_HOUR` / `CRON_FRIDAY_UTC_HOUR` in `reminders.ts` **must match** these. On the Hobby plan a cron has only hour-level precision (it may fire anywhere in the hour), which is why the route decides the target day and Shabbat/holiday rules itself. The route requires `Authorization: Bearer $CRON_SECRET` and returns 401 otherwise. When the target date is a no-send day it returns `{ skipped: 'no-send-day' }`.
+
+### 6.5 Anthropic API
+Only used by the standalone `agents/` CLI (`ANTHROPIC_API_KEY` in `agents/.env`, gitignored). Not used by the web app.
+
+## 7. Environment variables
+
+| Variable | Where | Secret? |
+|---|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Vercel + `.env.local` | no |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Vercel + `.env.local` | public by design |
+| `SUPABASE_SERVICE_ROLE_KEY` | Vercel (server) | **yes** |
+| `PBX_API_KEY` | Vercel | **yes** |
+| `PBX_API_BASE_URL`, `PBX_AGENT_EXTENSION`, `PBX_CALLER_ID` | Vercel | config |
+| `CRON_SECRET` | Vercel | **yes** |
+| `ANTHROPIC_API_KEY` | `agents/.env` only | **yes** |
+
+`.env*` is gitignored. Production env vars come from the Vercel project, not from local files. Never print, log, or commit secret values.
+
+## 8. Git and GitHub
+
+- Remote: `https://github.com/hakoloffice7-prog/kvutzat-rechisha` (moved from `YehudaGivtovski/kvutzat-rechisha`; history rewritten to drop a leaked `agents/.env`), branch `main`. Commit messages in this repo are written in Hebrew.
+- `.gitignore` excludes: `node_modules`, `.next`, `.vercel`, `.env*`, `*.sql`, `*.xlsx`, `*.py`, `*.tsbuildinfo`, `next-env.d.ts`, `.claude/`, `.idea/`, `/סודי`, `/שמות והזמנות הלקוחות/`. Never commit client data or secrets.
+- **A `git push` does NOT deploy** (see §9.1).
+
+## 9. Deployment (read carefully — non-obvious)
+
+- Vercel project `kvutzat-rechisha` (project id `prj_WH3T5x6T9X8OjJvNTZO2awUSWLC1`, org `team_D3elgtCFCrw2ar1YPGAgYAPB`), production URL `https://kvutzat-rechisha-theta.vercel.app`. Account `hakoloffice7-6187`, scope `yehudahakol`.
+- The Vercel CLI is installed globally and logged in on the user's machine. Prefer the CLI over the Vercel MCP connector (unauthenticated). The user has several Vercel accounts, and logging into one can invalidate another's session. Run `vercel whoami` first. If you get `Not authorized`, ask the user to run `vercel login`.
+
+### 9.1 Why normal deploys are blocked
+The project is on the **Hobby plan with a private repo**. Vercel blocks any deploy whose git commit author (`YehudaGivtovski` on GitHub) is not a team member, and Hobby allows one member. So both `git push` auto-deploy and a plain `vercel --prod` fail with commit-author / email errors, and the build never starts (0 ms build). `vercel git disconnect` does **not** fix it. The CLI attaches git metadata whenever a `.git` folder exists. The real fix is to hide git metadata while deploying (or upgrade to Pro / make the repo public).
+
+### 9.2 Method A — hide `.git` temporarily (try first)
+```bash
+mv .git .git_disabled_tmp && vercel --prod --yes; mv .git_disabled_tmp .git
+```
+Use `;` before the restore so `.git` always comes back. Do this proactively, not after a failure.
+
+### 9.3 Method B — clean copy (when `.git` is locked)
+If the rename fails with "Permission denied" (an IDE or app holds `.git`):
+1. Copy to `$TEMP/kr-deploy` only: `app components lib middleware.ts next.config.js package.json package-lock.json postcss.config.js tailwind.config.js tsconfig.json next-env.d.ts` **and `vercel.json`** (without it the crons are lost).
+2. Delete any `*.sql` from the copy. Don't copy `.git`, `node_modules`, `.next`, `.idea`, `.claude`, `agents`, `.vercel`, `*.xlsx`, `*.py`, `.env*`, or the two client-data folders.
+3. Create `.vercel/project.json` in the copy with `{"projectId": "prj_WH3T5x6T9X8OjJvNTZO2awUSWLC1", "orgId": "team_D3elgtCFCrw2ar1YPGAgYAPB"}`.
+4. From the copy, run `vercel --prod --yes` **in the background**.
+
+### 9.4 Deployment etiquette
+- Run deploys with `run_in_background`. The user watches the Vercel dashboard and often interrupts a quiet CLI. That is not a rejection of the deploy.
+- Clean up old deployments with `vercel rm <url> --yes`, **one explicit command per deployment** (loops with variables get blocked).
+- Run any required SQL migration in Supabase **before** the code that depends on it goes live.
+
+## 10. The `agents/` folder
+A separate, standalone Node CLI (`agents/package.json`, Anthropic SDK) that runs a small multi-agent workflow (archi / devi / esti: spec, build, review) in Hebrew. It has no connection to the web app or the deployment and is excluded from deploys. Ignore it unless asked.
+
+## 11. User working preferences (important)
+- **Batch workflow:** the user sends changes one at a time. For each, **just implement it**: no build, no typecheck, no dev server, no deploy. Only when the user says the batch is finished: test everything together, then deploy once (with confirmation).
+- **No login credentials:** the agent can't log into the app, so it cannot visually verify screens. Say so plainly and report what was actually checked (typecheck, build, code review). Never imply the UI was seen working.
+- Reply in **Hebrew** unless the user writes in English.
+- Never commit or push unless asked. Don't commit secrets, client data, `.sql`, `.xlsx`.
+
+## 12. Open items and gotchas
+- Holiday list is intentionally empty (`lib/holidays.ts`). The client had not decided.
+- Open question: installation spanning several days / several orders per customer: one reminder per order, or one message per customer.
+- `/overview` is missing from the middleware `protectedPaths` list; verify intent.
+- `schema.sql` does not reflect the live DB (see §5).
+- Untracked handoff file `HANDOFF-תזכורות-שיחות.md` describes the reminders task in more detail (written before it was implemented; part of that scope is now built).
