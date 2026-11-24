@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/dialog'
 import { Plus, ShoppingCart, Loader2, Trash2, Phone, MapPin, ArrowLeft, Edit2, Mail, KeyRound, X, Save, Star, CalendarClock, StickyNote } from 'lucide-react'
 import Link from 'next/link'
+import { PrevNextNav } from '@/components/PrevNextNav'
 import { useParams, useRouter } from 'next/navigation'
 import { STATUS_LABELS, STATUS_COLORS, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, formatCurrency, getDebtStatus, stampNewNoteLines, digitsOnly, formatStatusDate } from '@/lib/utils'
 import { useIsAdmin } from '@/components/RoleProvider'
@@ -255,6 +256,9 @@ export default function ResidentPage() {
         </Link>
         <span>/</span>
         <span className="text-gray-900 font-medium">{resident.name}</span>
+        <div className="mr-auto">
+          <PrevNextNav kind="residents" currentId={residentId} basePath="/residents" label="דייר" />
+        </div>
       </div>
 
       {/* Resident Info — כל השדות תמיד ניתנים לעריכה, נשמר רק בלחיצה על "שמור שינויים" */}

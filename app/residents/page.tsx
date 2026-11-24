@@ -1,5 +1,6 @@
 'use client'
 
+import { saveNavList } from '@/components/PrevNextNav'
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
@@ -463,7 +464,11 @@ export default function ResidentsPage() {
                     <tr key={resident.id} className="border-b hover:bg-gray-50 transition-colors">
                       <td className="py-3 px-4">
                         <button
-                          onClick={() => router.push('/residents/' + resident.id)}
+                          onClick={() => {
+                            // שומר את סדר הרשימה המוצגת לכפתורי קודם/הבא בתיק הדייר
+                            saveNavList('residents', residents.map((r) => r.id), '/residents')
+                            router.push('/residents/' + resident.id)
+                          }}
                           className="font-medium text-blue-700 hover:underline text-right"
                         >
                           {resident.name}
@@ -474,11 +479,16 @@ export default function ResidentsPage() {
                       )}
                       <td className="py-3 px-4 text-gray-600">{resident.address || '—'}</td>
                       <td className="py-3 px-4">
-                        {resident.phone
-                          ? <div className="flex items-center gap-2">
-                              <span className="text-gray-600" dir="ltr">{resident.phone}</span>
-                              <ClickToCallButton phone={resident.phone} name={resident.name} className="p-1" />
-                              <CopyButton value={resident.phone} title="העתק טלפון" />
+                        {resident.phone || resident.phone2
+                          ? <div className="space-y-1">
+                              {[resident.phone, resident.phone2].filter(Boolean).map((ph, i) => (
+                                <div key={i} className="flex items-center gap-2">
+                                  <span className="text-gray-600" dir="ltr">{ph}</span>
+                                  {i === 1 && resident.phone && <span className="text-[10px] text-gray-400">(נוסף)</span>}
+                                  <ClickToCallButton phone={ph!} name={resident.name} className="p-1" />
+                                  <CopyButton value={ph!} title="העתק טלפון" />
+                                </div>
+                              ))}
                             </div>
                           : <span className="text-gray-400">—</span>}
                       </td>
