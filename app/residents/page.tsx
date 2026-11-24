@@ -238,8 +238,8 @@ export default function ResidentsPage() {
   async function addResident() {
     if (!newResident.name.trim() || !newResident.project_id) return
     const phone = newResident.phone.trim()
-    if (!phone) { setPhoneError('יש להזין מספר טלפון'); return }
-    if (!isValidPhone(phone)) { setPhoneError('מספר טלפון לא תקין (לדוגמה: 050-1234567)'); return }
+    // רק שם חובה — טלפון/כתובת/מייל רשות (לפעמים יש רק מייל). טלפון שהוזן עדיין נבדק
+    if (phone && !isValidPhone(phone)) { setPhoneError('מספר טלפון לא תקין (לדוגמה: 050-1234567)'); return }
     setPhoneError('')
     setSaving(true)
 
@@ -248,7 +248,7 @@ export default function ResidentsPage() {
     const phoneClauses = newPhones.flatMap((d) =>
       phoneIlikePatterns(d).flatMap((p) => [`phone.ilike.${p}`, `phone2.ilike.${p}`])
     )
-    const { data: phoneMatches } = await supabase
+    const { data: phoneMatches } = phoneClauses.length === 0 ? { data: [] } : await supabase
       .from('residents')
       .select('name, phone, phone2')
       .or(phoneClauses.join(','))
@@ -589,7 +589,7 @@ export default function ResidentsPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="residentPhone">טלפון *</Label>
+              <Label htmlFor="residentPhone">טלפון</Label>
               <Input
                 disabled={!newResident.project_id}
                 id="residentPhone"
@@ -637,7 +637,7 @@ export default function ResidentsPage() {
             </div>
             <div className="flex gap-2 justify-end">
               <Button variant="outline" onClick={() => setAddDialogOpen(false)}>ביטול</Button>
-              <Button onClick={addResident} disabled={saving || !newResident.project_id || !newResident.name.trim() || !newResident.phone.trim()}>
+              <Button onClick={addResident} disabled={saving || !newResident.project_id || !newResident.name.trim()}>
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'הוסף דייר'}
               </Button>
             </div>
