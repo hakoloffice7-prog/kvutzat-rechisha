@@ -1329,7 +1329,17 @@ export default function OrderPage() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle>תשלומים</CardTitle>
-                <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
+                <Dialog
+                  open={paymentDialogOpen}
+                  onOpenChange={(open) => {
+                    // בפתיחה: הסכום מתמלא ביתרה שנשארה לתשלום (אפשר לשנות)
+                    if (open) {
+                      const balance = Math.round((totalRevenue - totalPaid) * 100) / 100
+                      setNewPayment(prev => ({ ...prev, amount: balance > 0 ? String(balance) : '' }))
+                    }
+                    setPaymentDialogOpen(open)
+                  }}
+                >
                   <DialogTrigger asChild>
                     <Button size="sm">
                       <Plus className="h-4 w-4 ml-1" />
@@ -1351,7 +1361,18 @@ export default function OrderPage() {
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label>סכום (₪) *</Label>
+                        <div className="flex items-center justify-between">
+                          <Label>סכום (₪) *</Label>
+                          {totalRevenue - totalPaid > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setNewPayment(prev => ({ ...prev, amount: String(Math.round((totalRevenue - totalPaid) * 100) / 100) }))}
+                              className="text-xs text-blue-600 hover:underline"
+                            >
+                              שולם הכל ({formatCurrency(totalRevenue - totalPaid)})
+                            </button>
+                          )}
+                        </div>
                         <Input
                           type="number"
                               step="any"
