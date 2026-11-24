@@ -7,7 +7,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { ShoppingCart, Loader2, Search, X } from 'lucide-react'
+import { ShoppingCart, Loader2, Search, X, Mail } from 'lucide-react'
 import { OrderNumber } from '@/components/OrderNumber'
 import { ClickToCallButton } from '@/components/ClickToCallButton'
 import { saveNavList } from '@/components/PrevNextNav'
@@ -42,6 +42,7 @@ type Order = {
     name: string
     phone: string | null
     phone2: string | null
+    email: string | null
     address: string | null
     floor: string | null
     apartment: string | null
@@ -122,7 +123,7 @@ export default function OrdersPage() {
         .from('orders')
         .select(
           'id, order_number, status, status_updated_at, updated_at, created_at, total_price, is_global_price, measured_at, installation_planned_date, notes, category_id, supplier_id, ' +
-          'residents(id, name, phone, phone2, address, floor, apartment, projects(id, name, city_id, cities(id, name))), categories(id, name), suppliers(id, name), order_payments(amount), order_items(customer_price)'
+          'residents(id, name, phone, phone2, email, address, floor, apartment, projects(id, name, city_id, cities(id, name))), categories(id, name), suppliers(id, name), order_payments(amount), order_items(customer_price)'
         ),
       supabase.from('cities').select('id, name').order('name'),
       supabase.from('projects').select('id, name, city_id').order('name'),
@@ -173,6 +174,7 @@ export default function OrdersPage() {
           String(o.order_number ?? '') === term ||
           (termDigits.length >= 3 && phones.some((p) => p.includes(termDigits))) ||
           (r?.address || '').includes(term) ||
+          (r?.email || '').toLowerCase().includes(term.toLowerCase()) ||
           (o.notes || '').includes(term)
         if (!hit) return false
       }
@@ -408,7 +410,14 @@ export default function OrdersPage() {
                                 </div>
                               ))}
                             </div>
-                          ) : <span className="text-gray-400">—</span>}
+                          ) : !r?.email && <span className="text-gray-400">—</span>}
+                          {r?.email && (
+                                <div className="flex items-center gap-1 text-xs text-gray-500 whitespace-nowrap mt-1">
+                                  <Mail className="h-3 w-3 shrink-0" />
+                                  <a href={`mailto:${r?.email}`} className="hover:text-blue-600 hover:underline" dir="ltr">{r?.email}</a>
+                                  
+                                </div>
+                              )}
                         </td>
                         <td className="py-3 px-3 text-gray-600 max-w-[180px]">
                           {r?.address && <div>{fullAddress(r)}</div>}

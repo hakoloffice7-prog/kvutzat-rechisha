@@ -19,7 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Plus, Users, Loader2, Pencil, Trash2, ShoppingCart, Phone, CalendarClock } from 'lucide-react'
+import { Plus, Users, Loader2, Pencil, Trash2, ShoppingCart, Phone, CalendarClock, Mail } from 'lucide-react'
 import { ResidentRemindersDialog } from '@/components/ResidentRemindersDialog'
 import { STATUS_LABELS, STATUS_ORDER, STATUS_COLORS, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, digitsOnly, phoneSearchDigits, phoneIlikePatterns } from '@/lib/utils'
 import Link from 'next/link'
@@ -557,7 +557,14 @@ export default function ResidentsPage() {
                                 </div>
                               ))}
                             </div>
-                          : <span className="text-gray-400">—</span>}
+                          : !resident.email && <span className="text-gray-400">—</span>}
+                        {resident.email && (
+                                <div className="flex items-center gap-1 text-xs text-gray-500 whitespace-nowrap mt-1">
+                                  <Mail className="h-3 w-3 shrink-0" />
+                                  <a href={`mailto:${resident.email}`} className="hover:text-blue-600 hover:underline" dir="ltr">{resident.email}</a>
+                                  <CopyButton value={resident.email} title="העתק מייל" />
+                                </div>
+                              )}
                       </td>
                       <td className="py-3 px-4 text-gray-600 text-xs">{resident.access_type || '—'}</td>
                       <td className="py-3 px-2 text-gray-600 text-center">{resident.orders?.[0]?.count ?? 0}</td>

@@ -818,7 +818,14 @@ export default function OverviewPage() {
                                       </div>
                                     ))}
                                   </div>
-                                : <span className="text-gray-400">—</span>}
+                                : !resident.email && <span className="text-gray-400">—</span>}
+                              {resident.email && (
+                                <div className="flex items-center gap-1 text-xs text-gray-500 whitespace-nowrap mt-1">
+                                  <Mail className="h-3 w-3 shrink-0" />
+                                  <a href={`mailto:${resident.email}`} className="hover:text-blue-600 hover:underline" dir="ltr">{resident.email}</a>
+                                  <CopyButton value={resident.email} title="העתק מייל" />
+                                </div>
+                              )}
                             </td>
                             <td className="py-3 px-4 text-gray-600 max-w-[220px]">
                               {order!.order_items && order!.order_items.length > 0 ? (
