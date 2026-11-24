@@ -28,12 +28,12 @@ type Order = {
   is_global_price: boolean | null
   residents: { name: string; projects: { city_id: string } | null } | null
   order_payments: { amount: number | null }[]
-  order_items: { customer_price: number | null; order_item_costs: { supplier_price: number | null } | null }[]
+  order_items: { customer_price: number | null; quantity: number | null; order_item_costs: { supplier_price: number | null } | null }[]
   order_costs: { global_supplier_price: number | null } | null
 }
 type Rep = { id: string; name: string; city_id: string | null; phone: string | null; email: string | null; commission_percent: number; all_profit_commission_percent: number }
 type Expense = { id: string; spent_at: string; city_id: string | null; kind: string; amount: number; note: string | null }
-type Supplier = { id: string; name: string; deal_type: string | null; deal_value: number | null }
+type Supplier = { id: string; name: string; deal_type: string | null; deal_value: number | null; deal_unit: string | null }
 type Settlement = { id: string; supplier_id: string; kind: 'payment' | 'offset'; amount: number; happened_at: string; note: string | null }
 
 const EMPTY_REP = { name: '', city_id: '', phone: '', email: '', commission_percent: '1.25', all_profit_commission_percent: '12.5' }
@@ -56,12 +56,12 @@ export default function MoneyPage() {
 
   async function load() {
     const [o, c, cat, r, e, s, st] = await Promise.all([
-      supabase.from('orders').select('id, order_number, status, created_at, category_id, supplier_id, total_price, is_global_price, residents(name, projects(city_id)), order_payments(amount), order_items(customer_price, order_item_costs(supplier_price)), order_costs(global_supplier_price)'),
+      supabase.from('orders').select('id, order_number, status, created_at, category_id, supplier_id, total_price, is_global_price, residents(name, projects(city_id)), order_payments(amount), order_items(customer_price, quantity, order_item_costs(supplier_price)), order_costs(global_supplier_price)'),
       supabase.from('cities').select('id, name').order('name'),
       supabase.from('categories').select('id, name, kind, all_profit, profit_type, profit_value').order('name'),
       supabase.from('representatives').select('*').order('name'),
       supabase.from('expenses').select('*').order('spent_at', { ascending: false }),
-      supabase.from('suppliers').select('id, name, deal_type, deal_value').order('name'),
+      supabase.from('suppliers').select('id, name, deal_type, deal_value, deal_unit').order('name'),
       supabase.from('supplier_settlements').select('*').order('happened_at', { ascending: false }),
     ])
     setOrders((o.data || []) as unknown as Order[])
@@ -120,10 +120,19 @@ export default function MoneyPage() {
     return { rep, count: list.length, grossRegular, profitAll, commission: (regular + allProfit) / sameCity, sameCity, ads }
   })
 
-  // מה הספק חייב לחברה: על הזמנות שבוצעו — לפי תנאי ההסכם באחוזים, אחרת לפי הרווח המשוער
+  // מה הספק חייב לחברה: על הזמנות שבוצעו — לפי תנאי ההסכם (אחוז מהמחיר, או סכום ליחידה × הכמות
+  // שנרשמה בפריטים; כל מטר = יחידה). בלי הסכם / בלי כמות — לפי הרווח המשוער
+  function supplierShare(s: Supplier, o: Order) {
+    if (s.deal_type === 'percent' && s.deal_value != null) return orderAmount(o) * s.deal_value / 100
+    if (s.deal_type === 'per_unit' && s.deal_value != null) {
+      const qty = o.order_items.reduce((q, i) => q + (i.quantity || 0), 0)
+      if (qty > 0) return qty * s.deal_value
+    }
+    return profit(o)
+  }
   const supplierRows = suppliers.map((s) => {
     const done = orders.filter((o) => o.supplier_id === s.id && o.status === 'done')
-    const owed = done.reduce((sum, o) => sum + (s.deal_type === 'percent' && s.deal_value != null ? orderAmount(o) * s.deal_value / 100 : profit(o)), 0)
+    const owed = done.reduce((sum, o) => sum + supplierShare(s, o), 0)
     const paid = settlements.filter((x) => x.supplier_id === s.id && x.kind === 'payment').reduce((a, x) => a + x.amount, 0)
     const offset = settlements.filter((x) => x.supplier_id === s.id && x.kind === 'offset').reduce((a, x) => a + x.amount, 0)
     return { s, count: done.length, owed, paid, offset, balance: owed - paid - offset }
@@ -268,7 +277,7 @@ export default function MoneyPage() {
           )}
           <p className="text-xs text-gray-500 mt-2">
             מוצר רגיל: אחוז מהברוטו. מוצר שכל הרווח שלנו (מסומן במסד: {categories.filter((c) => c.all_profit).map((c) => c.name).join(', ') || '—'}): אחוז מהרווח המשוער.
-            הוצאות הפרסום מוצגות ליד הנציג ועדיין לא מקוזזות אוטומטית.
+            <br /><strong className="text-orange-700">⚠ לזכור: להוריד ידנית מהעמלה את חלק הנציג בהוצאות הפרסום (ברכסים).</strong> ההוצאות מוצגות ליד הנציג ולא מקוזזות אוטומטית.
           </p>
         </CardContent>
       </Card>
@@ -335,7 +344,7 @@ export default function MoneyPage() {
                 </li>
               ))}
             </ul>
-            <p className="text-xs text-gray-500">חוב הספק מחושב על הזמנות שבוצעו: לפי תנאי ההסכם באחוזים (במסך הספקים), ואם אין — לפי הרווח המשוער של ההזמנה.</p>
+            <p className="text-xs text-gray-500">חוב הספק מחושב על הזמנות שבוצעו, לפי תנאי ההסכם במסך הספקים: אחוז מהמחיר, או סכום ליחידה × הכמות שנרשמה בפריטים (כל מטר = יחידה). הזמנה בלי הסכם או בלי כמות — לפי הרווח המשוער.</p>
           </CardContent>
         </Card>
       </div>

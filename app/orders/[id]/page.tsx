@@ -319,6 +319,7 @@ export default function OrderPage() {
       description: newItem.description.trim(),
       model: newItem.model.trim(),
       customer_price: Math.round(unitCustomer * qty * 100) / 100,
+      quantity: qty,
     }).select('id').single()
 
     if (!error && insertedItem && isAdmin) {
@@ -1288,7 +1289,7 @@ export default function OrderPage() {
                               </>
                             ) : (
                               <>
-                                <td className="py-3">{item.description}</td>
+                                <td className="py-3">{item.description}{(item as any).quantity && (item as any).quantity !== 1 ? <span className="text-xs text-gray-500"> × {(item as any).quantity}</span> : null}</td>
                                 <td className="py-3 text-gray-500">{item.model || '-'}</td>
                                 {order.is_global_price ? (
                                   <>

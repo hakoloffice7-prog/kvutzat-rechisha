@@ -76,8 +76,9 @@ export function AddOrderDialog({
   const selectedCategory = categories.find(c => c.id === newOrder.category_id)
   const rule = profitRuleFor(selectedCategory)
   const perUnit = rule.type === 'per_unit'
+  // כמות (מטרים / חלונות) מוצגת לכולם במוצר עם סכום ליחידה — נשמרת לחישוב מה הספק מחזיר לחברה
   const gridCols = !isAdmin
-    ? 'grid-cols-[2fr_1fr_auto]'
+    ? (perUnit ? 'grid-cols-[2fr_1fr_0.6fr_auto]' : 'grid-cols-[2fr_1fr_auto]')
     : perUnit ? 'grid-cols-[2fr_1fr_0.6fr_0.7fr_1fr_auto]' : 'grid-cols-[2fr_1fr_0.7fr_1fr_auto]'
 
   // שינוי קטגוריה מעדכן את אחוז הרווח של פריטים שמחיר הספק שלהם עוד לא נערך ידנית
@@ -150,6 +151,7 @@ export function AddOrderDialog({
             description: i.description.trim(),
             model: i.model.trim(),
             customer_price: parseFloat(i.customer_price) || 0,
+            quantity: parseFloat(i.quantity) || 1,
           }))
         ).select('id')
 
@@ -305,7 +307,7 @@ export function AddOrderDialog({
                 <div className={`grid ${gridCols} gap-2 text-xs text-gray-500 px-1`}>
                   <span>תיאור</span>
                   <span>מחיר לקוח ₪</span>
-                  {isAdmin && perUnit && <span>כמות ({rule.unit})</span>}
+                  {perUnit && <span>כמות ({rule.unit})</span>}
                   {isAdmin && <span>{perUnit ? `רווח ל${rule.unit} ₪` : 'רווח %'}</span>}
                   {isAdmin && <span>מחיר ספק ₪</span>}
                   <span></span>
@@ -327,19 +329,19 @@ export function AddOrderDialog({
                       className="h-8 text-sm"
                       dir="ltr"
                     />
+                    {perUnit && (
+                      <Input
+                        type="number"
+                        step="any"
+                        value={item.quantity}
+                        onChange={(e) => updateNewOrderItem(idx, 'quantity', e.target.value)}
+                        placeholder="1"
+                        className="h-8 text-sm"
+                        dir="ltr"
+                      />
+                    )}
                     {isAdmin && (
                       <>
-                        {perUnit && (
-                          <Input
-                            type="number"
-                            step="any"
-                            value={item.quantity}
-                            onChange={(e) => updateNewOrderItem(idx, 'quantity', e.target.value)}
-                            placeholder="1"
-                            className="h-8 text-sm"
-                            dir="ltr"
-                          />
-                        )}
                         <Input
                           type="number"
                               step="any"
