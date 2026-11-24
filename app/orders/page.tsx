@@ -304,6 +304,24 @@ export default function OrdersPage() {
               <Button size="sm" onClick={applyBulkStatus} disabled={!bulkStatus || bulkSaving}>
                 {bulkSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'עדכן'}
               </Button>
+              {(() => {
+                // "קבע יום ביומן": רק כשכל המסומנות מאותו מוצר ואותה עיר
+                const sel = filtered.filter((o) => selected.has(o.id))
+                const cats = new Set(sel.map((o) => o.category_id))
+                const cits = new Set(sel.map((o) => o.residents?.projects?.city_id))
+                const ok = sel.length > 0 && cats.size === 1 && cits.size === 1 && !cats.has(null) && !cits.has(undefined)
+                return (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!ok}
+                    title={ok ? 'פתיחת קביעת יום ביומן עם ההזמנות המסומנות' : 'אפשר רק כשכל המסומנות מאותו מוצר ואותה עיר'}
+                    onClick={() => router.push(`/calendar?new=1&category=${sel[0].category_id}&city=${sel[0].residents?.projects?.city_id}&orders=${sel.map((o) => o.id).join(',')}`)}
+                  >
+                    קבע יום ביומן
+                  </Button>
+                )
+              })()}
               <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>בטל סימון</Button>
             </div>
           )}
