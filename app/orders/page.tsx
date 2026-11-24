@@ -1,62 +1,233 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { ShoppingCart, Loader2, Search, ChevronLeft } from 'lucide-react'
-import Link from 'next/link'
+import { Button } from '@/components/ui/button'
+import { ShoppingCart, Loader2, Search, X } from 'lucide-react'
 import { OrderNumber } from '@/components/OrderNumber'
-import { STATUS_LABELS, STATUS_COLORS, STATUS_ORDER, PAYMENT_STATUS_LABELS, formatCurrency, formatStatusDate } from '@/lib/utils'
+import { ClickToCallButton } from '@/components/ClickToCallButton'
+import { saveNavList } from '@/components/PrevNextNav'
+import {
+  STATUS_LABELS, STATUS_COLORS, STATUS_ORDER, formatCurrency, formatStatusDate, digitsOnly, phoneSearchDigits,
+} from '@/lib/utils'
+
+// מסך ההזמנות (שלב א' במפרט): טבלה מלאה עם טלפון, כתובת, עיר/פרויקט, ספק, עדכון אחרון,
+// תשלום והערות, סינונים לפי עיר/פרויקט/מוצר/סטטוס/תשלום, חיפוש, מיון ושינוי סטטוס לכמה הזמנות יחד.
 
 type Order = {
   id: string
   order_number: number | null
   status: string
   status_updated_at: string | null
-  payment_status: string
-  total_price: number
+  updated_at: string | null
   created_at: string
-  residents: { id: string; name: string }
-  categories: { name: string }
-  order_payments: { amount: number }[]
+  total_price: number | null
+  is_global_price: boolean | null
+  measured_at: string | null
+  installation_planned_date: string | null
+  notes: string | null
+  category_id: string | null
+  supplier_id: string | null
+  residents: {
+    id: string
+    name: string
+    phone: string | null
+    phone2: string | null
+    address: string | null
+    projects: { id: string; name: string; city_id: string; cities: { id: string; name: string } | null } | null
+  } | null
+  categories: { id: string; name: string } | null
+  suppliers: { id: string; name: string } | null
+  order_payments: { amount: number | null }[]
+  order_items: { customer_price: number | null }[]
 }
 
-const ALL = 'all'
+type Option = { id: string; name: string }
+type Project = Option & { city_id: string }
+
+type PayState = 'paid' | 'partial' | 'not_paid' | 'no_price'
+const PAY_LABELS: Record<PayState, string> = { paid: 'שולם', partial: 'חלקי', not_paid: 'לא שולם', no_price: 'אין מחיר' }
+const PAY_COLORS: Record<PayState, string> = { paid: 'success', partial: 'info', not_paid: 'destructive', no_price: 'outline' }
+
+const CLOSED = new Set(['done', 'cancelled'])
+// "ממתינות לתיאום" — מחכות לתיאום עם בעל המקצוע (מפרט, סעיף 2)
+const AWAITING = new Set(['interested', 'awaiting_selection', 'selection_approved'])
+const STUCK_DAYS = 7
+
+const STATUS_GROUPS: { value: string; label: string }[] = [
+  { value: 'g:open', label: 'כל הפתוחות' },
+  { value: 'g:awaiting', label: 'ממתינות לתיאום' },
+  { value: 'g:stuck', label: `תקועות מעל ${STUCK_DAYS} ימים` },
+]
+
+type SortKey = 'stale' | 'recent' | 'number' | 'amount'
+const SORT_LABELS: Record<SortKey, string> = {
+  stale: 'עודכן הכי מזמן',
+  recent: 'עודכן לאחרונה',
+  number: 'מספר הזמנה',
+  amount: 'סכום (גבוה לנמוך)',
+}
+
+type Filters = { city: string; project: string; category: string; status: string; pay: string; search: string; sort: SortKey }
+const EMPTY_FILTERS: Filters = { city: '', project: '', category: '', status: '', pay: '', search: '', sort: 'stale' }
+const FILTERS_KEY = 'ordersFilters'
+
+function orderAmount(o: Order) {
+  if (o.total_price && o.total_price > 0) return o.total_price
+  if (o.is_global_price) return 0
+  return (o.order_items || []).reduce((s, i) => s + (i.customer_price || 0), 0)
+}
+function orderPaid(o: Order) {
+  return (o.order_payments || []).reduce((s, p) => s + (p.amount || 0), 0)
+}
+function payState(o: Order): PayState {
+  const amount = orderAmount(o)
+  if (!amount) return 'no_price'
+  const paid = orderPaid(o)
+  if (paid >= amount) return 'paid'
+  if (paid > 0) return 'partial'
+  return 'not_paid'
+}
+function lastUpdated(o: Order): string {
+  return [o.updated_at, o.status_updated_at, o.created_at].filter(Boolean).sort().pop() as string
+}
+function daysSince(iso: string) {
+  const ms = Date.now() - new Date(iso).getTime()
+  return Math.max(0, Math.floor(ms / 86_400_000))
+}
+function scheduledDate(o: Order): string | null {
+  if (o.status === 'measurement_scheduled') return o.measured_at
+  if (o.status === 'delivery_scheduled') return o.installation_planned_date
+  return null
+}
+function noteLines(notes: string | null) {
+  return (notes || '').split('\n').map((l) => l.trim()).filter(Boolean)
+}
 
 export default function OrdersPage() {
-  const [orders, setOrders] = useState<Order[]>([])
-  const [loading, setLoading] = useState(true)
-  const [statusFilter, setStatusFilter] = useState<string>(ALL)
-  const [search, setSearch] = useState('')
+  const router = useRouter()
   const supabase = createClient()
+  const [orders, setOrders] = useState<Order[]>([])
+  const [cities, setCities] = useState<Option[]>([])
+  const [projects, setProjects] = useState<Project[]>([])
+  const [categories, setCategories] = useState<Option[]>([])
+  const [loading, setLoading] = useState(true)
+  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [bulkStatus, setBulkStatus] = useState('')
+  const [bulkSaving, setBulkSaving] = useState(false)
 
+  // הסינונים נשמרים לחלון הנוכחי, כדי שחזרה מהזמנה תחזיר לאותה רשימה
   useEffect(() => {
-    async function fetchOrders() {
-      const { data } = await supabase
-        .from('orders')
-        .select('id, order_number, status, status_updated_at, payment_status, total_price, created_at, residents(id, name), categories(name), order_payments(amount)')
-        .order('created_at', { ascending: false })
-      if (data) setOrders(data as any)
-      setLoading(false)
-    }
-    fetchOrders()
+    try {
+      const raw = sessionStorage.getItem(FILTERS_KEY)
+      if (raw) setFilters({ ...EMPTY_FILTERS, ...JSON.parse(raw) })
+    } catch {}
   }, [])
+  useEffect(() => {
+    try { sessionStorage.setItem(FILTERS_KEY, JSON.stringify(filters)) } catch {}
+  }, [filters])
 
-  const filtered = orders.filter((o) => {
-    const matchStatus = statusFilter === ALL || o.status === statusFilter
-    const matchSearch = !search ||
-      (o.residents as any)?.name?.includes(search) ||
-      (o.categories as any)?.name?.includes(search) ||
-      String(o.order_number ?? '').includes(search.replace('#', '').trim()) && search.replace('#', '').trim() !== ''
-    return matchStatus && matchSearch
-  })
+  async function fetchAll() {
+    const [{ data: ordersData }, { data: citiesData }, { data: projectsData }, { data: catsData }] = await Promise.all([
+      supabase
+        .from('orders')
+        .select(
+          'id, order_number, status, status_updated_at, updated_at, created_at, total_price, is_global_price, measured_at, installation_planned_date, notes, category_id, supplier_id, ' +
+          'residents(id, name, phone, phone2, address, projects(id, name, city_id, cities(id, name))), categories(id, name), suppliers(id, name), order_payments(amount), order_items(customer_price)'
+        ),
+      supabase.from('cities').select('id, name').order('name'),
+      supabase.from('projects').select('id, name, city_id').order('name'),
+      supabase.from('categories').select('id, name').order('name'),
+    ])
+    setOrders((ordersData || []) as unknown as Order[])
+    setCities(citiesData || [])
+    setProjects((projectsData || []) as Project[])
+    setCategories(catsData || [])
+    setLoading(false)
+  }
 
-  const paymentColor: Record<string, string> = {
-    not_paid: 'text-red-600',
-    advance: 'text-yellow-600',
-    paid_full: 'text-green-600',
+  useEffect(() => { fetchAll() }, [])
+
+  const set = (patch: Partial<Filters>) => setFilters((f) => ({ ...f, ...patch }))
+
+  const filtered = useMemo(() => {
+    const term = filters.search.trim().replace(/^#/, '')
+    const termDigits = phoneSearchDigits(term)
+    const list = orders.filter((o) => {
+      const proj = o.residents?.projects
+      if (filters.city && proj?.city_id !== filters.city) return false
+      if (filters.project && proj?.id !== filters.project) return false
+      if (filters.category && o.category_id !== filters.category) return false
+      if (filters.status) {
+        if (filters.status === 'g:open' && CLOSED.has(o.status)) return false
+        if (filters.status === 'g:awaiting' && !AWAITING.has(o.status)) return false
+        if (filters.status === 'g:stuck' && (CLOSED.has(o.status) || daysSince(lastUpdated(o)) <= STUCK_DAYS)) return false
+        if (!filters.status.startsWith('g:') && o.status !== filters.status) return false
+      }
+      if (filters.pay && payState(o) !== filters.pay) return false
+      if (term) {
+        // שם, מספר הזמנה, טלפון (עם/בלי מקף), כתובת, או מילה מתוך ההערות
+        const r = o.residents
+        const phones = [r?.phone, r?.phone2].filter(Boolean).map((p) => digitsOnly(p!))
+        const hit =
+          (r?.name || '').includes(term) ||
+          String(o.order_number ?? '') === term ||
+          (termDigits.length >= 3 && phones.some((p) => p.includes(termDigits))) ||
+          (r?.address || '').includes(term) ||
+          (o.notes || '').includes(term)
+        if (!hit) return false
+      }
+      return true
+    })
+    const sorted = [...list]
+    if (filters.sort === 'stale') sorted.sort((a, b) => lastUpdated(a).localeCompare(lastUpdated(b)))
+    if (filters.sort === 'recent') sorted.sort((a, b) => lastUpdated(b).localeCompare(lastUpdated(a)))
+    if (filters.sort === 'number') sorted.sort((a, b) => (b.order_number || 0) - (a.order_number || 0))
+    if (filters.sort === 'amount') sorted.sort((a, b) => orderAmount(b) - orderAmount(a))
+    return sorted
+  }, [orders, filters])
+
+  const totalAmount = filtered.reduce((s, o) => s + orderAmount(o), 0)
+  const visibleProjects = filters.city ? projects.filter((p) => p.city_id === filters.city) : projects
+  const anyFilter = JSON.stringify({ ...filters, sort: 'stale' }) !== JSON.stringify(EMPTY_FILTERS)
+  const allSelected = filtered.length > 0 && filtered.every((o) => selected.has(o.id))
+
+  function openOrder(id: string) {
+    saveNavList('orders', filtered.map((o) => o.id), '/orders')
+    router.push(`/orders/${id}?from=${encodeURIComponent('/orders')}`)
+  }
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  async function applyBulkStatus() {
+    const ids = filtered.filter((o) => selected.has(o.id)).map((o) => o.id)
+    if (!bulkStatus || ids.length === 0) return
+    if (!confirm(`לשנות ${ids.length} הזמנות לסטטוס "${STATUS_LABELS[bulkStatus]}"?`)) return
+    setBulkSaving(true)
+    const { error } = await supabase
+      .from('orders')
+      .update({ status: bulkStatus, updated_at: new Date().toISOString() })
+      .in('id', ids)
+    setBulkSaving(false)
+    if (error) {
+      alert('שגיאה בעדכון הסטטוס')
+      return
+    }
+    setSelected(new Set())
+    setBulkStatus('')
+    fetchAll()
   }
 
   if (loading) {
@@ -67,54 +238,80 @@ export default function OrdersPage() {
     )
   }
 
+  const selectClass = 'h-9 rounded-md border border-gray-200 bg-white px-2 text-sm'
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div>
         <h1 className="text-3xl font-bold text-gray-900">הזמנות</h1>
         <p className="text-gray-500 mt-1">{orders.length} הזמנות במערכת</p>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1 max-w-xs">
-          <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input
-            placeholder="חיפוש לפי שם / קטגוריה / מספר הזמנה"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pr-9"
-          />
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => setStatusFilter(ALL)}
-            className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-              statusFilter === ALL
-                ? 'bg-gray-900 text-white'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            הכל ({orders.length})
-          </button>
-          {STATUS_ORDER.map((s) => {
-            const count = orders.filter((o) => o.status === s).length
-            if (count === 0) return null
-            return (
-              <button
-                key={s}
-                onClick={() => setStatusFilter(s)}
-                className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                  statusFilter === s
-                    ? 'bg-gray-900 text-white'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                {STATUS_LABELS[s]} ({count})
-              </button>
-            )
-          })}
-        </div>
-      </div>
+      {/* סינונים */}
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <div className="flex flex-wrap gap-2 items-center">
+            <div className="relative w-full sm:w-72">
+              <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Input
+                placeholder="שם, מספר הזמנה, טלפון, רחוב או מילה מההערות"
+                value={filters.search}
+                onChange={(e) => set({ search: e.target.value })}
+                className="pr-9"
+              />
+            </div>
+            <select className={selectClass} value={filters.city} onChange={(e) => set({ city: e.target.value, project: '' })}>
+              <option value="">כל הערים</option>
+              {cities.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <select className={selectClass} value={filters.project} onChange={(e) => set({ project: e.target.value })}>
+              <option value="">כל הפרויקטים</option>
+              {visibleProjects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            <select className={selectClass} value={filters.category} onChange={(e) => set({ category: e.target.value })}>
+              <option value="">כל המוצרים</option>
+              {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <select className={selectClass} value={filters.status} onChange={(e) => set({ status: e.target.value })}>
+              <option value="">כל הסטטוסים</option>
+              <optgroup label="קבוצות">
+                {STATUS_GROUPS.map((g) => <option key={g.value} value={g.value}>{g.label}</option>)}
+              </optgroup>
+              <optgroup label="סטטוס">
+                {STATUS_ORDER.map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
+              </optgroup>
+            </select>
+            <select className={selectClass} value={filters.pay} onChange={(e) => set({ pay: e.target.value })}>
+              <option value="">כל מצבי התשלום</option>
+              {(Object.keys(PAY_LABELS) as PayState[]).map((k) => <option key={k} value={k}>{PAY_LABELS[k]}</option>)}
+            </select>
+            <select className={selectClass} value={filters.sort} onChange={(e) => set({ sort: e.target.value as SortKey })} title="מיון">
+              {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => <option key={k} value={k}>מיון: {SORT_LABELS[k]}</option>)}
+            </select>
+            {anyFilter && (
+              <Button variant="ghost" size="sm" onClick={() => setFilters({ ...EMPTY_FILTERS, sort: filters.sort })}>
+                <X className="h-4 w-4 ml-1" />
+                נקה סינון
+              </Button>
+            )}
+          </div>
+
+          {/* פעולה על כמה הזמנות יחד */}
+          {selected.size > 0 && (
+            <div className="flex flex-wrap items-center gap-2 rounded-md bg-blue-50 border border-blue-200 p-2 text-sm">
+              <span className="font-medium text-blue-900">{selected.size} מסומנות</span>
+              <select className={selectClass} value={bulkStatus} onChange={(e) => setBulkStatus(e.target.value)}>
+                <option value="">שנה סטטוס ל...</option>
+                {STATUS_ORDER.map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
+              </select>
+              <Button size="sm" onClick={applyBulkStatus} disabled={!bulkStatus || bulkSaving}>
+                {bulkSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'עדכן'}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>בטל סימון</Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {filtered.length === 0 ? (
         <Card>
@@ -124,53 +321,124 @@ export default function OrdersPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-2">
-          {filtered.map((order) => {
-            const totalPaid = (order.order_payments || []).reduce((sum, p) => sum + (p.amount || 0), 0)
-            return (
-            <Link key={order.id} href={`/orders/${order.id}`}>
-              <div className="flex items-center justify-between p-4 bg-white border rounded-lg hover:shadow-sm hover:border-blue-200 transition-all cursor-pointer">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <OrderNumber orderNumber={order.order_number} />
-                    <span className="font-medium text-gray-900">
-                      {(order.residents as any)?.name || 'לא ידוע'}
-                    </span>
-                    <span className="text-gray-400">·</span>
-                    <span className="text-sm text-gray-600">
-                      {(order.categories as any)?.name || 'ללא קטגוריה'}
-                    </span>
-                  </div>
-                  {(order.total_price > 0 || totalPaid > 0) && (
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      {order.total_price > 0 && `סה"כ: ${formatCurrency(order.total_price)}`}
-                      {totalPaid > 0 && ` · שולם: ${formatCurrency(totalPaid)}`}
-                    </p>
-                  )}
-                </div>
-                <div className="flex items-center gap-3 flex-shrink-0">
-                  <div className="text-left">
-                    <Badge variant={STATUS_COLORS[order.status] as any}>
-                      {STATUS_LABELS[order.status] || order.status}
-                    </Badge>
-                    {order.status_updated_at && (
-                      <p className="text-xs text-gray-400 mt-1 text-right" title="תאריך עדכון הסטטוס">
-                        עודכן: {formatStatusDate(order.status_updated_at)}
-                      </p>
-                    )}
-                    {order.payment_status && order.payment_status !== 'not_paid' && (
-                      <p className={`text-xs mt-1 text-right ${paymentColor[order.payment_status]}`}>
-                        {PAYMENT_STATUS_LABELS[order.payment_status]}
-                      </p>
-                    )}
-                  </div>
-                  <ChevronLeft className="h-4 w-4 text-gray-400" />
-                </div>
-              </div>
-            </Link>
-            )
-          })}
-        </div>
+        <Card>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-gray-50 text-gray-600">
+                    <th className="py-3 px-3 w-8">
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        onChange={() => setSelected(allSelected ? new Set() : new Set(filtered.map((o) => o.id)))}
+                        title="סמן הכל"
+                      />
+                    </th>
+                    <th className="text-right py-3 px-3 font-medium">מס׳</th>
+                    <th className="text-right py-3 px-3 font-medium">דייר</th>
+                    <th className="text-right py-3 px-3 font-medium">טלפון</th>
+                    <th className="text-right py-3 px-3 font-medium">כתובת</th>
+                    <th className="text-right py-3 px-3 font-medium">עיר ופרויקט</th>
+                    <th className="text-right py-3 px-3 font-medium">מוצר</th>
+                    <th className="text-right py-3 px-3 font-medium">ספק</th>
+                    <th className="text-right py-3 px-3 font-medium">סטטוס</th>
+                    <th className="text-right py-3 px-3 font-medium">עודכן</th>
+                    <th className="text-right py-3 px-3 font-medium">סכום</th>
+                    <th className="text-right py-3 px-3 font-medium">תשלום</th>
+                    <th className="text-right py-3 px-3 font-medium">הערות</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((o) => {
+                    const r = o.residents
+                    const proj = r?.projects
+                    const updated = lastUpdated(o)
+                    const days = daysSince(updated)
+                    const open = !CLOSED.has(o.status)
+                    const daysClass = open && days > 21 ? 'text-red-600 font-medium' : open && days > STUCK_DAYS ? 'text-orange-600 font-medium' : 'text-gray-400'
+                    const ps = payState(o)
+                    const amount = orderAmount(o)
+                    const notes = noteLines(o.notes)
+                    const sched = scheduledDate(o)
+                    return (
+                      <tr
+                        key={o.id}
+                        onClick={(e) => {
+                          if ((e.target as HTMLElement).closest('button, a, select, input, textarea, label')) return
+                          if (window.getSelection()?.toString()) return
+                          openOrder(o.id)
+                        }}
+                        className={`border-b hover:bg-gray-50 cursor-pointer align-top ${selected.has(o.id) ? 'bg-blue-50/50' : ''}`}
+                        title="לחץ לפתיחת ההזמנה"
+                      >
+                        <td className="py-3 px-3">
+                          <input type="checkbox" checked={selected.has(o.id)} onChange={() => toggleSelect(o.id)} />
+                        </td>
+                        <td className="py-3 px-3 whitespace-nowrap"><OrderNumber orderNumber={o.order_number} /></td>
+                        <td className="py-3 px-3 font-medium text-gray-900">{r?.name || 'לא ידוע'}</td>
+                        <td className="py-3 px-3">
+                          {r?.phone || r?.phone2 ? (
+                            <div className="space-y-1">
+                              {[r?.phone, r?.phone2].filter(Boolean).map((ph, i) => (
+                                <div key={i} className="flex items-center gap-1 whitespace-nowrap">
+                                  <span className="text-gray-600" dir="ltr">{ph}</span>
+                                  <ClickToCallButton phone={ph!} name={r?.name} className="p-1" />
+                                </div>
+                              ))}
+                            </div>
+                          ) : <span className="text-gray-400">—</span>}
+                        </td>
+                        <td className="py-3 px-3 text-gray-600 max-w-[180px]">
+                          {r?.address
+                            ? r.address
+                            : <span className="text-xs rounded bg-orange-100 text-orange-700 px-1.5 py-0.5 whitespace-nowrap">חסרה כתובת</span>}
+                        </td>
+                        <td className="py-3 px-3 text-gray-600 whitespace-nowrap">
+                          <div>{proj?.cities?.name || '—'}</div>
+                          {proj?.name && <div className="text-xs text-gray-400">{proj.name}</div>}
+                        </td>
+                        <td className="py-3 px-3 text-gray-700 whitespace-nowrap">
+                          {o.categories?.name || <span className="text-xs rounded bg-orange-100 text-orange-700 px-1.5 py-0.5">אין מוצר</span>}
+                        </td>
+                        <td className="py-3 px-3 text-gray-600 whitespace-nowrap">
+                          {o.suppliers?.name || <span className="text-xs rounded bg-orange-100 text-orange-700 px-1.5 py-0.5">אין ספק</span>}
+                        </td>
+                        <td className="py-3 px-3 whitespace-nowrap">
+                          <Badge variant={(STATUS_COLORS[o.status] || 'outline') as any}>{STATUS_LABELS[o.status] || o.status}</Badge>
+                          {sched && <div className="text-[11px] text-gray-500 mt-0.5">ביומן: {formatStatusDate(sched + 'T00:00:00')}</div>}
+                        </td>
+                        <td className="py-3 px-3 whitespace-nowrap">
+                          <div className="text-gray-600">{formatStatusDate(updated)}</div>
+                          <div className={`text-[11px] ${daysClass}`}>{days === 0 ? 'היום' : `לפני ${days} ימים`}</div>
+                        </td>
+                        <td className="py-3 px-3 text-gray-700 whitespace-nowrap">{amount ? formatCurrency(amount) : '—'}</td>
+                        <td className="py-3 px-3 whitespace-nowrap">
+                          <Badge variant={PAY_COLORS[ps] as any}>{PAY_LABELS[ps]}</Badge>
+                        </td>
+                        <td className="py-3 px-3 text-gray-600 max-w-[220px]">
+                          {notes.length > 0 ? (
+                            <div>
+                              <div className="truncate" title={notes.join('\n')}>{notes[notes.length - 1]}</div>
+                              {notes.length > 1 && <div className="text-[11px] text-gray-400">+ עוד {notes.length - 1}</div>}
+                            </div>
+                          ) : <span className="text-gray-400">—</span>}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-gray-50 font-medium text-gray-700">
+                    <td colSpan={10} className="py-3 px-3">{filtered.length} הזמנות{anyFilter ? ` (מתוך ${orders.length})` : ''}</td>
+                    <td className="py-3 px-3 whitespace-nowrap">{formatCurrency(totalAmount)}</td>
+                    <td colSpan={2}></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   )
