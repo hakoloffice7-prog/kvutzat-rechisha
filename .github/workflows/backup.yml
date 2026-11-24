@@ -1,0 +1,49 @@
+name: גיבוי רציני
+
+on:
+  schedule:
+    - cron: "17 1 * * *"   # כל לילה בשעה 01:17 UTC (בערך 03:17 שעון ישראל)
+  workflow_dispatch:        # אפשר גם להפעיל ידנית מלשונית Actions
+
+permissions:
+  contents: write
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      KEEP: 30               # כמה גיבויים לשמור (הישנים נמחקים)
+    steps:
+      - name: שכפול מלא של המאגר (כל הענפים וכל ההיסטוריה)
+        run: git clone --mirror "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" repo.git
+
+      - name: יצירת קבצי גיבוי
+        run: |
+          STAMP=$(TZ=Asia/Jerusalem date +%Y-%m-%d_%H-%M)
+          echo "STAMP=$STAMP" >> "$GITHUB_ENV"
+          NAME="${{ github.event.repository.name }}"
+          # קובץ bundle: כל הענפים, התגיות וההיסטוריה המלאה
+          git -C repo.git bundle create "../${NAME}_${STAMP}.bundle" --all
+          git bundle verify "${NAME}_${STAMP}.bundle"
+          # קובץ zip: מצב הקוד הנוכחי בענף הראשי, לפתיחה נוחה
+          git -C repo.git archive --format=zip -o "../${NAME}_${STAMP}.zip" HEAD
+          sha256sum *.bundle *.zip > "checksums_${STAMP}.txt"
+          ls -lh
+
+      - name: שמירת הגיבוי כ-Release
+        run: |
+          gh release create "backup-${STAMP}" *.bundle *.zip checksums_*.txt \
+            --repo "${{ github.repository }}" \
+            --title "גיבוי ${STAMP}" \
+            --notes "גיבוי אוטומטי. לשחזור ראו את התיקייה 'גיבוי רציני' במאגר." \
+            --latest=false
+
+      - name: מחיקת גיבויים ישנים (שומר את האחרונים בלבד)
+        run: |
+          gh release list --repo "${{ github.repository }}" --limit 500 --json tagName,createdAt \
+            --jq '[.[] | select(.tagName | startswith("backup-"))] | sort_by(.createdAt) | reverse | .[env.KEEP|tonumber:] | .[].tagName' |
+          while read -r tag; do
+            echo "מוחק $tag"
+            gh release delete "$tag" --repo "${{ github.repository }}" --yes --cleanup-tag
+          done
