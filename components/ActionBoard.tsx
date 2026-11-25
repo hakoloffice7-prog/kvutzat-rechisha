@@ -57,6 +57,8 @@ export function ActionBoard() {
   const [categories, setCategories] = useState<Option[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [mins, setMins] = useState<SupplierMin[]>([])
+  // שמות שסומנו "לא דייר כפול" (שם → מספר הדיירים בשם בזמן הסימון)
+  const [dismissed, setDismissed] = useState<Map<string, number>>(new Map())
 
   useEffect(() => {
     ;(async () => {
@@ -70,6 +72,8 @@ export function ActionBoard() {
         supabase.from('suppliers').select('id, category_id'),
         supabase.from('supplier_city_settings').select('supplier_id, city_id, min_orders'),
       ])
+      const { data: dis } = await supabase.from('duplicate_name_dismissals').select('name, resident_count')
+      setDismissed(new Map((dis || []).map((d: any) => [d.name, d.resident_count])))
       setOrders((o.data || []) as unknown as Order[])
       setResidents((r.data || []) as unknown as Resident[])
       setCities(c.data || [])
@@ -115,7 +119,7 @@ export function ActionBoard() {
 
   // דברים לבדוק
   const checks = useMemo(() => {
-    const items: { key: string; label: string; href: string; tag: string }[] = []
+    const items: { key: string; label: string; href: string; tag: string; dupName?: string; dupCount?: number }[] = []
     for (const o of orders) {
       const who = `${o.residents?.name || 'לא ידוע'} · ${o.categories?.name || 'ללא מוצר'}`
       const href = `/orders/${o.id}`
@@ -133,10 +137,20 @@ export function ActionBoard() {
       byName[n].push(r)
     }
     for (const [name, list] of Object.entries(byName)) {
-      if (list.length > 1) items.push({ key: 'dup' + name, label: `${name} (${list.length} פעמים)`, href: `/residents?search=${encodeURIComponent(name)}`, tag: 'דייר כפול?' })
+      // סומן "לא כפול" — לא מציגים, אלא אם נוסף מאז עוד דייר באותו שם
+      if (list.length > 1 && (dismissed.get(name) ?? 0) < list.length) {
+        items.push({ key: 'dup' + name, label: `${name} (${list.length} פעמים)`, href: `/residents?search=${encodeURIComponent(name)}`, tag: 'דייר כפול?', dupName: name, dupCount: list.length })
+      }
     }
     return items
-  }, [orders, residents])
+  }, [orders, residents, dismissed])
+
+  async function dismissDuplicate(name: string, count: number) {
+    if (!confirm(`לסמן ש"${name}" הם ${count} דיירים שונים? הסימון יחזור רק אם יתווסף עוד דייר באותו שם.`)) return
+    const { error } = await supabase.from('duplicate_name_dismissals').upsert({ name, resident_count: count })
+    if (error) { alert('שמירת הסימון נכשלה'); return }
+    setDismissed((prev) => new Map(prev).set(name, count))
+  }
 
   if (loading) {
     return (
@@ -279,11 +293,21 @@ export function ActionBoard() {
             ) : (
               <ul className="divide-y max-h-96 overflow-y-auto">
                 {checks.map((c) => (
-                  <li key={c.key}>
-                    <Link href={c.href} className="flex items-center justify-between gap-2 py-2 hover:bg-gray-50 px-1 rounded">
+                  <li key={c.key} className="flex items-center gap-1">
+                    <Link href={c.href} className="flex flex-1 min-w-0 items-center justify-between gap-2 py-2 hover:bg-gray-50 px-1 rounded">
                       <span className="truncate text-gray-800">{c.label}</span>
                       <span className="text-xs rounded bg-yellow-100 text-yellow-800 px-2 py-0.5 whitespace-nowrap">{c.tag}</span>
                     </Link>
+                    {c.dupName && (
+                      <button
+                        type="button"
+                        onClick={() => dismissDuplicate(c.dupName!, c.dupCount!)}
+                        className="text-xs text-blue-600 hover:underline whitespace-nowrap px-1"
+                        title="אלה דיירים שונים — לא להציג שוב"
+                      >
+                        לא כפול
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>

@@ -126,10 +126,15 @@ export default function ResidentsPage() {
     if (m === 'address' || m === 'any') setMissingFilter(m)
     const sq = params.get('search')
     if (sq) { setNameSearch(sq); setDebouncedSearch(sq) }
-    supabase.from('residents').select('name').then(({ data }) => {
+    Promise.all([
+      supabase.from('residents').select('name'),
+      supabase.from('duplicate_name_dismissals').select('name, resident_count'),
+    ]).then(([{ data }, { data: dis }]) => {
       const counts: Record<string, number> = {}
       for (const r of data || []) { const n = (r.name || '').trim(); counts[n] = (counts[n] || 0) + 1 }
-      setDuplicateNames(new Set(Object.keys(counts).filter((n) => counts[n] > 1)))
+      // שם שסומן "לא כפול" לא מסומן, אלא אם נוסף מאז עוד דייר באותו שם
+      const ok = new Map((dis || []).map((d: any) => [d.name, d.resident_count as number]))
+      setDuplicateNames(new Set(Object.keys(counts).filter((n) => counts[n] > 1 && (ok.get(n) ?? 0) < counts[n])))
     })
     fetchCities()
     try {
