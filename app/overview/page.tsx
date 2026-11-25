@@ -281,6 +281,25 @@ export default function OverviewPage() {
     setResidents((prev) => prev.map((r) => (r.id === rid ? { ...r, last_updated_at: nowIso } : r)))
   }
 
+  // שינוי סטטוס לכמה דיירים (הזמנות) יחד
+  const [bulkSelected, setBulkSelected] = useState<Set<string>>(new Set())
+  const [bulkStatus, setBulkStatus] = useState('')
+  const [bulkSaving, setBulkSaving] = useState(false)
+  async function applyBulkStatus() {
+    const ids = Array.from(bulkSelected)
+    if (!bulkStatus || ids.length === 0) return
+    if (!confirm(`לשנות ${ids.length} הזמנות לסטטוס "${STATUS_LABELS[bulkStatus]}"?`)) return
+    setBulkSaving(true)
+    const nowIso = new Date().toISOString()
+    const { error } = await supabase.from('orders').update({ status: bulkStatus, updated_at: nowIso }).in('id', ids)
+    setBulkSaving(false)
+    if (error) { alert('השמירה נכשלה, נסה שוב'); return }
+    setOrders((prev) => prev.map((o) => (bulkSelected.has(o.id) ? { ...o, status: bulkStatus, status_updated_at: nowIso } : o)))
+    ids.forEach((id) => touchResidentOfOrder(id))
+    setBulkSelected(new Set())
+    setBulkStatus('')
+  }
+
   async function updateOrderField(orderId: string, field: 'status' | 'payment_status', value: string) {
     const previous = orders.find((o) => o.id === orderId)?.[field]
     const previousStatusDate = orders.find((o) => o.id === orderId)?.status_updated_at ?? null
@@ -729,14 +748,37 @@ export default function OverviewPage() {
               <CardTitle className="text-lg">
                 דיירים ({filteredRows.length}{filteredRows.length !== rows.length ? ` מתוך ${rows.length}` : ''})
               </CardTitle>
-              <p className="text-xs text-gray-400">לחיצה על השורה פותחת את ההזמנה · לחיצה על שם הדייר פותחת שורת פירוט (לצילום מסך ושליחה לבעל מקצוע)</p>
+              <p className="text-xs text-gray-400">לחיצה על השורה פותחת את ההזמנה · לחיצה על שם הדייר פותחת שורת פירוט (לצילום מסך ושליחה לבעל מקצוע) · סימון ☐ לשינוי סטטוס לכמה דיירים יחד</p>
+              {bulkSelected.size > 0 && (
+                <div className="flex flex-wrap items-center gap-2 rounded-md bg-blue-50 border border-blue-200 p-2 text-sm mt-2">
+                  <span className="font-medium text-blue-900">{bulkSelected.size} מסומנים</span>
+                  <select value={bulkStatus} onChange={(e) => setBulkStatus(e.target.value)} className="h-9 rounded-md border border-gray-200 bg-white px-2 text-sm">
+                    <option value="">שנה סטטוס ל...</option>
+                    {STATUS_ORDER.map((st) => <option key={st} value={st}>{STATUS_LABELS[st]}</option>)}
+                  </select>
+                  <Button size="sm" onClick={applyBulkStatus} disabled={!bulkStatus || bulkSaving}>
+                    {bulkSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'עדכן'}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setBulkSelected(new Set())}>בטל סימון</Button>
+                </div>
+              )}
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b bg-gray-50 text-gray-600">
-                      <th className="text-right py-3 px-4 font-medium">#</th>
+                      <th className="text-right py-3 px-4 font-medium">
+                        <label className="flex items-center gap-1">
+                          <input
+                            type="checkbox"
+                            checked={filteredRows.length > 0 && filteredRows.every((r) => bulkSelected.has(r.order!.id))}
+                            onChange={(e) => setBulkSelected(e.target.checked ? new Set(filteredRows.map((r) => r.order!.id)) : new Set())}
+                            title="סמן הכל"
+                          />
+                          #
+                        </label>
+                      </th>
                       <th className="text-right py-3 px-4 font-medium">שם דייר</th>
                       {multiCategory && <th className="text-right py-3 px-4 font-medium">קטגוריה</th>}
                       <th className="text-right py-3 px-4 font-medium">כתובת</th>
@@ -768,7 +810,16 @@ export default function OverviewPage() {
                             className={`border-b hover:bg-gray-50 transition-colors cursor-pointer ${order!.id === returnRowId ? 'bg-yellow-50' : ''}`}
                             title="לחץ לפתיחת ההזמנה"
                           >
-                            <td className="py-3 px-4 text-gray-400">{idx + 1}</td>
+                            <td className="py-3 px-4 text-gray-400">
+                              <label className="flex items-center gap-1">
+                                <input
+                                  type="checkbox"
+                                  checked={bulkSelected.has(order!.id)}
+                                  onChange={() => setBulkSelected((prev) => { const n = new Set(prev); n.has(order!.id) ? n.delete(order!.id) : n.add(order!.id); return n })}
+                                />
+                                {idx + 1}
+                              </label>
+                            </td>
                             <td className="py-3 px-4 font-medium">
                               <div className="flex items-center gap-2">
                                 <button
