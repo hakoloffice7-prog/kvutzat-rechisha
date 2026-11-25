@@ -21,6 +21,7 @@ import { formatCurrency } from '@/lib/utils'
 import { useIsAdmin } from '@/components/RoleProvider'
 import { CopyButton } from '@/components/CopyButton'
 import { SupplierCityTable } from '@/components/SupplierCityTable'
+import { SupplierContacts, type SupplierContact } from '@/components/SupplierContacts'
 
 type Supplier = {
   id: string
@@ -78,7 +79,15 @@ export default function SuppliersPage() {
       })))
     }
     if (categoriesData) setCategories(categoriesData)
+    await fetchContacts()
     setLoading(false)
+  }
+
+  // אנשי קשר נוספים לכל ספק
+  const [contacts, setContacts] = useState<SupplierContact[]>([])
+  async function fetchContacts() {
+    const { data } = await supabase.from('supplier_contacts').select('id, supplier_id, name, phone, note').order('created_at')
+    setContacts((data || []) as SupplierContact[])
   }
 
   function isValidPhone(phone: string) {
@@ -337,6 +346,11 @@ export default function SuppliersPage() {
                       <CopyButton value={supplier.email} title="העתק מייל" />
                     </div>
                   )}
+                  <SupplierContacts
+                    supplierId={supplier.id}
+                    contacts={contacts.filter((c) => c.supplier_id === supplier.id)}
+                    onChange={fetchContacts}
+                  />
                   {isAdmin && !!supplier.advance_amount && (
                     <p className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-1">
                       מקדמה ששולמה: {formatCurrency(supplier.advance_amount)}
