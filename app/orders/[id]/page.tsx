@@ -138,6 +138,9 @@ export default function OrderPage() {
     profit_percent: '10',
   })
   const newItemSupplierPriceTouchedRef = useRef(false)
+  // סוגי מוצר נוספים בקטגוריה (למשל ברשתות: חלון / דלת / אלומיניום), כל אחד עם רווח משלו
+  const [categoryRules, setCategoryRules] = useState<{ name: string; profit_type: 'percent' | 'per_unit'; profit_value: number; unit_label: string | null }[]>([])
+  const [itemRuleName, setItemRuleName] = useState('')
   const [deleteItemConfirmId, setDeleteItemConfirmId] = useState<string | null>(null)
   const [editingItemId, setEditingItemId] = useState<string | null>(null)
   const [editingItemData, setEditingItemData] = useState<{
@@ -221,6 +224,10 @@ export default function OrderPage() {
       })
       globalSupplierPriceTouchedRef.current = false
       setNewItem((prev) => ({ ...prev, profit_percent: String(profitRuleFor(flattened.categories).value) }))
+      if (flattened.categories?.id) {
+        supabase.from('category_profit_rules').select('name, profit_type, profit_value, unit_label').eq('category_id', flattened.categories.id).order('sort_order')
+          .then(({ data }) => setCategoryRules((data || []) as any))
+      }
       updateTotalFromItemsRef.current = false
       setDetailsRows(Object.entries(flattened.details || {}).map(([key, value]) => ({ key, value: String(value) })))
     }
@@ -332,6 +339,7 @@ export default function OrderPage() {
 
     if (!error) {
       setNewItem({ description: '', model: '', quantity: '1', customer_price: '', supplier_price: '', profit_percent: String(profitRuleFor(order?.categories).value) })
+      setItemRuleName('')
       newItemSupplierPriceTouchedRef.current = false
       setItemDialogOpen(false)
       updateTotalFromItemsRef.current = true
@@ -425,7 +433,27 @@ export default function OrderPage() {
   )
   const totalPaid = sortedPayments.reduce((sum, p) => sum + (p.amount || 0), 0)
   // כלל הרווח של הקטגוריה (אחוז / סכום ליחידה) — לחלון הוספת פריט
-  const itemRule = profitRuleFor(order?.categories)
+  const selectedSubRule = categoryRules.find((r) => r.name === itemRuleName)
+  const itemRule = selectedSubRule
+    ? { type: selectedSubRule.profit_type, value: Number(selectedSubRule.profit_value), unit: selectedSubRule.unit_label || selectedSubRule.name }
+    : profitRuleFor(order?.categories)
+
+  // בחירת סוג מוצר: מעדכנת את הרווח (ואת מחיר הספק אם לא נערך ידנית), ומשלימה תיאור אם ריק
+  function chooseItemRule(name: string) {
+    setItemRuleName(name)
+    const sub = categoryRules.find((r) => r.name === name)
+    const rule = sub
+      ? { type: sub.profit_type, value: Number(sub.profit_value) }
+      : profitRuleFor(order?.categories)
+    setNewItem((prev) => ({
+      ...prev,
+      description: prev.description.trim() ? prev.description : (sub ? sub.name : prev.description),
+      profit_percent: String(rule.value),
+      supplier_price: newItemSupplierPriceTouchedRef.current
+        ? prev.supplier_price
+        : String(calcSupplierByRule(parseFloat(prev.customer_price) || 0, rule.value, rule.type)),
+    }))
+  }
 
   // totalRevenue/totalCost הם המקור האמיתי - order.total_price בטבלה יכול
   // להישאר תקוע על 0 בהזמנות ישנות שנוצרו לפני שהיה סנכרון אוטומטי, אז אסור
@@ -1059,6 +1087,19 @@ export default function OrderPage() {
                       <DialogTitle>הוספת פריט</DialogTitle>
                     </DialogHeader>
                     <div className="space-y-4">
+                      {categoryRules.length > 0 && (
+                        <div className="space-y-2">
+                          <Label>סוג מוצר</Label>
+                          <select
+                            value={itemRuleName}
+                            onChange={(e) => chooseItemRule(e.target.value)}
+                            className="h-10 w-full rounded-md border border-gray-200 bg-white px-2 text-sm"
+                          >
+                            <option value="">{order.categories?.name} (רגיל)</option>
+                            {categoryRules.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}
+                          </select>
+                        </div>
+                      )}
                       <div className="space-y-2">
                         <Label>תיאור *</Label>
                         <Input

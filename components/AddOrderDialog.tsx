@@ -23,7 +23,9 @@ type NewOrderItem = {
   profit_percent: string
   supplier_price_touched: boolean
   quantity: string // רלוונטי לקטגוריה עם רווח ליחידה (למשל מספר חלונות / מטרים)
+  rule_name: string // סוג מוצר נוסף בקטגוריה ('' = הכלל של הקטגוריה)
 }
+type SubRule = { name: string; profit_type: 'percent' | 'per_unit'; profit_value: number; unit_label: string | null }
 
 const EMPTY_ORDER = {
   category_id: '',
@@ -75,7 +77,18 @@ export function AddOrderDialog({
 
   const selectedCategory = categories.find(c => c.id === newOrder.category_id)
   const rule = profitRuleFor(selectedCategory)
-  const perUnit = rule.type === 'per_unit'
+  // סוגי מוצר נוספים בקטגוריה (למשל ברשתות: דלת 60 ₪) — לכל פריט אפשר לבחור סוג
+  const [subRules, setSubRules] = useState<SubRule[]>([])
+  useEffect(() => {
+    if (!newOrder.category_id) { setSubRules([]); return }
+    supabase.from('category_profit_rules').select('name, profit_type, profit_value, unit_label').eq('category_id', newOrder.category_id).order('sort_order')
+      .then(({ data }) => setSubRules((data || []) as SubRule[]))
+  }, [newOrder.category_id])
+  function ruleOf(item: { rule_name: string }) {
+    const sub = subRules.find((r) => r.name === item.rule_name)
+    return sub ? { type: sub.profit_type, value: Number(sub.profit_value), unit: sub.unit_label || sub.name } : rule
+  }
+  const perUnit = rule.type === 'per_unit' || subRules.some((r) => r.profit_type === 'per_unit')
   // כמות (מטרים / חלונות) מוצגת לכולם במוצר עם סכום ליחידה — נשמרת לחישוב מה הספק מחזיר לחברה
   const gridCols = !isAdmin
     ? (perUnit ? 'grid-cols-[2fr_1fr_0.6fr_auto]' : 'grid-cols-[2fr_1fr_auto]')
@@ -85,8 +98,9 @@ export function AddOrderDialog({
   function changeCategory(categoryId: string) {
     setNewOrder(prev => ({ ...prev, category_id: categoryId, supplier_id: '' }))
     const r = profitRuleFor(categories.find(c => c.id === categoryId))
-    setNewOrderItems(prev => prev.map(item => item.supplier_price_touched ? item : {
+    setNewOrderItems(prev => prev.map(item => item.supplier_price_touched ? { ...item, rule_name: '' } : {
       ...item,
+      rule_name: '',
       profit_percent: String(r.value),
       supplier_price: String(calcSupplierByRule(parseFloat(item.customer_price) || 0, r.value, r.type, parseFloat(item.quantity) || 1)),
     }))
@@ -94,7 +108,7 @@ export function AddOrderDialog({
 
   function addNewOrderItem() {
     setNewOrderItems(prev => [...prev, {
-      description: '', model: '', customer_price: '', supplier_price: '', quantity: '1',
+      description: '', model: '', customer_price: '', supplier_price: '', quantity: '1', rule_name: '',
       profit_percent: String(rule.value), supplier_price_touched: false,
     }])
   }
@@ -104,12 +118,22 @@ export function AddOrderDialog({
       if (field === 'supplier_price') {
         return { ...item, supplier_price: value, supplier_price_touched: true }
       }
+      if (field === 'rule_name') {
+        // בחירת סוג מוצר: הרווח לפי הסוג, ותיאור אוטומטי אם ריק
+        const sub = subRules.find((r) => r.name === value)
+        const r = sub ? { type: sub.profit_type, value: Number(sub.profit_value) } : rule
+        const updated = { ...item, rule_name: value, profit_percent: String(r.value), description: item.description.trim() ? item.description : (sub?.name || '') }
+        if (!item.supplier_price_touched) {
+          updated.supplier_price = String(calcSupplierByRule(parseFloat(updated.customer_price) || 0, r.value, r.type, parseFloat(updated.quantity) || 1))
+        }
+        return updated
+      }
       if (field === 'customer_price' || field === 'profit_percent' || field === 'quantity') {
         const updated = { ...item, [field]: value }
         if (!item.supplier_price_touched) {
           const customer = parseFloat(updated.customer_price) || 0
           const profit = parseFloat(updated.profit_percent) || 0
-          updated.supplier_price = String(calcSupplierByRule(customer, profit, rule.type, parseFloat(updated.quantity) || 1))
+          updated.supplier_price = String(calcSupplierByRule(customer, profit, ruleOf(updated).type, parseFloat(updated.quantity) || 1))
         }
         return updated
       }
@@ -307,19 +331,32 @@ export function AddOrderDialog({
                 <div className={`grid ${gridCols} gap-2 text-xs text-gray-500 px-1`}>
                   <span>תיאור</span>
                   <span>מחיר לקוח ₪</span>
-                  {perUnit && <span>כמות ({rule.unit})</span>}
-                  {isAdmin && <span>{perUnit ? `רווח ל${rule.unit} ₪` : 'רווח %'}</span>}
+                  {perUnit && <span>{subRules.length ? 'כמות' : `כמות (${rule.unit})`}</span>}
+                  {isAdmin && <span>{subRules.length ? 'רווח (₪ ליחידה / %)' : rule.type === 'per_unit' ? `רווח ל${rule.unit} ₪` : 'רווח %'}</span>}
                   {isAdmin && <span>מחיר ספק ₪</span>}
                   <span></span>
                 </div>
                 {newOrderItems.map((item, idx) => (
                   <div key={idx} className={`grid ${gridCols} gap-2 items-center`}>
-                    <Input
-                      value={item.description}
-                      onChange={(e) => updateNewOrderItem(idx, 'description', e.target.value)}
-                      placeholder="תיאור הפריט"
-                      className="h-8 text-sm"
-                    />
+                    <div className="space-y-1">
+                      {subRules.length > 0 && (
+                        <select
+                          value={item.rule_name}
+                          onChange={(e) => updateNewOrderItem(idx, 'rule_name', e.target.value)}
+                          className="h-8 w-full rounded-md border border-gray-200 bg-white px-1 text-xs"
+                          title="סוג מוצר — קובע את הרווח"
+                        >
+                          <option value="">{selectedCategory?.name} (רגיל)</option>
+                          {subRules.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}
+                        </select>
+                      )}
+                      <Input
+                        value={item.description}
+                        onChange={(e) => updateNewOrderItem(idx, 'description', e.target.value)}
+                        placeholder="תיאור הפריט"
+                        className="h-8 text-sm"
+                      />
+                    </div>
                     <Input
                       type="number"
                               step="any"
@@ -347,7 +384,8 @@ export function AddOrderDialog({
                               step="any"
                           value={item.profit_percent}
                           onChange={(e) => updateNewOrderItem(idx, 'profit_percent', e.target.value)}
-                          placeholder="10"
+                          placeholder={ruleOf(item).type === 'per_unit' ? `₪ ל${ruleOf(item).unit}` : '%'}
+                          title={ruleOf(item).type === 'per_unit' ? `רווח ל${ruleOf(item).unit} (₪)` : 'אחוז רווח'}
                           className="h-8 text-sm"
                           dir="ltr"
                         />

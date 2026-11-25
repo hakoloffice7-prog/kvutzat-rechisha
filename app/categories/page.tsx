@@ -28,6 +28,14 @@ type Category = {
   kind?: string | null
 }
 
+// רווח לסוג מוצר נוסף בתוך הקטגוריה (למשל ברשתות: דלת 60 ₪)
+type SubRule = { name: string; profit_type: 'percent' | 'per_unit'; profit_value: string; unit_label: string }
+type SubRuleRow = { category_id: string; name: string; profit_type: 'percent' | 'per_unit'; profit_value: number; unit_label: string | null; sort_order: number }
+
+function subRuleText(r: { name: string; profit_type: string; profit_value: number | string; unit_label?: string | null }) {
+  return r.profit_type === 'per_unit' ? `${r.name}: ${r.profit_value} ₪ ל${r.unit_label || 'יחידה'}` : `${r.name}: ${r.profit_value}%`
+}
+
 // תיאור קצר של כלל הרווח לכרטיס הקטגוריה
 function profitText(c: Category) {
   const r = profitRuleFor(c)
@@ -50,8 +58,13 @@ export default function CategoriesPage() {
   const [editUnit, setEditUnit] = useState('')
   const [editAllProfit, setEditAllProfit] = useState(false)
   const [editStaff, setEditStaff] = useState(false)
+  const [subRules, setSubRules] = useState<SubRule[]>([])
+  const [allSubRules, setAllSubRules] = useState<SubRuleRow[]>([])
 
   function openEdit(category: Category) {
+    setSubRules(allSubRules.filter((x) => x.category_id === category.id).map((x) => ({
+      name: x.name, profit_type: x.profit_type, profit_value: String(x.profit_value), unit_label: x.unit_label || '',
+    })))
     const r = profitRuleFor(category)
     setEditing(category)
     setEditName(category.name)
@@ -75,6 +88,8 @@ export default function CategoriesPage() {
       .order('name')
 
     if (data) setCategories(data)
+    const { data: rules } = await supabase.from('category_profit_rules').select('category_id, name, profit_type, profit_value, unit_label, sort_order').order('sort_order')
+    setAllSubRules((rules || []) as SubRuleRow[])
 
     // שימוש בקטגוריות: הזמנות וספקים המקושרים אליהן
     const [{ data: ordersData }, { data: suppliersData }] = await Promise.all([
@@ -122,6 +137,21 @@ export default function CategoriesPage() {
       update.kind = editStaff ? 'staff' : 'product'
     }
     const { error } = await supabase.from('categories').update(update).eq('id', editing.id)
+    if (!error && isAdmin) {
+      // סוגי מוצר נוספים: מחליפים את הרשימה כולה במה שבחלון
+      await supabase.from('category_profit_rules').delete().eq('category_id', editing.id)
+      const rows = subRules
+        .filter((r) => r.name.trim() && !Number.isNaN(parseFloat(r.profit_value)))
+        .map((r, i) => ({
+          category_id: editing.id,
+          name: r.name.trim(),
+          profit_type: r.profit_type,
+          profit_value: parseFloat(r.profit_value),
+          unit_label: r.profit_type === 'per_unit' ? (r.unit_label.trim() || r.name.trim()) : null,
+          sort_order: i,
+        }))
+      if (rows.length) await supabase.from('category_profit_rules').insert(rows)
+    }
     setRenaming(false)
     if (error) {
       alert('שגיאה בעדכון הקטגוריה')
@@ -239,6 +269,9 @@ export default function CategoriesPage() {
                         <p className="text-xs text-gray-400">{usageText(category.id)}</p>
                       )}
                       {isAdmin && <p className="text-xs text-green-700">{profitText(category)}{category.all_profit ? ' · כל הרווח שלנו' : ''}</p>}
+                      {isAdmin && allSubRules.filter((x) => x.category_id === category.id).map((x, i) => (
+                        <p key={i} className="text-xs text-green-700">{subRuleText(x)}</p>
+                      ))}
                       {category.kind === 'staff' && <p className="text-xs text-purple-700">איש צוות</p>}
                     </div>
                   </div>
@@ -318,6 +351,29 @@ export default function CategoriesPage() {
                   <input type="checkbox" checked={editStaff} onChange={(e) => setEditStaff(e.target.checked)} />
                   איש צוות, לא מוצר (למשל מעצבת) — לא יופיע בהזמנות ובספירות
                 </label>
+                <div className="border-t pt-3 space-y-2">
+                  <Label>רווח לסוגי מוצר נוספים בקטגוריה</Label>
+                  <p className="text-xs text-gray-500">למשל ברשתות: דלת 60 ₪ לדלת, עבודות אלומיניום 10%. בהוספת פריט להזמנה בוחרים את הסוג, והרווח מחושב לפיו. בלי בחירה — הכלל שלמעלה.</p>
+                  {subRules.map((r, i) => (
+                    <div key={i} className="grid grid-cols-[1.4fr_1fr_0.8fr_0.9fr_auto] gap-1 items-center">
+                      <Input placeholder="סוג מוצר (דלת)" value={r.name} onChange={(e) => setSubRules((l) => l.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} />
+                      <select className="h-10 rounded-md border border-gray-200 px-1 text-sm" value={r.profit_type} onChange={(e) => setSubRules((l) => l.map((x, j) => j === i ? { ...x, profit_type: e.target.value as 'percent' | 'per_unit' } : x))}>
+                        <option value="per_unit">סכום ליחידה</option>
+                        <option value="percent">אחוז</option>
+                      </select>
+                      <Input type="number" step="any" placeholder={r.profit_type === 'per_unit' ? '₪' : '%'} value={r.profit_value} onChange={(e) => setSubRules((l) => l.map((x, j) => j === i ? { ...x, profit_value: e.target.value } : x))} dir="ltr" />
+                      {r.profit_type === 'per_unit'
+                        ? <Input placeholder="יחידה (דלת)" value={r.unit_label} onChange={(e) => setSubRules((l) => l.map((x, j) => j === i ? { ...x, unit_label: e.target.value } : x))} />
+                        : <span />}
+                      <button type="button" onClick={() => setSubRules((l) => l.filter((_, j) => j !== i))} className="p-1 text-red-400 hover:text-red-600" title="הסר">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                  <Button type="button" variant="outline" size="sm" onClick={() => setSubRules((l) => [...l, { name: '', profit_type: 'per_unit', profit_value: '', unit_label: '' }])}>
+                    <Plus className="h-4 w-4 ml-1" />הוסף סוג מוצר
+                  </Button>
+                </div>
               </div>
             )}
             <div className="flex gap-2 justify-end">
