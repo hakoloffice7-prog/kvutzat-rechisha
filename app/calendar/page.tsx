@@ -37,6 +37,7 @@ type WorkDay = {
   notes: string | null
 }
 type Order = {
+  order_items?: { description: string | null; model: string | null; quantity: number | null }[]
   id: string
   order_number: number | null
   status: string
@@ -70,6 +71,14 @@ function fmtDay(key: string) {
   const [y, m, d] = key.split('-')
   return `${d}/${m}`
 }
+// פרטי ההזמנה בשורה אחת: "סורג ישר — דגם 10 ×2"
+function itemsText(o: { order_items?: { description: string | null; model: string | null; quantity: number | null }[] }) {
+  return (o.order_items || [])
+    .map((i) => `${i.description || ''}${i.model ? ` — דגם ${i.model}` : ''}${i.quantity && i.quantity !== 1 ? ` ×${i.quantity}` : ''}`.trim())
+    .filter(Boolean)
+    .join(', ')
+}
+
 function waPhone(p: string | null | undefined) {
   let d = (p || '').replace(/\D/g, '')
   if (d.startsWith('0')) d = '972' + d.slice(1)
@@ -100,7 +109,7 @@ export default function CalendarPage() {
       supabase.from('work_days').select('*').order('day'),
       supabase
         .from('orders')
-        .select('id, order_number, status, category_id, supplier_id, work_day_id, residents(name, phone, phone2, address, floor, apartment, access_type, access_contact_name, access_contact_phone, projects(city_id))'),
+        .select('id, order_number, status, category_id, supplier_id, work_day_id, order_items(description, model, quantity), residents(name, phone, phone2, address, floor, apartment, access_type, access_contact_name, access_contact_phone, projects(city_id))'),
       supabase.from('cities').select('id, name').order('name'),
       supabase.from('categories').select('id, name, kind').order('name'),
       supabase.from('suppliers').select('id, name, phone, category_id').order('name'),
@@ -149,8 +158,35 @@ export default function CalendarPage() {
   )
   const categorySuppliers = suppliers.filter((s) => !form.category_id || s.category_id === form.category_id)
 
+  // שיבוץ הזמנות ליום עבודה: תאריך + שעות + סטטוס, ותזכורת קולית (השרת מחליט אם צריך)
+  async function assignOrders(wd: { id: string; kind: Kind; day: string; time_from: string | null; time_to: string | null; supplier_id: string | null }, ids: string[]) {
+    if (ids.length === 0) return true
+    const common = { work_day_id: wd.id, updated_at: new Date().toISOString(), ...(wd.supplier_id ? { supplier_id: wd.supplier_id } : {}) }
+    const changes = wd.kind === 'measurement'
+      ? { ...common, status: 'measurement_scheduled', measured_at: wd.day, measurement_planned_time: wd.time_from || null, measurement_planned_time_to: wd.time_to || null, measurement_reminder_sent_at: null }
+      : { ...common, status: 'delivery_scheduled', installation_planned_date: wd.day, installation_planned_time: wd.time_from || null, installation_planned_time_to: wd.time_to || null, installation_reminder_sent_at: null }
+    const { error } = await supabase.from('orders').update(changes).in('id', ids)
+    if (error) return false
+    ids.forEach((id) => requestOrderReminder(id))
+    return true
+  }
+
+  // הוספת דירות ליום שכבר נקבע
+  const [addingTo, setAddingTo] = useState<WorkDay | null>(null)
+  const [addPicked, setAddPicked] = useState<Set<string>>(new Set())
+  async function addToDay() {
+    if (!addingTo || addPicked.size === 0) return
+    setSaving(true)
+    const ok = await assignOrders(addingTo, Array.from(addPicked))
+    setSaving(false)
+    if (!ok) { alert('הוספת הדירות נכשלה'); return }
+    setAddingTo(null)
+    setAddPicked(new Set())
+    load()
+  }
+
   async function saveDay() {
-    if (!form.city_id || !form.category_id || !form.day || picked.size === 0) return
+    if (!form.city_id || !form.category_id || !form.day) return
     setSaving(true)
     const { data: wd, error } = await supabase.from('work_days').insert({
       kind: form.kind,
@@ -167,19 +203,13 @@ export default function CalendarPage() {
       alert('שגיאה בשמירת היום')
       return
     }
-    const ids = Array.from(picked)
-    const common = { work_day_id: wd.id, updated_at: new Date().toISOString(), ...(form.supplier_id ? { supplier_id: form.supplier_id } : {}) }
-    const changes = form.kind === 'measurement'
-      ? { ...common, status: 'measurement_scheduled', measured_at: form.day, measurement_planned_time: form.time_from || null, measurement_planned_time_to: form.time_to || null, measurement_reminder_sent_at: null }
-      : { ...common, status: 'delivery_scheduled', installation_planned_date: form.day, installation_planned_time: form.time_from || null, installation_planned_time_to: form.time_to || null, installation_reminder_sent_at: null }
-    const { error: upErr } = await supabase.from('orders').update(changes).in('id', ids)
+    // אפשר לשמור יום גם בלי דירות, ולהוסיף אותן אחר כך מדף העבודה
+    const ok = await assignOrders(
+      { id: wd.id, kind: form.kind, day: form.day, time_from: form.time_from || null, time_to: form.time_to || null, supplier_id: form.supplier_id || null },
+      Array.from(picked),
+    )
     setSaving(false)
-    if (upErr) {
-      alert('היום נשמר, אבל עדכון ההזמנות נכשל')
-    } else {
-      // יום עבודה למחר אחרי שהתזכורת היומית כבר רצה: השרת שולח מיד (הוא מחליט אם צריך)
-      ids.forEach((id) => requestOrderReminder(id))
-    }
+    if (!ok) alert('היום נשמר, אבל עדכון ההזמנות נכשל')
     setNewOpen(false)
     setPicked(new Set())
     const d = new Date(form.day + 'T12:00:00')
@@ -209,9 +239,10 @@ export default function CalendarPage() {
       const r = o.residents
       const phones = [r?.phone, r?.phone2].filter(Boolean).join(' / ')
       const access = r?.access_type ? `\n   גישה: ${r.access_type}${r.access_contact_name ? ` · ${r.access_contact_name}` : ''}${r.access_contact_phone ? ` ${r.access_contact_phone}` : ''}` : ''
-      return `${i + 1}. ${r?.name || ''} — ${fullAddress(r) || 'אין כתובת'}\n   טלפון: ${phones || '—'}${access}`
+      const items = itemsText(o)
+      return `${i + 1}. ${r?.name || ''} — ${fullAddress(r) || 'אין כתובת'}${items ? `\n   הוזמן: ${items}` : ''}\n   טלפון: ${phones || '—'}${access}`
     })
-    return `${head}\n${lines.join('\n\n')}`
+    return `${head}\n${lines.length ? lines.join('\n\n') : 'עדיין לא שובצו דירות ליום הזה'}`
   }
 
   if (loading) {
@@ -346,6 +377,7 @@ export default function CalendarPage() {
                       </th>
                       <th className="p-2 text-right">דייר</th>
                       <th className="p-2 text-right">כתובת</th>
+                      <th className="p-2 text-right">מה הוזמן</th>
                       <th className="p-2 text-right">סטטוס</th>
                     </tr>
                   </thead>
@@ -355,6 +387,7 @@ export default function CalendarPage() {
                         <td className="p-2"><input type="checkbox" readOnly checked={picked.has(o.id)} /></td>
                         <td className="p-2">{o.residents?.name}</td>
                         <td className="p-2 text-gray-600">{fullAddress(o.residents) || <span className="text-orange-600">חסרה כתובת</span>}</td>
+                        <td className="p-2 text-gray-600 text-xs">{itemsText(o) || '—'}</td>
                         <td className="p-2 text-gray-600">{STATUS_LABELS[o.status] || o.status}</td>
                       </tr>
                     ))}
@@ -363,12 +396,12 @@ export default function CalendarPage() {
               )}
             </div>
             <p className="text-xs text-gray-500">
-              בשמירה, כל הדירות המסומנות יקבלו את התאריך והסטטוס "{form.kind === 'measurement' ? STATUS_LABELS.measurement_scheduled : STATUS_LABELS.delivery_scheduled}", והלקוחות יקבלו תזכורת קולית יום לפני.
+              אפשר לשמור יום גם בלי דירות, ולהוסיף אותן אחר כך (לחיצה על היום ביומן ← "הוסף דירות"). בשמירה, כל הדירות המסומנות יקבלו את התאריך והסטטוס "{form.kind === 'measurement' ? STATUS_LABELS.measurement_scheduled : STATUS_LABELS.delivery_scheduled}", והלקוחות יקבלו תזכורת קולית יום לפני.
             </p>
             <div className="flex gap-2 justify-end">
               <Button variant="outline" onClick={() => setNewOpen(false)}>ביטול</Button>
-              <Button onClick={saveDay} disabled={saving || !form.city_id || !form.category_id || !form.day || picked.size === 0}>
-                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : `שמור יום (${picked.size} דירות)`}
+              <Button onClick={saveDay} disabled={saving || !form.city_id || !form.category_id || !form.day}>
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : picked.size ? `שמור יום (${picked.size} דירות)` : 'שמור יום (בלי דירות בינתיים)'}
               </Button>
             </div>
           </div>
@@ -386,7 +419,10 @@ export default function CalendarPage() {
                 <Button variant="outline" className="text-red-600" onClick={() => cancelDay(sheetDay)}>
                   <Trash2 className="h-4 w-4 ml-1" />בטל יום
                 </Button>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
+                  <Button variant="outline" onClick={() => { setAddPicked(new Set()); setAddingTo(sheetDay); setSheetDay(null) }}>
+                    <Plus className="h-4 w-4 ml-1" />הוסף דירות
+                  </Button>
                   <Button variant="outline" onClick={async () => { await navigator.clipboard.writeText(sheetText(sheetDay)); setCopied(true) }}>
                     <Copy className="h-4 w-4 ml-1" />{copied ? 'הועתק ✓' : 'העתק'}
                   </Button>
@@ -403,6 +439,60 @@ export default function CalendarPage() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* הוספת דירות ליום קיים */}
+      <Dialog open={!!addingTo} onOpenChange={(o) => !o && setAddingTo(null)}>
+        <DialogContent className="max-w-3xl" dir="rtl">
+          <DialogHeader>
+            <DialogTitle>
+              {addingTo && `הוספת דירות — ${KIND_LABEL[addingTo.kind]} ${name(categories, addingTo.category_id)}, ${name(cities, addingTo.city_id)}, ${fmtDay(addingTo.day)}`}
+            </DialogTitle>
+          </DialogHeader>
+          {addingTo && (() => {
+            const list = orders.filter((o) =>
+              !CLOSED_STATUSES.has(o.status) && !o.work_day_id &&
+              o.category_id === addingTo.category_id && o.residents?.projects?.city_id === addingTo.city_id)
+            return (
+              <div className="space-y-3">
+                <div className="border rounded-md max-h-80 overflow-y-auto">
+                  {list.length === 0 ? (
+                    <p className="p-4 text-sm text-gray-500">אין כרגע הזמנות פתוחות שלא שובצו במוצר ובעיר האלה</p>
+                  ) : (
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 text-gray-600 sticky top-0">
+                        <tr>
+                          <th className="p-2 w-8"></th>
+                          <th className="p-2 text-right">דייר</th>
+                          <th className="p-2 text-right">כתובת</th>
+                          <th className="p-2 text-right">מה הוזמן</th>
+                          <th className="p-2 text-right">סטטוס</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {list.map((o) => (
+                          <tr key={o.id} className="border-t cursor-pointer hover:bg-gray-50" onClick={() => setAddPicked((p) => { const n = new Set(p); n.has(o.id) ? n.delete(o.id) : n.add(o.id); return n })}>
+                            <td className="p-2"><input type="checkbox" readOnly checked={addPicked.has(o.id)} /></td>
+                            <td className="p-2">{o.residents?.name}</td>
+                            <td className="p-2 text-gray-600">{fullAddress(o.residents) || <span className="text-orange-600">חסרה כתובת</span>}</td>
+                            <td className="p-2 text-gray-600 text-xs">{itemsText(o) || '—'}</td>
+                            <td className="p-2 text-gray-600">{STATUS_LABELS[o.status] || o.status}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <Button variant="outline" onClick={() => setAddingTo(null)}>ביטול</Button>
+                  <Button onClick={addToDay} disabled={saving || addPicked.size === 0}>
+                    {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : `הוסף ${addPicked.size} דירות ליום`}
+                  </Button>
+                </div>
+              </div>
+            )
+          })()}
         </DialogContent>
       </Dialog>
     </div>
