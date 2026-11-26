@@ -13,6 +13,7 @@ import { OrderNumber } from '@/components/OrderNumber'
 import { ClickToCallButton } from '@/components/ClickToCallButton'
 import { saveNavList } from '@/components/PrevNextNav'
 import { ImportRegistrantsDialog } from '@/components/ImportRegistrantsDialog'
+import { MultiSelect } from '@/components/MultiSelect'
 import {
   STATUS_LABELS, STATUS_COLORS, STATUS_ORDER, formatCurrency, formatStatusDate, digitsOnly, phoneSearchDigits, fullAddress, missingAddressParts,
 } from '@/lib/utils'
@@ -153,7 +154,8 @@ export default function OrdersPage() {
     const termDigits = phoneSearchDigits(term)
     const list = orders.filter((o) => {
       const proj = o.residents?.projects
-      if (filters.city && proj?.city_id !== filters.city) return false
+      // עיר: אפשר כמה, מופרדות בפסיק
+      if (filters.city && !filters.city.split(',').includes(proj?.city_id || '')) return false
       if (filters.project && proj?.id !== filters.project) return false
       if (filters.category && o.category_id !== filters.category) return false
       if (filters.status) {
@@ -190,7 +192,8 @@ export default function OrdersPage() {
   }, [orders, filters])
 
   const totalAmount = filtered.reduce((s, o) => s + orderAmount(o), 0)
-  const visibleProjects = filters.city ? projects.filter((p) => p.city_id === filters.city) : projects
+  const cityList = filters.city ? filters.city.split(',').filter(Boolean) : []
+  const visibleProjects = cityList.length ? projects.filter((p) => cityList.includes(p.city_id)) : projects
   const anyFilter = JSON.stringify({ ...filters, sort: 'stale' }) !== JSON.stringify(EMPTY_FILTERS)
   const allSelected = filtered.length > 0 && filtered.every((o) => selected.has(o.id))
 
@@ -270,10 +273,17 @@ export default function OrdersPage() {
                 className="pr-9"
               />
             </div>
-            <select className={selectClass} value={filters.city} onChange={(e) => set({ city: e.target.value, project: '' })}>
-              <option value="">כל הערים</option>
-              {cities.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+            <div className="w-44 -mt-2 [&_label]:sr-only">
+              <MultiSelect
+                label="ערים"
+                options={cities.map((c) => ({ value: c.id, label: c.name }))}
+                selected={cityList}
+                onChange={(vals) => set({ city: vals.join(','), project: '' })}
+                emptyLabel="כל הערים"
+                pluralLabel="ערים"
+                clearLabel="כל הערים"
+              />
+            </div>
             <select className={selectClass} value={filters.project} onChange={(e) => set({ project: e.target.value })}>
               <option value="">כל הפרויקטים</option>
               {visibleProjects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}

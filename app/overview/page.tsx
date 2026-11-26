@@ -172,7 +172,9 @@ export default function OverviewPage() {
 
   const pendingProjectIdRef = useRef(initialProjectId)
 
+  // אפשר לבחור כמה ערים: נשמר כרשימת מזהים מופרדת בפסיק (ALL_CITIES = כל הערים)
   const [selectedCityId, setSelectedCityId] = useState(initialCityId)
+  const selectedCityIds = useMemo(() => (selectedCityId && selectedCityId !== ALL_CITIES ? selectedCityId.split(',').filter(Boolean) : []), [selectedCityId])
   const [selectedProjectId, setSelectedProjectId] = useState(initialProjectId)
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>(initialCategoryIds)
   const [statusFilters, setStatusFilters] = useState<StatusValue[]>(initialStatusFilters)
@@ -228,7 +230,7 @@ export default function OverviewPage() {
       return
     }
     const query = supabase.from('projects').select('id, city_id, name').order('name')
-    const scoped = selectedCityId === ALL_CITIES ? query : query.eq('city_id', selectedCityId)
+    const scoped = selectedCityIds.length === 0 ? query : query.in('city_id', selectedCityIds)
     scoped.then(({ data }) => {
       const projectsData = data || []
       setProjects(projectsData)
@@ -362,7 +364,7 @@ export default function OverviewPage() {
   function goAddResident() {
     try {
       const project = projects.find((p) => p.id === selectedProjectId)
-      const cityId = project ? project.city_id : selectedCityId !== ALL_CITIES ? selectedCityId : ''
+      const cityId = project ? project.city_id : selectedCityIds.length === 1 ? selectedCityIds[0] : ''
       const projectId = project ? project.id : ''
       sessionStorage.setItem('residents-pending-add', '1')
       sessionStorage.setItem('residents-filter', JSON.stringify({ cityId, projectId }))
@@ -525,7 +527,7 @@ export default function OverviewPage() {
     return { total: rows.length, byStatus }
   }, [rows])
 
-  const filteredProjects = selectedCityId === ALL_CITIES ? projects : projects.filter((p) => p.city_id === selectedCityId)
+  const filteredProjects = selectedCityIds.length === 0 ? projects : projects.filter((p) => selectedCityIds.includes(p.city_id))
   const showAllScopeColumn = selectedProjectId === ALL_PROJECTS
   const showTable = !!(selectedProjectId && selectedCategoryIds.length > 0)
   const categoryNameById = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories])
@@ -559,20 +561,15 @@ export default function OverviewPage() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
               {/* City */}
-              <div className="space-y-2">
-                <Label htmlFor="citySelect">בחר עיר</Label>
-                <select
-                  id="citySelect"
-                  value={selectedCityId}
-                  onChange={(e) => setSelectedCityId(e.target.value)}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value={ALL_CITIES}>כל הערים</option>
-                  {cities.map((city) => (
-                    <option key={city.id} value={city.id}>{city.name}</option>
-                  ))}
-                </select>
-              </div>
+              <MultiSelect
+                label="בחר עיר (אפשר כמה)"
+                options={cities.map((c) => ({ value: c.id, label: c.name }))}
+                selected={selectedCityIds}
+                onChange={(vals) => setSelectedCityId(vals.length ? vals.join(',') : ALL_CITIES)}
+                emptyLabel="כל הערים"
+                pluralLabel="ערים"
+                clearLabel="כל הערים"
+              />
 
               {/* Project */}
               <div className="space-y-2">
@@ -584,7 +581,7 @@ export default function OverviewPage() {
                   className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value={ALL_PROJECTS}>
-                    {selectedCityId === ALL_CITIES ? 'כל הפרויקטים' : 'כל הפרויקטים בעיר'}
+                    {selectedCityIds.length === 0 ? 'כל הפרויקטים' : selectedCityIds.length === 1 ? 'כל הפרויקטים בעיר' : 'כל הפרויקטים בערים שנבחרו'}
                   </option>
 
                   {filteredProjects.map((p) => (

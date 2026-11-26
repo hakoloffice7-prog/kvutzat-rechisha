@@ -15,6 +15,7 @@ type Project = { id: string; name: string; cities: { name: string } }
 
 type OrderRow = {
   id: string
+  category_id?: string | null
   status: string
   payment_status: string
   supplier_id: string | null
@@ -58,6 +59,12 @@ export default function ReportsPage() {
   const isAdmin = useIsAdmin()
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([])
+  // עיר (אפשר כמה) — בלי בחירת פרויקט נלקחים כל הפרויקטים בערים שנבחרו, כמו בסקירת פרויקט
+  const [cities, setCities] = useState<{ id: string; name: string }[]>([])
+  const [selectedCityIds, setSelectedCityIds] = useState<string[]>([])
+  // מוצר (קטגוריה) — לייצוא לפי קטגוריה
+  const [categoryOptions, setCategoryOptions] = useState<{ value: string; label: string }[]>([])
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [selectedSupplierIds, setSelectedSupplierIds] = useState<string[]>([])
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([])
@@ -67,17 +74,26 @@ export default function ReportsPage() {
   const [ordersLoading, setOrdersLoading] = useState(false)
   const supabase = createClient()
 
-  const hasProject = selectedProjectIds.length > 0
-  const multiProject = selectedProjectIds.length > 1
-  const selectedProjects = projects.filter((p) => selectedProjectIds.includes(p.id))
+  const cityProjects = selectedCityIds.length ? projects.filter((p: any) => selectedCityIds.includes(p.city_id)) : projects
+  const effectiveProjectIds = useMemo(
+    () => (selectedProjectIds.length ? selectedProjectIds : selectedCityIds.length ? cityProjects.map((p) => p.id) : []),
+    [selectedProjectIds, selectedCityIds, projects],
+  )
+  const hasProject = effectiveProjectIds.length > 0
+  const multiProject = effectiveProjectIds.length > 1
+  const selectedProjects = projects.filter((p) => effectiveProjectIds.includes(p.id))
   const projectNameOf = (id?: string | null) => projects.find((p) => p.id === id)?.name || ''
   // שם הפרויקט בשם הקובץ ובכותרת: פרויקט בודד בשמו, כמה פרויקטים כמספרם
-  const reportProjectName = selectedProjects.length === 1 ? selectedProjects[0].name : `${selectedProjects.length}_פרויקטים`
+  const cityNames = cities.filter((c) => selectedCityIds.includes(c.id)).map((c) => c.name).join('_')
+  const reportProjectName = selectedProjects.length === 1 ? selectedProjects[0].name : !selectedProjectIds.length && cityNames ? cityNames : `${selectedProjects.length}_פרויקטים`
   const reportProjectTitle = selectedProjects.length === 1
     ? `${selectedProjects[0].cities?.name || ''} · ${selectedProjects[0].name}`
     : `${selectedProjects.length} פרויקטים`
 
   useEffect(() => {
+    supabase.from('cities').select('id, name').order('name').then(({ data }) => setCities(data || []))
+    supabase.from('categories').select('id, name, kind').order('name').then(({ data }) =>
+      setCategoryOptions(((data || []) as any[]).filter((c) => c.kind !== 'staff').map((c) => ({ value: c.id, label: c.name }))))
     fetchProjects()
     supabase.from('suppliers').select('id, name').order('name').then(({ data }) => {
       if (data) setSuppliers(data.sort((a, b) => a.name.localeCompare(b.name, 'he')))
@@ -87,12 +103,12 @@ export default function ReportsPage() {
   useEffect(() => {
     setSelectedSupplierIds([])
     setSelectedStatuses([])
-    if (selectedProjectIds.length > 0) {
+    if (effectiveProjectIds.length > 0) {
       fetchOrders()
     } else {
       setOrders([])
     }
-  }, [selectedProjectIds])
+  }, [effectiveProjectIds])
 
   async function fetchProjects() {
     setLoading(true)
@@ -114,6 +130,7 @@ export default function ReportsPage() {
         status,
         payment_status,
         supplier_id,
+        category_id,
         is_global_price,
         total_price,
         residents!inner(name, address, floor, apartment, phone, phone2, project_id),
@@ -122,7 +139,7 @@ export default function ReportsPage() {
         order_items(description, model, customer_price, order_item_costs(supplier_price)),
         order_costs(global_supplier_price)
       `)
-      .in('residents.project_id', selectedProjectIds)
+      .in('residents.project_id', effectiveProjectIds)
 
     const flattened = ((data as any) || []).map((order: any) => ({
       ...order,
@@ -151,9 +168,10 @@ export default function ReportsPage() {
   const filteredOrders = useMemo(() => {
     return orders.filter((o) =>
       (selectedSupplierIds.length === 0 || (!!o.supplier_id && selectedSupplierIds.includes(o.supplier_id))) &&
-      (selectedStatuses.length === 0 || selectedStatuses.includes(o.status))
+      (selectedStatuses.length === 0 || selectedStatuses.includes(o.status)) &&
+      (selectedCategoryIds.length === 0 || (!!o.category_id && selectedCategoryIds.includes(o.category_id)))
     )
-  }, [orders, selectedSupplierIds, selectedStatuses])
+  }, [orders, selectedSupplierIds, selectedStatuses, selectedCategoryIds])
 
   const statusOptions = STATUS_ORDER.map((value) => ({ value, label: STATUS_LABELS[value] }))
 
@@ -209,7 +227,8 @@ export default function ReportsPage() {
         ...(isAdmin ? [{ width: 12 }] : []),
       ]
 
-      const namePart = supplierName ? `_${supplierName}` : ''
+      const catPart = selectedCategoryIds.length === 1 ? `_${categoryOptions.find((c) => c.value === selectedCategoryIds[0])?.label || ''}` : ''
+      const namePart = (supplierName ? `_${supplierName}` : '') + catPart
       const fileName = `הזמנות_${reportProjectName}${namePart}_${new Date().toLocaleDateString('he-IL').replace(/\//g, '-')}.xlsx`
       XLSX.writeFile(wb, fileName)
     } catch (error) {
@@ -337,7 +356,8 @@ ${mode === 'print' ? '<script>window.onload = function () { setTimeout(function 
       : selectedSupplierIds.length === 1
         ? suppliers.find((s) => s.id === selectedSupplierIds[0])?.name
         : `${selectedSupplierIds.length}_ספקים`
-    const namePart = supplierName ? `_${supplierName}` : ''
+    const catPart = selectedCategoryIds.length === 1 ? `_${categoryOptions.find((c) => c.value === selectedCategoryIds[0])?.label || ''}` : ''
+      const namePart = (supplierName ? `_${supplierName}` : '') + catPart
     const fileName = `הזמנות_${reportProjectName}${namePart}_${new Date().toLocaleDateString('he-IL').replace(/\//g, '-')}.doc`
     const blob = new Blob(['\ufeff', html], { type: 'application/msword;charset=utf-8' })
     const url = URL.createObjectURL(blob)
@@ -367,8 +387,18 @@ ${mode === 'print' ? '<script>window.onload = function () { setTimeout(function 
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-4xl">
             <MultiSelect
-              label="בחר פרויקט (אפשר כמה)"
-              options={projects.map((p) => ({ value: p.id, label: `${p.cities?.name} - ${p.name}` }))}
+              label="בחר עיר (אפשר כמה)"
+              options={cities.map((c) => ({ value: c.id, label: c.name }))}
+              selected={selectedCityIds}
+              onChange={(vals) => { setSelectedCityIds(vals); setSelectedProjectIds((prev) => prev.filter((id) => !vals.length || vals.includes((projects.find((p) => p.id === id) as any)?.city_id))) }}
+              emptyLabel="כל הערים"
+              pluralLabel="ערים"
+              clearLabel="נקה בחירה"
+            />
+
+            <MultiSelect
+              label={selectedCityIds.length ? 'פרויקט (ריק = כל הפרויקטים בערים)' : 'בחר פרויקט (אפשר כמה)'}
+              options={cityProjects.map((p) => ({ value: p.id, label: `${p.cities?.name} - ${p.name}` }))}
               selected={selectedProjectIds}
               onChange={setSelectedProjectIds}
               emptyLabel={loading ? 'טוען פרויקטים...' : 'בחר פרויקט לייצוא'}
@@ -385,6 +415,17 @@ ${mode === 'print' ? '<script>window.onload = function () { setTimeout(function 
               emptyLabel="כל הספקים"
               pluralLabel="ספקים"
               clearLabel="נקה בחירה (כל הספקים)"
+              disabled={!hasProject}
+            />
+
+            <MultiSelect
+              label="סנן לפי מוצר / קטגוריה (אופציונלי)"
+              options={categoryOptions}
+              selected={selectedCategoryIds}
+              onChange={setSelectedCategoryIds}
+              emptyLabel="כל המוצרים"
+              pluralLabel="מוצרים"
+              clearLabel="נקה בחירה (כל המוצרים)"
               disabled={!hasProject}
             />
 
