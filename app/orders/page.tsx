@@ -211,6 +211,22 @@ export default function OrdersPage() {
     })
   }
 
+  // תאריך מדידה לכמה הזמנות יחד
+  const [bulkDate, setBulkDate] = useState('')
+  async function applyBulkMeasuredDate() {
+    const ids = filtered.filter((o) => selected.has(o.id)).map((o) => o.id)
+    if (!bulkDate || ids.length === 0) return
+    if (!confirm(`לקבוע תאריך מדידה ${bulkDate.split('-').reverse().join('/')} ל-${ids.length} הזמנות?`)) return
+    setBulkSaving(true)
+    const { error } = await supabase.from('orders')
+      .update({ measured_at: bulkDate, measurement_reminder_sent_at: null, updated_at: new Date().toISOString() })
+      .in('id', ids)
+    setBulkSaving(false)
+    if (error) { alert('שגיאה בעדכון התאריך'); return }
+    setBulkDate('')
+    fetchAll()
+  }
+
   async function applyBulkStatus() {
     const ids = filtered.filter((o) => selected.has(o.id)).map((o) => o.id)
     if (!bulkStatus || ids.length === 0) return
@@ -332,6 +348,10 @@ export default function OrdersPage() {
               <Button size="sm" onClick={applyBulkStatus} disabled={!bulkStatus || bulkSaving}>
                 {bulkSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'עדכן'}
               </Button>
+              <span className="text-gray-300">|</span>
+              <span className="text-xs text-gray-600">תאריך מדידה:</span>
+              <input type="date" value={bulkDate} onChange={(e) => setBulkDate(e.target.value)} className="h-9 rounded-md border border-gray-200 bg-white px-2 text-sm" dir="ltr" />
+              <Button size="sm" variant="outline" onClick={applyBulkMeasuredDate} disabled={!bulkDate || bulkSaving}>קבע תאריך</Button>
               {(() => {
                 // "קבע יום ביומן": רק כשכל המסומנות מאותו מוצר ואותה עיר
                 const sel = filtered.filter((o) => selected.has(o.id))

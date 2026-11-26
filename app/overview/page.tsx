@@ -307,6 +307,38 @@ export default function OverviewPage() {
     setBulkStatus('')
   }
 
+  // תאריך מדידה לכמה הזמנות יחד
+  const [bulkDate, setBulkDate] = useState('')
+  async function applyBulkMeasuredDate() {
+    const ids = Array.from(bulkSelected)
+    if (!bulkDate || ids.length === 0) return
+    if (!confirm(`לקבוע תאריך מדידה ${bulkDate.split('-').reverse().join('/')} ל-${ids.length} הזמנות?`)) return
+    setBulkSaving(true)
+    // שינוי מועד מאפס את סימון "נשלחה תזכורת", כדי שתצא תזכורת למועד החדש
+    const { error } = await supabase.from('orders')
+      .update({ measured_at: bulkDate, measurement_reminder_sent_at: null, updated_at: new Date().toISOString() })
+      .in('id', ids)
+    setBulkSaving(false)
+    if (error) { alert('השמירה נכשלה, נסה שוב'); return }
+    setOrders((prev) => prev.map((o) => (bulkSelected.has(o.id) ? { ...o, measured_at: bulkDate } : o)))
+    ids.forEach((id) => touchResidentOfOrder(id))
+    setBulkDate('')
+  }
+
+  // העתקת השורות המסומנות כטקסט לשליחה לספק / בעל מקצוע (וואטסאפ / מייל)
+  const [copiedSel, setCopiedSel] = useState(false)
+  function selectedRowsText() {
+    const lines = filteredRows
+      .filter((r) => bulkSelected.has(r.order!.id))
+      .map(({ resident, order }, i) => {
+        const items = (order!.order_items || []).map((it) => `${it.description}${it.model ? ` — ${it.model}` : ''}`).join(', ')
+        const phones = [resident.phone, resident.phone2].filter(Boolean).join(' / ')
+        const cat = categoryNameById.get(order!.category_id) || ''
+        return `${i + 1}. ${resident.name} — ${fullAddress(resident) || 'אין כתובת'}\n   ${cat}${items ? `: ${items}` : ''}\n   טלפון: ${phones || '—'}`
+      })
+    return lines.join('\n\n')
+  }
+
   async function updateOrderField(orderId: string, field: 'status' | 'payment_status', value: string) {
     const previous = orders.find((o) => o.id === orderId)?.[field]
     const previousStatusDate = orders.find((o) => o.id === orderId)?.status_updated_at ?? null
@@ -765,6 +797,17 @@ export default function OverviewPage() {
                   <Button size="sm" onClick={applyBulkStatus} disabled={!bulkStatus || bulkSaving}>
                     {bulkSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'עדכן'}
                   </Button>
+                  <span className="text-gray-300">|</span>
+                  <span className="text-xs text-gray-600">תאריך מדידה:</span>
+                  <input type="date" value={bulkDate} onChange={(e) => setBulkDate(e.target.value)} className="h-9 rounded-md border border-gray-200 bg-white px-2 text-sm" dir="ltr" />
+                  <Button size="sm" variant="outline" onClick={applyBulkMeasuredDate} disabled={!bulkDate || bulkSaving}>קבע תאריך</Button>
+                  <span className="text-gray-300">|</span>
+                  <Button size="sm" variant="outline" onClick={async () => { await navigator.clipboard.writeText(selectedRowsText()); setCopiedSel(true); setTimeout(() => setCopiedSel(false), 2500) }}>
+                    {copiedSel ? 'הועתק ✓' : 'העתק לשליחה'}
+                  </Button>
+                  <a href={`https://wa.me/?text=${encodeURIComponent(selectedRowsText())}`} target="_blank" rel="noopener noreferrer">
+                    <Button size="sm" variant="outline">שלח בוואטסאפ</Button>
+                  </a>
                   <Button size="sm" variant="ghost" onClick={() => setBulkSelected(new Set())}>בטל סימון</Button>
                 </div>
               )}
