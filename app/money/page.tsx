@@ -12,7 +12,7 @@ import { Loader2, Plus, Trash2, Pencil } from 'lucide-react'
 import { OrderNumber } from '@/components/OrderNumber'
 import { SupplierRemittances } from '@/components/SupplierRemittances'
 import { supplierCompanyShare, supplierDebtFromPayments, type SupplierDealRule } from '@/lib/commissions'
-import { formatCurrency, profitRuleFor } from '@/lib/utils'
+import { formatCurrency, profitRuleFor, STATUS_LABELS } from '@/lib/utils'
 import { orderAmount, orderPaid, orderBalance } from '@/lib/orderMetrics'
 
 // כסף ונציגים (מפרט, סעיף 7) — מנהל בלבד.
@@ -53,6 +53,8 @@ export default function MoneyPage() {
   const [settlements, setSettlements] = useState<Settlement[]>([])
   const [dealRules, setDealRules] = useState<SupplierDealRule[]>([])
   const [allocatedByOrder, setAllocatedByOrder] = useState<Map<string, number>>(new Map())
+  // לחיצה על משבצת למעלה — רשימת ההזמנות שמרכיבות את הסכום
+  const [tile, setTile] = useState<null | 'sum' | 'paid' | 'left' | 'profit'>(null)
   const [month, setMonth] = useState(() => new Date().toLocaleDateString('en-CA').slice(0, 7))
   const [repDialog, setRepDialog] = useState<{ id?: string; data: typeof EMPTY_REP } | null>(null)
   const [newExpense, setNewExpense] = useState({ spent_at: new Date().toLocaleDateString('en-CA'), city_id: '', amount: '', note: '' })
@@ -199,6 +201,13 @@ export default function MoneyPage() {
   if (loading) return <div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /></div>
   if (!isAdmin) return <p className="text-gray-500">המסך הזה זמין למנהלים בלבד.</p>
 
+  // ההזמנות שמאחורי המשבצת שנלחצה (ממוינות מהגדולה לקטנה)
+  const tileOrders = !tile ? [] : (
+    tile === 'sum' ? [...live].sort((a, b) => orderAmount(b) - orderAmount(a))
+    : tile === 'paid' ? live.filter((o) => orderPaid(o) > 0).sort((a, b) => orderPaid(b) - orderPaid(a))
+    : tile === 'left' ? live.filter((o) => orderBalance(o) > 0).sort((a, b) => orderBalance(b) - orderBalance(a))
+    : [...live].sort((a, b) => profit(b) - profit(a))
+  )
   const pct = (a: number, b: number) => (b ? Math.round((a / b) * 100) : 0)
   const sel = 'h-9 rounded-md border border-gray-200 bg-white px-2 text-sm'
 
@@ -210,10 +219,10 @@ export default function MoneyPage() {
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Card><CardContent className="p-4"><p className="text-sm text-gray-500">סך הזמנות עם מחיר</p><p className="text-2xl font-bold">{formatCurrency(totals.sum)}</p><p className="text-xs text-gray-400">{live.length} הזמנות (בלי בוטלו)</p></CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-sm text-gray-500">נגבה</p><p className="text-2xl font-bold text-green-600">{formatCurrency(totals.paid)}</p><p className="text-xs text-gray-400">{pct(totals.paid, totals.sum)}% גבייה</p></CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-sm text-gray-500">נשאר לגבות</p><p className="text-2xl font-bold text-red-600">{formatCurrency(totals.left)}</p></CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-sm text-gray-500">רווח משוער</p><p className="text-2xl font-bold text-blue-700">{formatCurrency(totals.profit)}</p><p className="text-xs text-gray-400">לפי מחיר ספק, או אחוז הרווח של המוצר</p></CardContent></Card>
+        <button type="button" onClick={() => setTile('sum')} className="text-right"><Card className="h-full hover:shadow-md hover:border-blue-300 transition"><CardContent className="p-4"><p className="text-sm text-gray-500">סך הזמנות עם מחיר</p><p className="text-2xl font-bold">{formatCurrency(totals.sum)}</p><p className="text-xs text-gray-400">{live.length} הזמנות (בלי בוטלו) · לחצו לרשימה</p></CardContent></Card></button>
+        <button type="button" onClick={() => setTile('paid')} className="text-right"><Card className="h-full hover:shadow-md hover:border-blue-300 transition"><CardContent className="p-4"><p className="text-sm text-gray-500">נגבה</p><p className="text-2xl font-bold text-green-600">{formatCurrency(totals.paid)}</p><p className="text-xs text-gray-400">{pct(totals.paid, totals.sum)}% גבייה · לחצו לרשימה</p></CardContent></Card></button>
+        <button type="button" onClick={() => setTile('left')} className="text-right"><Card className="h-full hover:shadow-md hover:border-blue-300 transition"><CardContent className="p-4"><p className="text-sm text-gray-500">נשאר לגבות</p><p className="text-2xl font-bold text-red-600">{formatCurrency(totals.left)}</p><p className="text-xs text-gray-400">לחצו לרשימה</p></CardContent></Card></button>
+        <button type="button" onClick={() => setTile('profit')} className="text-right"><Card className="h-full hover:shadow-md hover:border-blue-300 transition"><CardContent className="p-4"><p className="text-sm text-gray-500">רווח משוער</p><p className="text-2xl font-bold text-blue-700">{formatCurrency(totals.profit)}</p><p className="text-xs text-gray-400">לפי מחיר ספק, או אחוז הרווח של המוצר · לחצו לרשימה</p></CardContent></Card></button>
       </div>
 
       <Card>
@@ -371,6 +380,42 @@ export default function MoneyPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Dialog open={!!tile} onOpenChange={(o) => !o && setTile(null)}>
+        <DialogContent dir="rtl" className="max-w-4xl">
+          <DialogHeader><DialogTitle>{tile === 'sum' ? 'כל ההזמנות עם מחיר' : tile === 'paid' ? 'הזמנות ששולם עליהן' : tile === 'left' ? 'נשאר לגבות' : 'רווח משוער לפי הזמנה'} ({tileOrders.length})</DialogTitle></DialogHeader>
+          <div className="max-h-[70vh] overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-gray-600 sticky top-0"><tr>
+                <th className="text-right p-2">הזמנה</th><th className="text-right p-2">לקוח</th><th className="text-right p-2">מוצר</th><th className="text-right p-2">עיר</th><th className="text-right p-2">סטטוס</th>
+                <th className="text-right p-2">מחיר</th><th className="text-right p-2">שולם</th><th className="text-right p-2">יתרה</th><th className="text-right p-2">רווח משוער</th>
+              </tr></thead>
+              <tbody>
+                {tileOrders.map((o) => (
+                  <tr key={o.id} className="border-b hover:bg-gray-50">
+                    <td className="p-2"><Link href={`/orders/${o.id}`} className="text-blue-600 hover:underline"><OrderNumber orderNumber={o.order_number} /></Link></td>
+                    <td className="p-2"><Link href={`/orders/${o.id}`} className="hover:underline">{o.residents?.name || '—'}</Link></td>
+                    <td className="p-2">{catById.get(o.category_id || '')?.name || '—'}</td>
+                    <td className="p-2">{cityName(o.residents?.projects?.city_id || null)}</td>
+                    <td className="p-2">{STATUS_LABELS[o.status] || o.status}</td>
+                    <td className={`p-2 ${tile === 'sum' ? 'font-semibold' : ''}`}>{formatCurrency(orderAmount(o))}</td>
+                    <td className={`p-2 text-green-700 ${tile === 'paid' ? 'font-semibold' : ''}`}>{formatCurrency(Math.min(orderPaid(o), orderAmount(o)))}</td>
+                    <td className={`p-2 text-red-600 ${tile === 'left' ? 'font-semibold' : ''}`}>{formatCurrency(orderBalance(o))}</td>
+                    <td className={`p-2 text-blue-700 ${tile === 'profit' ? 'font-semibold' : ''}`}>{formatCurrency(profit(o))}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot><tr className="font-semibold bg-gray-50">
+                <td className="p-2" colSpan={5}>סה"כ</td>
+                <td className="p-2">{formatCurrency(tileOrders.reduce((a, o) => a + orderAmount(o), 0))}</td>
+                <td className="p-2">{formatCurrency(tileOrders.reduce((a, o) => a + Math.min(orderPaid(o), orderAmount(o)), 0))}</td>
+                <td className="p-2">{formatCurrency(tileOrders.reduce((a, o) => a + orderBalance(o), 0))}</td>
+                <td className="p-2">{formatCurrency(tileOrders.reduce((a, o) => a + profit(o), 0))}</td>
+              </tr></tfoot>
+            </table>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!repDialog} onOpenChange={(o) => !o && setRepDialog(null)}>
         <DialogContent dir="rtl">
