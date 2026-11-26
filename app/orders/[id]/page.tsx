@@ -41,8 +41,6 @@ type OrderItem = {
   model: string
   customer_price: number
   supplier_price: number
-  quantity?: number | null
-  product_type?: string | null
 }
 
 type OrderPayment = {
@@ -148,13 +146,9 @@ export default function OrderPage() {
   const [editingItemData, setEditingItemData] = useState<{
     description: string
     model: string
-    customer_price: string // סה"כ לפריט (כמות × מחיר ליחידה)
-    supplier_price: string // סה"כ לפריט
-    quantity: string
-    unit_price: string
-    product_type: string
-    supplier_touched: boolean
-  }>({ description: '', model: '', customer_price: '', supplier_price: '', quantity: '1', unit_price: '', product_type: '', supplier_touched: false })
+    customer_price: string
+    supplier_price: string
+  }>({ description: '', model: '', customer_price: '', supplier_price: '' })
 
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false)
   const [newPayment, setNewPayment] = useState({
@@ -334,7 +328,6 @@ export default function OrderPage() {
       model: newItem.model.trim(),
       customer_price: Math.round(unitCustomer * qty * 100) / 100,
       quantity: qty,
-      product_type: itemRuleName || null,
     }).select('id').single()
 
     if (!error && insertedItem && isAdmin) {
@@ -363,39 +356,13 @@ export default function OrderPage() {
     router.refresh()
   }
 
-  // כלל הרווח לפריט: לפי סוג המוצר שנבחר, אחרת לפי הקטגוריה
-  function ruleForType(typeName: string) {
-    const sub = categoryRules.find((r) => r.name === typeName)
-    return sub ? { type: sub.profit_type, value: Number(sub.profit_value), unit: sub.unit_label || sub.name } : profitRuleFor(order?.categories)
-  }
-
   function startEditItem(item: OrderItem) {
-    const qty = Number(item.quantity) > 0 ? Number(item.quantity) : 1
     setEditingItemId(item.id)
     setEditingItemData({
       description: item.description,
       model: item.model || '',
       customer_price: String(item.customer_price ?? ''),
       supplier_price: String(item.supplier_price ?? ''),
-      quantity: String(qty),
-      unit_price: String(Math.round(((item.customer_price || 0) / qty) * 100) / 100),
-      product_type: item.product_type || '',
-      supplier_touched: false,
-    })
-  }
-
-  // שינוי סוג מוצר / כמות / מחיר ליחידה: מעדכן את הסה"כ, ואת מחיר הספק לפי הרווח (אם לא נערך ידנית)
-  function updateEditingItem(patch: Partial<typeof editingItemData>) {
-    setEditingItemData((prev) => {
-      const next = { ...prev, ...patch }
-      const qty = parseFloat(next.quantity) > 0 ? parseFloat(next.quantity) : 1
-      const unit = parseFloat(next.unit_price) || 0
-      next.customer_price = String(Math.round(unit * qty * 100) / 100)
-      if (!next.supplier_touched) {
-        const rule = ruleForType(next.product_type)
-        next.supplier_price = String(Math.round(calcSupplierByRule(unit, rule.value, rule.type) * qty * 100) / 100)
-      }
-      return next
     })
   }
 
@@ -407,8 +374,6 @@ export default function OrderPage() {
         description: editingItemData.description.trim(),
         model: editingItemData.model.trim(),
         customer_price: parseFloat(editingItemData.customer_price) || 0,
-        quantity: parseFloat(editingItemData.quantity) > 0 ? parseFloat(editingItemData.quantity) : 1,
-        product_type: editingItemData.product_type || null,
       })
       .eq('id', itemId)
 
@@ -1288,18 +1253,7 @@ export default function OrderPage() {
                           <tr key={item.id} className={`border-b ${isEditing ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
                             {isEditing ? (
                               <>
-                                <td className="py-2 space-y-1">
-                                  {categoryRules.length > 0 && !order.is_global_price && (
-                                    <select
-                                      value={editingItemData.product_type}
-                                      onChange={(e) => updateEditingItem({ product_type: e.target.value })}
-                                      className="h-8 w-full rounded-md border border-gray-200 bg-white px-1 text-xs"
-                                      title="סוג מוצר — קובע את הרווח"
-                                    >
-                                      <option value="">{order.categories?.name} (רגיל)</option>
-                                      {categoryRules.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}
-                                    </select>
-                                  )}
+                                <td className="py-2">
                                   <Input
                                     value={editingItemData.description}
                                     onChange={(e) => setEditingItemData({ ...editingItemData, description: e.target.value })}
@@ -1323,29 +1277,14 @@ export default function OrderPage() {
                                 ) : (
                                   <>
                                     <td className="py-2">
-                                      <div className="grid grid-cols-2 gap-1 min-w-[150px]">
-                                        <label className="text-[10px] text-gray-500">כמות
-                                          <Input
-                                            type="number"
-                                            step="any"
-                                            value={editingItemData.quantity}
-                                            onChange={(e) => updateEditingItem({ quantity: e.target.value })}
-                                            className="h-8 text-sm"
-                                            dir="ltr"
-                                          />
-                                        </label>
-                                        <label className="text-[10px] text-gray-500">מחיר ליחידה
-                                          <Input
-                                            type="number"
-                                            step="any"
-                                            value={editingItemData.unit_price}
-                                            onChange={(e) => updateEditingItem({ unit_price: e.target.value })}
-                                            className="h-8 text-sm"
-                                            dir="ltr"
-                                          />
-                                        </label>
-                                      </div>
-                                      <div className="text-xs text-gray-600 mt-0.5">סה"כ: {formatCurrency(parseFloat(editingItemData.customer_price) || 0)}</div>
+                                      <Input
+                                        type="number"
+                              step="any"
+                                        value={editingItemData.customer_price}
+                                        onChange={(e) => setEditingItemData({ ...editingItemData, customer_price: e.target.value })}
+                                        className="h-8 text-sm"
+                                        dir="ltr"
+                                      />
                                     </td>
                                     {isAdmin && (
                                       <>
@@ -1354,8 +1293,7 @@ export default function OrderPage() {
                                             type="number"
                               step="any"
                                             value={editingItemData.supplier_price}
-                                            onChange={(e) => setEditingItemData({ ...editingItemData, supplier_price: e.target.value, supplier_touched: true })}
-                                            title="סה״כ מחיר ספק לפריט — מחושב אוטומטית לפי הרווח, אפשר לשנות ידנית"
+                                            onChange={(e) => setEditingItemData({ ...editingItemData, supplier_price: e.target.value })}
                                             className="h-8 text-sm"
                                             dir="ltr"
                                           />
@@ -1393,11 +1331,7 @@ export default function OrderPage() {
                               </>
                             ) : (
                               <>
-                                <td className="py-3">
-                                  {item.description}
-                                  {item.quantity && item.quantity !== 1 ? <span className="text-xs text-gray-500"> × {item.quantity}</span> : null}
-                                  {item.product_type && <div className="text-[11px] text-gray-400">{item.product_type}</div>}
-                                </td>
+                                <td className="py-3">{item.description}{(item as any).quantity && (item as any).quantity !== 1 ? <span className="text-xs text-gray-500"> × {(item as any).quantity}</span> : null}</td>
                                 <td className="py-3 text-gray-500">{item.model || '-'}</td>
                                 {order.is_global_price ? (
                                   <>
