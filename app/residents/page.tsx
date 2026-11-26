@@ -42,7 +42,7 @@ type Resident = {
   floor?: string | null
   apartment?: string | null
   access_type?: string | null
-  orders?: { status: string; categories: { name: string } | null }[]
+  orders?: { id: string; status: string; categories: { name: string } | null }[]
   projects?: { name: string; city_id: string } | null
 }
 type OrderItem = { id: string; description: string; model: string; customer_price: number }
@@ -236,8 +236,8 @@ export default function ResidentsPage() {
       .from('residents')
       .select(
         cityFiltered
-          ? 'id, project_id, name, address, floor, apartment, access_type, phone, phone2, email, key_location, orders(status, categories(name)), projects!inner(name, city_id)'
-          : 'id, project_id, name, address, floor, apartment, access_type, phone, phone2, email, key_location, orders(status, categories(name)), projects(name, city_id)',
+          ? 'id, project_id, name, address, floor, apartment, access_type, phone, phone2, email, key_location, orders(id, status, categories(name)), projects!inner(name, city_id)'
+          : 'id, project_id, name, address, floor, apartment, access_type, phone, phone2, email, key_location, orders(id, status, categories(name)), projects(name, city_id)',
         { count: 'exact' }
       )
     if (selectedProjectId !== ALL) q = q.eq('project_id', selectedProjectId)
@@ -577,14 +577,15 @@ export default function ResidentsPage() {
                         {/* המוצרים שהדייר הזמין (הזמנה שבוטלה — באפור ומחוקה) */}
                         {resident.orders && resident.orders.length > 0 ? (
                           <div className="flex flex-wrap gap-1 max-w-[220px]">
-                            {resident.orders.map((o, i) => (
-                              <span
-                                key={i}
-                                className={`text-[11px] rounded px-1.5 py-0.5 whitespace-nowrap ${o.status === 'cancelled' ? 'bg-gray-100 text-gray-400 line-through' : 'bg-blue-50 text-blue-800'}`}
-                                title={o.status === 'cancelled' ? 'הזמנה שבוטלה' : undefined}
+                            {resident.orders.map((o) => (
+                              <Link
+                                key={o.id}
+                                href={`/orders/${o.id}?from=${encodeURIComponent('/residents')}`}
+                                className={`text-[11px] rounded px-1.5 py-0.5 whitespace-nowrap hover:underline ${o.status === 'cancelled' ? 'bg-gray-100 text-gray-400 line-through' : 'bg-blue-50 text-blue-800 hover:bg-blue-100'}`}
+                                title={o.status === 'cancelled' ? 'הזמנה שבוטלה — לחץ לפתיחה' : 'לחץ לפתיחת ההזמנה'}
                               >
                                 {o.categories?.name || 'ללא מוצר'}
-                              </span>
+                              </Link>
                             ))}
                           </div>
                         ) : <span className="text-gray-400 text-xs">אין הזמנות</span>}
