@@ -56,6 +56,8 @@ export default function MoneyPage() {
   // לחיצה על משבצת למעלה — רשימת ההזמנות שמרכיבות את הסכום
   const [tile, setTile] = useState<null | 'sum' | 'paid' | 'left' | 'profit'>(null)
   const [tileCat, setTileCat] = useState('')
+  // משבצות הספקים: כמה מגיע לנו / כמה כבר נכנס — פירוט לפי ספק
+  const [supTile, setSupTile] = useState<null | 'due' | 'paid'>(null)
   const [tileSort, setTileSort] = useState<'value' | 'category'>('value')
   const tileScrollRef = useRef<HTMLDivElement>(null)
   const restoreScrollRef = useRef<number | null>(null)
@@ -246,6 +248,14 @@ export default function MoneyPage() {
       ? (catById.get(a.category_id || '')?.name || '').localeCompare(catById.get(b.category_id || '')?.name || '', 'he') || tileValue(b) - tileValue(a)
       : tileValue(b) - tileValue(a))
   const tileCategories = categories.filter((c) => live.some((o) => o.category_id === c.id))
+  // סיכום הספקים למשבצות: יתרת חוב (רק חיובית) וכמה כבר נכנס (תשלומים + קיזוזים)
+  const supTotals = {
+    due: supplierRows.reduce((a, r) => a + Math.max(0, r.balance), 0),
+    paid: supplierRows.reduce((a, r) => a + r.paid + r.offset, 0),
+  }
+  const supTileRows = supTile === 'due'
+    ? supplierRows.filter((r) => r.balance > 0).sort((a, b) => b.balance - a.balance)
+    : supplierRows.filter((r) => r.paid + r.offset > 0).sort((a, b) => (b.paid + b.offset) - (a.paid + a.offset))
   const pct = (a: number, b: number) => (b ? Math.round((a / b) * 100) : 0)
   const sel = 'h-9 rounded-md border border-gray-200 bg-white px-2 text-sm'
 
@@ -256,11 +266,13 @@ export default function MoneyPage() {
         <p className="text-gray-500 mt-1">כמה כסף בחוץ ואצל מי, רווח לפי עיר, עמלות נציגים וחובות ספקים</p>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         <button type="button" onClick={() => setTile('sum')} className="text-right"><Card className="h-full hover:shadow-md hover:border-blue-300 transition"><CardContent className="p-4"><p className="text-sm text-gray-500">סך הזמנות עם מחיר</p><p className="text-2xl font-bold">{formatCurrency(totals.sum)}</p><p className="text-xs text-gray-400">{live.length} הזמנות (בלי בוטלו) · לחצו לרשימה</p></CardContent></Card></button>
         <button type="button" onClick={() => setTile('paid')} className="text-right"><Card className="h-full hover:shadow-md hover:border-blue-300 transition"><CardContent className="p-4"><p className="text-sm text-gray-500">נגבה</p><p className="text-2xl font-bold text-green-600">{formatCurrency(totals.paid)}</p><p className="text-xs text-gray-400">{pct(totals.paid, totals.sum)}% גבייה · לחצו לרשימה</p></CardContent></Card></button>
         <button type="button" onClick={() => setTile('left')} className="text-right"><Card className="h-full hover:shadow-md hover:border-blue-300 transition"><CardContent className="p-4"><p className="text-sm text-gray-500">נשאר לגבות</p><p className="text-2xl font-bold text-red-600">{formatCurrency(totals.left)}</p><p className="text-xs text-gray-400">לחצו לרשימה</p></CardContent></Card></button>
         <button type="button" onClick={() => setTile('profit')} className="text-right"><Card className="h-full hover:shadow-md hover:border-blue-300 transition"><CardContent className="p-4"><p className="text-sm text-gray-500">רווח משוער</p><p className="text-2xl font-bold text-blue-700">{formatCurrency(totals.profit)}</p><p className="text-xs text-gray-400">לפי מחיר ספק, או אחוז הרווח של המוצר · לחצו לרשימה</p></CardContent></Card></button>
+        <button type="button" onClick={() => setSupTile('due')} className="text-right"><Card className="h-full hover:shadow-md hover:border-blue-300 transition"><CardContent className="p-4"><p className="text-sm text-gray-500">מגיע לנו מהספקים</p><p className="text-2xl font-bold text-orange-600">{formatCurrency(supTotals.due)}</p><p className="text-xs text-gray-400">רווח שהספקים עוד חייבים (לפי מה שהלקוחות שילמו) · לחצו לפירוט</p></CardContent></Card></button>
+        <button type="button" onClick={() => setSupTile('paid')} className="text-right"><Card className="h-full hover:shadow-md hover:border-blue-300 transition"><CardContent className="p-4"><p className="text-sm text-gray-500">נכנס מהספקים</p><p className="text-2xl font-bold text-green-600">{formatCurrency(supTotals.paid)}</p><p className="text-xs text-gray-400">כל מה שהספקים כבר העבירו (כולל קיזוז) · לחצו לפירוט</p></CardContent></Card></button>
       </div>
 
       <Card>
@@ -463,6 +475,38 @@ export default function MoneyPage() {
               </tr></tfoot>
             </table>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!supTile} onOpenChange={(o) => !o && setSupTile(null)}>
+        <DialogContent dir="rtl" className="max-w-2xl">
+          <DialogHeader><DialogTitle>{supTile === 'due' ? 'מגיע לנו מהספקים' : 'נכנס מהספקים'} ({supTileRows.length})</DialogTitle></DialogHeader>
+          <div className="max-h-[65vh] overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-gray-600 sticky top-0"><tr>
+                <th className="text-right p-2">ספק</th><th className="text-right p-2">חייב עד עכשיו</th><th className="text-right p-2">שילם</th><th className="text-right p-2">קיזוז</th><th className="text-right p-2">עוד מגיע לנו</th>
+              </tr></thead>
+              <tbody>
+                {supTileRows.map((r) => (
+                  <tr key={r.s.id} className="border-b hover:bg-gray-50">
+                    <td className="p-2"><Link href={`/suppliers/${r.s.id}`} className="text-blue-600 hover:underline">{r.s.name}</Link></td>
+                    <td className="p-2">{formatCurrency(r.owed)}</td>
+                    <td className={`p-2 text-green-700 ${supTile === 'paid' ? 'font-semibold' : ''}`}>{formatCurrency(r.paid)}</td>
+                    <td className="p-2">{formatCurrency(r.offset)}</td>
+                    <td className={`p-2 text-orange-600 ${supTile === 'due' ? 'font-semibold' : ''}`}>{formatCurrency(Math.max(0, r.balance))}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot><tr className="font-semibold bg-gray-50">
+                <td className="p-2">סה"כ</td>
+                <td className="p-2">{formatCurrency(supTileRows.reduce((a, r) => a + r.owed, 0))}</td>
+                <td className="p-2">{formatCurrency(supTileRows.reduce((a, r) => a + r.paid, 0))}</td>
+                <td className="p-2">{formatCurrency(supTileRows.reduce((a, r) => a + r.offset, 0))}</td>
+                <td className="p-2">{formatCurrency(supTileRows.reduce((a, r) => a + Math.max(0, r.balance), 0))}</td>
+              </tr></tfoot>
+            </table>
+          </div>
+          <p className="text-xs text-gray-500">לפירוט לפי לקוח — לוחצים על שם הספק.</p>
         </DialogContent>
       </Dialog>
 
