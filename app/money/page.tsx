@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Loader2, Plus, Trash2, Pencil } from 'lucide-react'
 import { OrderNumber } from '@/components/OrderNumber'
+import { SupplierRemittances } from '@/components/SupplierRemittances'
 import { formatCurrency, profitRuleFor } from '@/lib/utils'
 import { orderAmount, orderPaid, orderBalance } from '@/lib/orderMetrics'
 
@@ -281,6 +282,8 @@ export default function MoneyPage() {
           </p>
         </CardContent>
       </Card>
+
+      <SupplierRemittances />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
