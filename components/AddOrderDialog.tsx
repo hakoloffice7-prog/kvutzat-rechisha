@@ -177,6 +177,7 @@ export function AddOrderDialog({
             model: i.model.trim(),
             customer_price: parseFloat(i.customer_price) || 0,
             quantity: parseFloat(i.quantity) || 1,
+            product_type: i.rule_name || null,
           }))
         ).select('id')
 
