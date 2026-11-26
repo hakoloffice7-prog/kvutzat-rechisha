@@ -42,7 +42,7 @@ type Resident = {
   floor?: string | null
   apartment?: string | null
   access_type?: string | null
-  orders?: { count: number }[]
+  orders?: { status: string; categories: { name: string } | null }[]
   projects?: { name: string; city_id: string } | null
 }
 type OrderItem = { id: string; description: string; model: string; customer_price: number }
@@ -236,8 +236,8 @@ export default function ResidentsPage() {
       .from('residents')
       .select(
         cityFiltered
-          ? 'id, project_id, name, address, floor, apartment, access_type, phone, phone2, email, key_location, orders(count), projects!inner(name, city_id)'
-          : 'id, project_id, name, address, floor, apartment, access_type, phone, phone2, email, key_location, orders(count), projects(name, city_id)',
+          ? 'id, project_id, name, address, floor, apartment, access_type, phone, phone2, email, key_location, orders(status, categories(name)), projects!inner(name, city_id)'
+          : 'id, project_id, name, address, floor, apartment, access_type, phone, phone2, email, key_location, orders(status, categories(name)), projects(name, city_id)',
         { count: 'exact' }
       )
     if (selectedProjectId !== ALL) q = q.eq('project_id', selectedProjectId)
@@ -521,7 +521,7 @@ export default function ResidentsPage() {
                     <th className="text-right py-3 px-2 font-medium">דירה</th>
                     <th className="text-right py-3 px-4 font-medium">טלפון</th>
                     <th className="text-right py-3 px-4 font-medium">גישה לדירה</th>
-                    <th className="text-right py-3 px-2 font-medium">הזמנות</th>
+                    <th className="text-right py-3 px-2 font-medium">מה הזמין</th>
                     <th className="text-right py-3 px-2 font-medium">חסר</th>
                     <th className="py-3 px-4"></th>
                   </tr>
@@ -573,7 +573,22 @@ export default function ResidentsPage() {
                               )}
                       </td>
                       <td className="py-3 px-4 text-gray-600 text-xs">{resident.access_type || '—'}</td>
-                      <td className="py-3 px-2 text-gray-600 text-center">{resident.orders?.[0]?.count ?? 0}</td>
+                      <td className="py-3 px-2">
+                        {/* המוצרים שהדייר הזמין (הזמנה שבוטלה — באפור ומחוקה) */}
+                        {resident.orders && resident.orders.length > 0 ? (
+                          <div className="flex flex-wrap gap-1 max-w-[220px]">
+                            {resident.orders.map((o, i) => (
+                              <span
+                                key={i}
+                                className={`text-[11px] rounded px-1.5 py-0.5 whitespace-nowrap ${o.status === 'cancelled' ? 'bg-gray-100 text-gray-400 line-through' : 'bg-blue-50 text-blue-800'}`}
+                                title={o.status === 'cancelled' ? 'הזמנה שבוטלה' : undefined}
+                              >
+                                {o.categories?.name || 'ללא מוצר'}
+                              </span>
+                            ))}
+                          </div>
+                        ) : <span className="text-gray-400 text-xs">אין הזמנות</span>}
+                      </td>
                       <td className="py-3 px-2 text-center">
                         {missingCount(resident) > 0
                           ? <span className="text-xs rounded bg-orange-100 text-orange-700 px-1.5 py-0.5">{missingCount(resident)}</span>
