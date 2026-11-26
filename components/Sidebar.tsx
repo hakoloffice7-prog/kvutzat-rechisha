@@ -108,6 +108,7 @@ export default function Sidebar({ role, name }: { role: Role; name: string | nul
       >
         <div className="p-6 border-b border-blue-600/50 md:p-0 md:border-0 md:shrink-0">
           <h1 className="text-xl font-bold text-white">קבוצות רכישה</h1>
+          <p className="text-xs text-blue-100 leading-tight">לכבוד שבת קודש</p>
           <p className="text-sm text-blue-200 mt-1 md:hidden">מערכת ניהול</p>
           {name && (
             <div className="flex items-center gap-2 mt-3 pt-3 border-t border-blue-600/50 text-sm text-blue-50 md:hidden">
