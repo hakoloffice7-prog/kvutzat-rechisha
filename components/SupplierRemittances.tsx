@@ -48,6 +48,11 @@ function findExactMatch(items: { id: string; value: number }[], target: number):
   return null
 }
 
+// "הרווח התקבל" שנבחר ידנית בלי שתשלומי הספק משויכים במלואם
+function r_isManual(status: string, got: number, share: number) {
+  return status === 'profit_received' && got < share - 0.5
+}
+
 export function SupplierRemittances() {
   const supabase = createClient()
   const [loading, setLoading] = useState(true)
@@ -119,7 +124,6 @@ export function SupplierRemittances() {
       const got = (received.get(o.id) || 0) + supplierDebtFromPayments(o, share).companyPaid
       const fullyPaid = share > 0 && got >= share - 0.5
       if (o.status === 'done' && fullyPaid) toReceived.push(o.id)
-      if (o.status === 'profit_received' && !fullyPaid && got > 0) toDone.push(o.id)
     }
     const now = new Date().toISOString()
     if (toReceived.length) await supabase.from('orders').update({ status: 'profit_received', updated_at: now }).in('id', toReceived).eq('status', 'done')
@@ -142,14 +146,16 @@ export function SupplierRemittances() {
         // חוב הספק נוצר לפי מה שהלקוח שילם (גם מקדמה); תשלום ישיר לחברה נחשב כרווח שהתקבל
         const debt = supplierDebtFromPayments(o, share)
         const fromSupplier = round2(allocatedByOrder.get(o.id) || 0)
-        const received = round2(fromSupplier + Math.min(debt.companyPaid, share))
-        const accrued = debt.accrued
+        // סטטוס "הרווח התקבל" שנבחר ידנית: נחשב כאילו כל חלק החברה התקבל
+        const manual = r_isManual(o.status, fromSupplier + Math.min(debt.companyPaid, share), share)
+        const received = manual ? share : round2(fromSupplier + Math.min(debt.companyPaid, share))
+        const accrued = manual ? Math.max(debt.accrued, share) : debt.accrued
         const left = round2(Math.max(0, accrued - received))
         const state: 'paid' | 'partial' | 'unpaid' | 'none' =
           debt.customerPaid <= 0 && received <= 0 ? 'none'
             : left <= 0.5 ? 'paid'
             : received > 0 ? 'partial' : 'unpaid'
-        return { o, share, accrued, received, fromSupplier, companyPaid: debt.companyPaid, customerPaid: debt.customerPaid, paidRatio: debt.paidRatio, left, state }
+        return { o, share, accrued, received, fromSupplier, companyPaid: debt.companyPaid, customerPaid: debt.customerPaid, paidRatio: debt.paidRatio, left, state, manual }
       })
       .sort((a, b) => (a.o.order_number || 0) - (b.o.order_number || 0))
   }, [orders, supplierId, allocatedByOrder, supplier, catById, dealRules])
@@ -234,6 +240,7 @@ export function SupplierRemittances() {
   async function undoOrder(orderId: string) {
     if (!confirm('לבטל את השיוכים של ההזמנה הזו? הסכום יחזור לזיכוי הפתוח של הספק.')) return
     await supabase.from('supplier_payment_allocations').delete().eq('order_id', orderId).in('settlement_id', supplierPayments.map((p) => p.id))
+    await supabase.from('orders').update({ status: 'done', updated_at: new Date().toISOString() }).eq('id', orderId).eq('status', 'profit_received')
     load()
   }
 
@@ -334,7 +341,10 @@ export function SupplierRemittances() {
                       <td className="p-2">{r.accrued ? formatCurrency(r.accrued) : '—'}</td>
                       <td className="p-2 text-green-700">{r.received ? formatCurrency(r.received) : '—'}</td>
                       <td className="p-2 font-medium">{r.left ? formatCurrency(r.left) : '—'}</td>
-                      <td className="p-2"><Badge variant={stateBadge[r.state][0] as any}>{stateBadge[r.state][1]}</Badge></td>
+                      <td className="p-2">
+                        <Badge variant={stateBadge[r.state][0] as any}>{stateBadge[r.state][1]}</Badge>
+                        {r.manual && <div className="text-[10px] text-gray-500 mt-0.5">סומן "הרווח התקבל"</div>}
+                      </td>
                       <td className="p-2">
                         {r.received > 0 && <button onClick={() => undoOrder(r.o.id)} className="text-xs text-gray-400 hover:text-red-600">ביטול שיוך</button>}
                       </td>

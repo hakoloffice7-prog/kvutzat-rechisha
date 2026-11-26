@@ -52,6 +52,7 @@ export default function MoneyPage() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [settlements, setSettlements] = useState<Settlement[]>([])
   const [dealRules, setDealRules] = useState<SupplierDealRule[]>([])
+  const [allocatedByOrder, setAllocatedByOrder] = useState<Map<string, number>>(new Map())
   const [month, setMonth] = useState(() => new Date().toLocaleDateString('en-CA').slice(0, 7))
   const [repDialog, setRepDialog] = useState<{ id?: string; data: typeof EMPTY_REP } | null>(null)
   const [newExpense, setNewExpense] = useState({ spent_at: new Date().toLocaleDateString('en-CA'), city_id: '', amount: '', note: '' })
@@ -69,6 +70,10 @@ export default function MoneyPage() {
     ])
     const { data: dr } = await supabase.from('supplier_deal_rules').select('supplier_id, name, deal_type, deal_value, deal_unit')
     setDealRules((dr || []) as SupplierDealRule[])
+    const { data: al } = await supabase.from('supplier_payment_allocations').select('order_id, amount')
+    const m = new Map<string, number>()
+    for (const a of (al || []) as any[]) m.set(a.order_id, (m.get(a.order_id) || 0) + Number(a.amount))
+    setAllocatedByOrder(m)
     setOrders((o.data || []) as unknown as Order[])
     setCities(c.data || [])
     setCategories((cat.data || []) as Category[])
@@ -140,9 +145,14 @@ export default function MoneyPage() {
     for (const o of list) {
       const share = supplierShare(s, o)
       const debt = supplierDebtFromPayments(o as any, share)
-      if (debt.accrued > 0) count++
-      owed += debt.accrued
-      paidDirect += Math.min(debt.companyPaid, share)
+      const direct = Math.min(debt.companyPaid, share)
+      // "הרווח התקבל" שנבחר ידנית: כל חלק החברה נחשב כהתקבל
+      const manualExtra = o.status === 'profit_received'
+        ? Math.max(0, share - (allocatedByOrder.get(o.id) || 0) - direct) : 0
+      const accrued = manualExtra > 0 ? Math.max(debt.accrued, share) : debt.accrued
+      if (accrued > 0) count++
+      owed += accrued
+      paidDirect += direct + manualExtra
     }
     const paid = settlements.filter((x) => x.supplier_id === s.id && x.kind === 'payment').reduce((a, x) => a + x.amount, 0) + paidDirect
     const offset = settlements.filter((x) => x.supplier_id === s.id && x.kind === 'offset').reduce((a, x) => a + x.amount, 0)
