@@ -229,6 +229,23 @@ export function SupplierRemittances() {
     load()
   }
 
+  // מחיקת תשלום שנרשם בטעות — מוחקת גם את השיוכים שלו להזמנות (והסטטוסים מתעדכנים בטעינה)
+  async function deletePayment(p: Settlement) {
+    const linked = allocations.filter((a) => a.settlement_id === p.id).length
+    const msgText = `למחוק את התשלום של ${formatCurrency(Number(p.amount))} מ-${p.happened_at.split('-').reverse().join('/')}?` +
+      (linked ? `\nהוא משויך ל-${linked} הזמנות — השיוכים יימחקו, וההזמנות יחזרו ל"לא הועבר".` : '')
+    if (!confirm(msgText)) return
+    // הזמנות שעברו ל"הרווח התקבל" בזכות התשלום הזה חוזרות ל"בוצע"
+    const linkedOrders = Array.from(new Set(allocations.filter((a) => a.settlement_id === p.id).map((a) => a.order_id)))
+    if (linkedOrders.length) {
+      await supabase.from('orders').update({ status: 'done', updated_at: new Date().toISOString() }).in('id', linkedOrders).eq('status', 'profit_received')
+    }
+    const { error } = await supabase.from('supplier_settlements').delete().eq('id', p.id)
+    if (error) { alert('המחיקה נכשלה'); return }
+    setMsg('התשלום נמחק.')
+    load()
+  }
+
   if (loading) return <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
 
   const suppliersWithOrders = suppliers.filter((s) => orders.some((o) => o.supplier_id === s.id))
@@ -347,6 +364,27 @@ export function SupplierRemittances() {
                 </Button>
               </div>
             </div>
+            {/* תשלומים שנרשמו מהספק — עם מחיקה */}
+            {supplierPayments.length > 0 && (
+              <div className="rounded-md border p-3 space-y-1">
+                <div className="font-medium text-sm">תשלומים שנרשמו מהספק</div>
+                <ul className="divide-y text-sm">
+                  {[...supplierPayments].reverse().map((p) => {
+                    const used = round2(allocatedBySettlement(p.id))
+                    return (
+                      <li key={p.id} className="flex items-center justify-between gap-2 py-1.5">
+                        <span>
+                          {p.happened_at.split('-').reverse().join('/')} · <strong>{formatCurrency(Number(p.amount))}</strong>
+                          {p.note ? <span className="text-gray-500"> · {p.note}</span> : null}
+                          <span className="text-xs text-gray-500"> · שויך {formatCurrency(used)}{Number(p.amount) - used > 0.5 ? ` · פתוח ${formatCurrency(Number(p.amount) - used)}` : ''}</span>
+                        </span>
+                        <button onClick={() => deletePayment(p)} className="text-xs text-red-500 hover:text-red-700 hover:underline whitespace-nowrap">מחק תשלום</button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            )}
             {supplier && !supplier.deal_type && (
               <p className="text-xs text-gray-500">לספק לא הוגדר הסכם, ולכן "מגיע לחברה" מחושב לפי מחיר הלקוח פחות מחיר הספק בכל הזמנה. אפשר להגדיר הסכם במסך ספקים ← ⚙.</p>
             )}
