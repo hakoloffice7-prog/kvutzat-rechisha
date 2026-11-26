@@ -11,7 +11,7 @@ import { Loader2, Wand2 } from 'lucide-react'
 import { OrderNumber } from '@/components/OrderNumber'
 import { STATUS_LABELS, formatCurrency } from '@/lib/utils'
 import { orderAmount } from '@/lib/orderMetrics'
-import { COMMISSION_ORDER_SELECT, estimateProfit, type CommissionCategory, type CommissionOrder } from '@/lib/commissions'
+import { COMMISSION_ORDER_SELECT, supplierCompanyShare, type CommissionCategory, type CommissionOrder, type SupplierDealRule } from '@/lib/commissions'
 
 // מה הספק העביר לחברה — לפי לקוח. לכל הזמנה של הספק: כמה מגיע לחברה, כמה כבר הועבר עליה ומה נשאר.
 // תשלום מהספק משויך להזמנות שהוא מכסה; מה שלא שויך נשאר "זיכוי פתוח" ואפשר לשייך אותו אחר כך.
@@ -57,6 +57,7 @@ export function SupplierRemittances() {
   const [cities, setCities] = useState<Option[]>([])
   const [settlements, setSettlements] = useState<Settlement[]>([])
   const [allocations, setAllocations] = useState<Allocation[]>([])
+  const [dealRules, setDealRules] = useState<SupplierDealRule[]>([])
   const [supplierId, setSupplierId] = useState('')
   const [filter, setFilter] = useState<'all' | 'unpaid' | 'paid'>('unpaid')
   const [onlyDone, setOnlyDone] = useState(false)
@@ -75,6 +76,8 @@ export function SupplierRemittances() {
       supabase.from('supplier_settlements').select('*').order('happened_at'),
       supabase.from('supplier_payment_allocations').select('id, settlement_id, order_id, amount'),
     ])
+    const { data: dr } = await supabase.from('supplier_deal_rules').select('supplier_id, name, deal_type, deal_value, deal_unit')
+    setDealRules((dr || []) as SupplierDealRule[])
     setOrders((o.data || []) as unknown as CommissionOrder[])
     setSuppliers((s.data || []) as Supplier[])
     setCategories((cat.data || []) as CommissionCategory[])
@@ -88,14 +91,9 @@ export function SupplierRemittances() {
   const catById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories])
   const supplier = suppliers.find((s) => s.id === supplierId)
 
-  // כמה מגיע לחברה מהזמנה: לפי ההסכם (אחוז / סכום ליחידה × כמות), אחרת לפי הרווח (מחיר לקוח פחות מחיר ספק)
+  // כמה מגיע לחברה מהזמנה — לפי תנאי ההסכם של הספק (כולל פריטים כמו חלון / דלת), אחרת לפי הרווח
   function companyShare(o: CommissionOrder) {
-    if (supplier?.deal_type === 'percent' && supplier.deal_value != null) return round2(orderAmount(o) * supplier.deal_value / 100)
-    if (supplier?.deal_type === 'per_unit' && supplier.deal_value != null) {
-      const qty = o.order_items.reduce((q, i) => q + (Number(i.quantity) || 0), 0)
-      if (qty > 0) return round2(qty * supplier.deal_value)
-    }
-    return round2(estimateProfit(o, catById))
+    return supplierCompanyShare(o, supplier, dealRules, catById)
   }
 
   const allocatedByOrder = useMemo(() => {
@@ -116,7 +114,7 @@ export function SupplierRemittances() {
         return { o, share, received, left, state }
       })
       .sort((a, b) => (a.o.order_number || 0) - (b.o.order_number || 0))
-  }, [orders, supplierId, allocatedByOrder, supplier, catById])
+  }, [orders, supplierId, allocatedByOrder, supplier, catById, dealRules])
 
   const visible = rows.filter((r) =>
     (!onlyDone || r.o.status === 'done') &&

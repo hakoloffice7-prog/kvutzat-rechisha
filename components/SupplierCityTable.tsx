@@ -46,6 +46,10 @@ export function SupplierCityTable() {
   const [draftCities, setDraftCities] = useState<Record<string, string>>({}) // city_id -> min (ריק = לא עובד בעיר)
   const [draftDeal, setDraftDeal] = useState({ deal_type: '', deal_value: '', deal_unit: '' })
   const [saving, setSaving] = useState(false)
+  // תנאי הסכם לפי פריט (למשל: חלון 20 ₪, דלת 60 ₪ לחברה)
+  type DealRuleRow = { supplier_id: string; name: string; deal_type: 'percent' | 'per_unit'; deal_value: number; deal_unit: string | null }
+  const [dealRules, setDealRules] = useState<DealRuleRow[]>([])
+  const [draftRules, setDraftRules] = useState<{ name: string; deal_type: 'percent' | 'per_unit'; deal_value: string; deal_unit: string }[]>([])
 
   async function load() {
     const [s, c, st, o] = await Promise.all([
@@ -58,6 +62,10 @@ export function SupplierCityTable() {
     setCities(c.data || [])
     setSettings((st.data || []) as Setting[])
     setOrders((o.data || []) as unknown as Order[])
+    if (isAdmin) {
+      const { data: dr } = await supabase.from('supplier_deal_rules').select('supplier_id, name, deal_type, deal_value, deal_unit').order('sort_order')
+      setDealRules((dr || []) as DealRuleRow[])
+    }
     setLoading(false)
   }
   useEffect(() => { load() }, [])
@@ -78,6 +86,7 @@ export function SupplierCityTable() {
     for (const st of settings.filter((x) => x.supplier_id === sup.id)) d[st.city_id] = String(st.min_orders)
     setDraftCities(d)
     setDraftDeal({ deal_type: sup.deal_type || '', deal_value: sup.deal_value != null ? String(sup.deal_value) : '', deal_unit: sup.deal_unit || '' })
+    setDraftRules(dealRules.filter((r) => r.supplier_id === sup.id).map((r) => ({ name: r.name, deal_type: r.deal_type, deal_value: String(r.deal_value), deal_unit: r.deal_unit || '' })))
     setEditing(sup)
   }
 
@@ -96,6 +105,14 @@ export function SupplierCityTable() {
         deal_value: Number.isNaN(value) ? null : value,
         deal_unit: draftDeal.deal_type === 'per_unit' ? (draftDeal.deal_unit.trim() || 'יחידה') : null,
       }).eq('id', editing.id)
+      await supabase.from('supplier_deal_rules').delete().eq('supplier_id', editing.id)
+      const rules = draftRules
+        .filter((r) => r.name.trim() && !Number.isNaN(parseFloat(r.deal_value)))
+        .map((r, i) => ({
+          supplier_id: editing.id, name: r.name.trim(), deal_type: r.deal_type, deal_value: parseFloat(r.deal_value),
+          deal_unit: r.deal_type === 'per_unit' ? (r.deal_unit.trim() || r.name.trim()) : null, sort_order: i,
+        }))
+      if (rules.length) await supabase.from('supplier_deal_rules').insert(rules)
     }
     setSaving(false)
     setEditing(null)
@@ -133,7 +150,14 @@ export function SupplierCityTable() {
                     <td className="py-2 px-3 font-medium"><Link href={`/suppliers/${sup.id}`} className="hover:text-blue-600">{sup.name}</Link></td>
                     <td className="py-2 px-3 text-gray-600">{sup.categories?.name || '—'}</td>
                     <td className="py-2 px-3 text-gray-600" dir="ltr">{sup.phone || '—'}</td>
-                    {isAdmin && <td className="py-2 px-3 text-xs text-gray-600 whitespace-nowrap">{dealText(sup) || <span className="text-orange-600">לא הוגדר</span>}</td>}
+                    {isAdmin && (
+                      <td className="py-2 px-3 text-xs text-gray-600">
+                        <div className="whitespace-nowrap">{dealText(sup) || (dealRules.some((r) => r.supplier_id === sup.id) ? '' : <span className="text-orange-600">לא הוגדר</span>)}</div>
+                        {dealRules.filter((r) => r.supplier_id === sup.id).map((r, i) => (
+                          <div key={i} className="whitespace-nowrap">{r.name}: {r.deal_type === 'per_unit' ? `${r.deal_value} ₪ ל${r.deal_unit || r.name}` : `${r.deal_value}%`}</div>
+                        ))}
+                      </td>
+                    )}
                     {cities.map((c) => {
                       const st = settingOf(sup.id, c.id)
                       const n = pending(sup, c.id)
@@ -212,6 +236,25 @@ export function SupplierCityTable() {
                   )}
                 </div>
                 <p className="text-xs text-gray-500">לדוגמה בווילונות: 35 ₪ למטר לחברה (285 ₪ ללקוח, 250 ₪ לספק).</p>
+                <div className="space-y-2 pt-2">
+                  <Label>הסכם לפי פריט (רשות)</Label>
+                  <p className="text-xs text-gray-500">למשל: חלון 20 ₪ לחלון, דלת 60 ₪ לדלת. פריט בהזמנה שהתיאור שלו מכיל את השם (למשל "דלת") יחושב לפי הכלל שלו × הכמות. שאר הפריטים — לפי ההסכם הכללי שלמעלה.</p>
+                  {draftRules.map((r, i) => (
+                    <div key={i} className="grid grid-cols-[1.3fr_1fr_0.8fr_0.9fr_auto] gap-1 items-center">
+                      <Input placeholder="פריט (דלת)" value={r.name} onChange={(e) => setDraftRules((l) => l.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} />
+                      <select className="h-10 rounded-md border border-gray-200 px-1 text-sm" value={r.deal_type} onChange={(e) => setDraftRules((l) => l.map((x, j) => j === i ? { ...x, deal_type: e.target.value as 'percent' | 'per_unit' } : x))}>
+                        <option value="per_unit">סכום ליחידה</option>
+                        <option value="percent">אחוז</option>
+                      </select>
+                      <Input type="number" step="any" placeholder={r.deal_type === 'per_unit' ? '₪' : '%'} value={r.deal_value} onChange={(e) => setDraftRules((l) => l.map((x, j) => j === i ? { ...x, deal_value: e.target.value } : x))} dir="ltr" />
+                      {r.deal_type === 'per_unit'
+                        ? <Input placeholder="יחידה" value={r.deal_unit} onChange={(e) => setDraftRules((l) => l.map((x, j) => j === i ? { ...x, deal_unit: e.target.value } : x))} />
+                        : <span />}
+                      <button type="button" onClick={() => setDraftRules((l) => l.filter((_, j) => j !== i))} className="px-1 text-red-400 hover:text-red-600" title="הסר">✕</button>
+                    </div>
+                  ))}
+                  <Button type="button" size="sm" variant="outline" onClick={() => setDraftRules((l) => [...l, { name: '', deal_type: 'per_unit', deal_value: '', deal_unit: '' }])}>+ הוסף פריט להסכם</Button>
+                </div>
               </div>
             )}
             <div className="flex gap-2 justify-end">

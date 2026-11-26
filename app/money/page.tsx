@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Loader2, Plus, Trash2, Pencil } from 'lucide-react'
 import { OrderNumber } from '@/components/OrderNumber'
 import { SupplierRemittances } from '@/components/SupplierRemittances'
+import { supplierCompanyShare, type SupplierDealRule } from '@/lib/commissions'
 import { formatCurrency, profitRuleFor } from '@/lib/utils'
 import { orderAmount, orderPaid, orderBalance } from '@/lib/orderMetrics'
 
@@ -50,6 +51,7 @@ export default function MoneyPage() {
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [settlements, setSettlements] = useState<Settlement[]>([])
+  const [dealRules, setDealRules] = useState<SupplierDealRule[]>([])
   const [month, setMonth] = useState(() => new Date().toLocaleDateString('en-CA').slice(0, 7))
   const [repDialog, setRepDialog] = useState<{ id?: string; data: typeof EMPTY_REP } | null>(null)
   const [newExpense, setNewExpense] = useState({ spent_at: new Date().toLocaleDateString('en-CA'), city_id: '', amount: '', note: '' })
@@ -57,7 +59,7 @@ export default function MoneyPage() {
 
   async function load() {
     const [o, c, cat, r, e, s, st] = await Promise.all([
-      supabase.from('orders').select('id, order_number, status, created_at, category_id, supplier_id, total_price, is_global_price, residents(name, projects(city_id)), order_payments(amount), order_items(customer_price, quantity, order_item_costs(supplier_price)), order_costs(global_supplier_price)'),
+      supabase.from('orders').select('id, order_number, status, created_at, category_id, supplier_id, total_price, is_global_price, residents(name, projects(city_id)), order_payments(amount), order_items(description, customer_price, quantity, order_item_costs(supplier_price)), order_costs(global_supplier_price)'),
       supabase.from('cities').select('id, name').order('name'),
       supabase.from('categories').select('id, name, kind, all_profit, profit_type, profit_value').order('name'),
       supabase.from('representatives').select('*').order('name'),
@@ -65,6 +67,8 @@ export default function MoneyPage() {
       supabase.from('suppliers').select('id, name, deal_type, deal_value, deal_unit').order('name'),
       supabase.from('supplier_settlements').select('*').order('happened_at', { ascending: false }),
     ])
+    const { data: dr } = await supabase.from('supplier_deal_rules').select('supplier_id, name, deal_type, deal_value, deal_unit')
+    setDealRules((dr || []) as SupplierDealRule[])
     setOrders((o.data || []) as unknown as Order[])
     setCities(c.data || [])
     setCategories((cat.data || []) as Category[])
@@ -123,13 +127,9 @@ export default function MoneyPage() {
 
   // מה הספק חייב לחברה: על הזמנות שבוצעו — לפי תנאי ההסכם (אחוז מהמחיר, או סכום ליחידה × הכמות
   // שנרשמה בפריטים; כל מטר = יחידה). בלי הסכם / בלי כמות — לפי הרווח המשוער
+  // כולל תנאי הסכם לפי פריט (חלון / דלת וכו') — חישוב משותף עם "מה הספק העביר — לפי לקוח"
   function supplierShare(s: Supplier, o: Order) {
-    if (s.deal_type === 'percent' && s.deal_value != null) return orderAmount(o) * s.deal_value / 100
-    if (s.deal_type === 'per_unit' && s.deal_value != null) {
-      const qty = o.order_items.reduce((q, i) => q + (i.quantity || 0), 0)
-      if (qty > 0) return qty * s.deal_value
-    }
-    return profit(o)
+    return supplierCompanyShare(o as any, s, dealRules, catById as any)
   }
   const supplierRows = suppliers.map((s) => {
     const done = orders.filter((o) => o.supplier_id === s.id && o.status === 'done')
