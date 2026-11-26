@@ -23,7 +23,7 @@ type OrderRow = {
   global_supplier_price: number | null
   categories: { name: string } | null
   suppliers: { name: string } | null
-  residents: { name: string; address: string; phone: string; project_id: string } | null
+  residents: { name: string; address: string; phone: string; phone2?: string | null; project_id: string } | null
   order_items: { description: string; model: string | null; customer_price: number; supplier_price: number }[]
 }
 
@@ -116,7 +116,7 @@ export default function ReportsPage() {
         supplier_id,
         is_global_price,
         total_price,
-        residents!inner(name, address, floor, apartment, phone, project_id),
+        residents!inner(name, address, floor, apartment, phone, phone2, project_id),
         categories(name),
         suppliers(name),
         order_items(description, model, customer_price, order_item_costs(supplier_price)),
@@ -183,6 +183,7 @@ export default function ReportsPage() {
             'שם דייר': resident?.name || '',
             'כתובת': fullAddress(resident) || '',
             'טלפון': resident?.phone || '',
+            'טלפון נוסף': resident?.phone2 || '',
             'קטגוריה': order.categories?.name || '',
             'ספק': order.suppliers?.name || '',
             'סטטוס הזמנה': STATUS_LABELS[order.status] || order.status,
@@ -248,7 +249,7 @@ export default function ReportsPage() {
           ${multiProject ? `<td ${span}>${esc(projectNameOf(resident?.project_id))}</td>` : ''}
           <td ${span} class="strong">${esc(resident?.name)}</td>
           <td ${span}>${esc(fullAddress(resident))}</td>
-          <td ${span} dir="ltr" class="num">${esc(resident?.phone)}</td>
+          <td ${span} dir="ltr" class="num">${esc(resident?.phone)}${resident?.phone2 ? `<br>${esc(resident.phone2)}` : ''}</td>
           <td ${span}>${esc(order.categories?.name || '-')}</td>
           <td ${span}>${esc(order.suppliers?.name || '-')}</td>
           <td ${span}><span class="badge ${statusClass[order.status] || 'blue'}">${esc(STATUS_LABELS[order.status] || order.status)}</span></td>
@@ -488,7 +489,10 @@ ${mode === 'print' ? '<script>window.onload = function () { setTimeout(function 
                               {multiProject && <td className="py-2 px-3" rowSpan={displayRows.length}>{projectNameOf(resident?.project_id)}</td>}
                               <td className="py-2 px-3 font-medium" rowSpan={displayRows.length}>{resident?.name}</td>
                               <td className="py-2 px-3" rowSpan={displayRows.length}>{fullAddress(resident)}</td>
-                              <td className="py-2 px-3" rowSpan={displayRows.length}>{resident?.phone}</td>
+                              <td className="py-2 px-3" rowSpan={displayRows.length} dir="ltr">
+                                <div>{resident?.phone}</div>
+                                {resident?.phone2 && <div>{resident.phone2}</div>}
+                              </td>
                               <td className="py-2 px-3" rowSpan={displayRows.length}>{order.categories?.name || '-'}</td>
                               <td className="py-2 px-3" rowSpan={displayRows.length}>{order.suppliers?.name || '-'}</td>
                               <td className="py-2 px-3" rowSpan={displayRows.length}>{STATUS_LABELS[order.status] || order.status}</td>
