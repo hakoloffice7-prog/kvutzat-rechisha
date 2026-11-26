@@ -1,7 +1,9 @@
 // חישובים משותפים להזמנות: סכום, תשלום, עדכון אחרון, הזמנות תקועות וממתינות.
 // משמשים את מסך ההזמנות, לוח הפעולה והתפריט (מספר התקועות).
 
-export const CLOSED_STATUSES = new Set(['done', 'cancelled'])
+export const CLOSED_STATUSES = new Set(['done', 'profit_received', 'cancelled'])
+// הזמנה שהעבודה בה בוצעה ("בוצע", או "הרווח התקבל" — הספק כבר העביר לחברה את חלקה)
+export const DONE_STATUSES = new Set(['done', 'profit_received'])
 // "ממתינות לתיאום" עם בעל המקצוע (מפרט, סעיף 2)
 export const AWAITING_STATUSES = new Set(['interested', 'awaiting_selection', 'selection_approved'])
 export const STUCK_DAYS = 7

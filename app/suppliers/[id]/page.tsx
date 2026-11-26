@@ -53,7 +53,7 @@ type ProjectGroup = {
 }
 
 // הזמנות שנחשבות "בוצעו" מול הספק (לא רק מעוניין/אישור וכו')
-const FULFILLED_STATUSES = new Set(['delivery_scheduled', 'done'])
+const FULFILLED_STATUSES = new Set(['delivery_scheduled', 'done', 'profit_received'])
 
 type ProjectOption = { id: string; name: string; cityName: string }
 

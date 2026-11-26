@@ -10,7 +10,7 @@ import { RemindersPanel } from '@/components/RemindersPanel'
 import { STATUS_LABELS, formatCurrency, formatStatusDate } from '@/lib/utils'
 import {
   AWAITING_STATUSES, STUCK_DAYS, VERY_STUCK_DAYS, DEFAULT_SUPPLIER_MIN, isOpen, isStuck, lastUpdated, daysSince,
-  orderAmount, orderBalance, payState, isScheduledThisWeek, isValidIsraeliPhone,
+  orderAmount, orderBalance, payState, isScheduledThisWeek, isValidIsraeliPhone, DONE_STATUSES,
 } from '@/lib/orderMetrics'
 
 // לוח פעולה (מפרט, סעיף 2): מה צריך לעשות היום — מספרים לחיצים, תזכורות,
@@ -124,8 +124,8 @@ export function ActionBoard() {
       const who = `${o.residents?.name || 'לא ידוע'} · ${o.categories?.name || 'ללא מוצר'}`
       const href = `/orders/${o.id}`
       if (payState(o) === 'paid' && o.status === 'interested') items.push({ key: o.id + 'a', label: who, href, tag: 'שולם הכל אבל עדיין "מעוניין"' })
-      if (o.status === 'done' && orderBalance(o) > 0) items.push({ key: o.id + 'b', label: `${who} · ${formatCurrency(orderBalance(o))}`, href, tag: 'בוצע ונשאר לגבות' })
-      if (o.status === 'done' && !orderAmount(o)) items.push({ key: o.id + 'c', label: who, href, tag: 'בוצע בלי מחיר' })
+      if (DONE_STATUSES.has(o.status) && orderBalance(o) > 0) items.push({ key: o.id + 'b', label: `${who} · ${formatCurrency(orderBalance(o))}`, href, tag: 'בוצע ונשאר לגבות' })
+      if (DONE_STATUSES.has(o.status) && !orderAmount(o)) items.push({ key: o.id + 'c', label: who, href, tag: 'בוצע בלי מחיר' })
       if (!o.category_id) items.push({ key: o.id + 'd', label: who, href, tag: 'הזמנה בלי מוצר' })
     }
     const byName: Record<string, Resident[]> = {}

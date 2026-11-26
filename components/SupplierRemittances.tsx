@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { Loader2, Wand2 } from 'lucide-react'
 import { OrderNumber } from '@/components/OrderNumber'
 import { STATUS_LABELS, formatCurrency } from '@/lib/utils'
-import { orderAmount } from '@/lib/orderMetrics'
+import { orderAmount, DONE_STATUSES } from '@/lib/orderMetrics'
 import { COMMISSION_ORDER_SELECT, supplierCompanyShare, type CommissionCategory, type CommissionOrder, type SupplierDealRule } from '@/lib/commissions'
 
 // מה הספק העביר לחברה — לפי לקוח. לכל הזמנה של הספק: כמה מגיע לחברה, כמה כבר הועבר עליה ומה נשאר.
@@ -78,6 +78,14 @@ export function SupplierRemittances() {
     ])
     const { data: dr } = await supabase.from('supplier_deal_rules').select('supplier_id, name, deal_type, deal_value, deal_unit')
     setDealRules((dr || []) as SupplierDealRule[])
+    const cats = new Map(((cat.data || []) as CommissionCategory[]).map((c) => [c.id, c]))
+    const changed = await syncProfitStatuses(
+      (o.data || []) as unknown as CommissionOrder[], (s.data || []) as Supplier[], (dr || []) as SupplierDealRule[], (al.data || []) as Allocation[], cats,
+    )
+    if (changed) {
+      const { data: fresh } = await supabase.from('orders').select(COMMISSION_ORDER_SELECT)
+      setOrders((fresh || []) as unknown as CommissionOrder[])
+    }
     setOrders((o.data || []) as unknown as CommissionOrder[])
     setSuppliers((s.data || []) as Supplier[])
     setCategories((cat.data || []) as CommissionCategory[])
@@ -94,6 +102,28 @@ export function SupplierRemittances() {
   // כמה מגיע לחברה מהזמנה — לפי תנאי ההסכם של הספק (כולל פריטים כמו חלון / דלת), אחרת לפי הרווח
   function companyShare(o: CommissionOrder) {
     return supplierCompanyShare(o, supplier, dealRules, catById)
+  }
+
+  // סטטוס אוטומטי: הזמנה "בוצע" שהספק העביר עליה את כל החלק של החברה → "הרווח התקבל".
+  // ואם בוטל שיוך והחלק כבר לא שולם במלואו → חוזרת ל"בוצע". רץ אחרי כל טעינה/שמירה.
+  async function syncProfitStatuses(
+    list: CommissionOrder[], sups: Supplier[], rules: SupplierDealRule[], allocs: Allocation[], cats: Map<string, CommissionCategory>,
+  ) {
+    const received = new Map<string, number>()
+    for (const a of allocs) received.set(a.order_id, (received.get(a.order_id) || 0) + Number(a.amount))
+    const toReceived: string[] = []
+    const toDone: string[] = []
+    for (const o of list) {
+      if (!o.supplier_id || !DONE_STATUSES.has(o.status) || orderAmount(o) <= 0) continue
+      const share = supplierCompanyShare(o, sups.find((x) => x.id === o.supplier_id), rules, cats)
+      const fullyPaid = share > 0 && (received.get(o.id) || 0) >= share - 0.5
+      if (o.status === 'done' && fullyPaid) toReceived.push(o.id)
+      if (o.status === 'profit_received' && !fullyPaid && (received.get(o.id) || 0) > 0) toDone.push(o.id)
+    }
+    const now = new Date().toISOString()
+    if (toReceived.length) await supabase.from('orders').update({ status: 'profit_received', updated_at: now }).in('id', toReceived).eq('status', 'done')
+    if (toDone.length) await supabase.from('orders').update({ status: 'done', updated_at: now }).in('id', toDone).eq('status', 'profit_received')
+    return toReceived.length + toDone.length
   }
 
   const allocatedByOrder = useMemo(() => {
@@ -117,7 +147,7 @@ export function SupplierRemittances() {
   }, [orders, supplierId, allocatedByOrder, supplier, catById, dealRules])
 
   const visible = rows.filter((r) =>
-    (!onlyDone || r.o.status === 'done') &&
+    (!onlyDone || DONE_STATUSES.has(r.o.status)) &&
     (filter === 'all' || (filter === 'paid' ? r.state === 'paid' : r.state !== 'paid')))
 
   // זיכוי פתוח: תשלומים של הספק שלא שויכו במלואם

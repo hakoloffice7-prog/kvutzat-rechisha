@@ -13,7 +13,7 @@ import { OrderNumber } from '@/components/OrderNumber'
 import { SupplierRemittances } from '@/components/SupplierRemittances'
 import { supplierCompanyShare, type SupplierDealRule } from '@/lib/commissions'
 import { formatCurrency, profitRuleFor } from '@/lib/utils'
-import { orderAmount, orderPaid, orderBalance } from '@/lib/orderMetrics'
+import { orderAmount, orderPaid, orderBalance, DONE_STATUSES } from '@/lib/orderMetrics'
 
 // כסף ונציגים (מפרט, סעיף 7) — מנהל בלבד.
 
@@ -132,7 +132,7 @@ export default function MoneyPage() {
     return supplierCompanyShare(o as any, s, dealRules, catById as any)
   }
   const supplierRows = suppliers.map((s) => {
-    const done = orders.filter((o) => o.supplier_id === s.id && o.status === 'done')
+    const done = orders.filter((o) => o.supplier_id === s.id && DONE_STATUSES.has(o.status))
     const owed = done.reduce((sum, o) => sum + supplierShare(s, o), 0)
     const paid = settlements.filter((x) => x.supplier_id === s.id && x.kind === 'payment').reduce((a, x) => a + x.amount, 0)
     const offset = settlements.filter((x) => x.supplier_id === s.id && x.kind === 'offset').reduce((a, x) => a + x.amount, 0)

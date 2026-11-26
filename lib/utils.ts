@@ -126,13 +126,14 @@ export const STATUS_LABELS: Record<string, string> = {
   quoted: 'אישור',
   delivery_scheduled: 'תיאום אספקה',
   done: 'בוצע',
+  profit_received: 'הרווח התקבל',
   cancelled: 'בוטל',
 }
 
 // סדר הצגה לפייפליין (לתפריטים ולמסכי סקירה)
 export const STATUS_ORDER = [
   'inquiring', 'interested', 'awaiting_selection', 'selection_approved', 'measurement_scheduled', 'measured', 'awaiting_quote', 'awaiting_approval', 'quoted',
-  'delivery_scheduled', 'done', 'cancelled',
+  'delivery_scheduled', 'done', 'profit_received', 'cancelled',
 ] as const
 
 export const STATUS_COLORS: Record<string, string> = {
@@ -147,6 +148,7 @@ export const STATUS_COLORS: Record<string, string> = {
   quoted: 'warning',
   delivery_scheduled: 'info',
   done: 'success',
+  profit_received: 'success',
   cancelled: 'destructive',
 }
 
