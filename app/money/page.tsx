@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { useIsAdmin } from '@/components/RoleProvider'
@@ -13,7 +13,7 @@ import { OrderNumber } from '@/components/OrderNumber'
 import { SupplierRemittances } from '@/components/SupplierRemittances'
 import { supplierCompanyShare, supplierDebtFromPayments, type SupplierDealRule } from '@/lib/commissions'
 import { formatCurrency, profitRuleFor, STATUS_LABELS } from '@/lib/utils'
-import { orderAmount, orderPaid, orderBalance } from '@/lib/orderMetrics'
+import { orderAmount, orderPaid, orderBalance, DONE_STATUSES } from '@/lib/orderMetrics'
 
 // כסף ונציגים (מפרט, סעיף 7) — מנהל בלבד.
 
@@ -55,6 +55,28 @@ export default function MoneyPage() {
   const [allocatedByOrder, setAllocatedByOrder] = useState<Map<string, number>>(new Map())
   // לחיצה על משבצת למעלה — רשימת ההזמנות שמרכיבות את הסכום
   const [tile, setTile] = useState<null | 'sum' | 'paid' | 'left' | 'profit'>(null)
+  const [tileCat, setTileCat] = useState('')
+  const [tileSort, setTileSort] = useState<'value' | 'category'>('value')
+  const tileScrollRef = useRef<HTMLDivElement>(null)
+  const restoreScrollRef = useRef<number | null>(null)
+  // חזרה מהזמנה ("חזור") — פותחים שוב את אותה רשימה באותו מקום
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem('money-tile') || 'null')
+      if (saved?.tile) {
+        setTile(saved.tile); setTileCat(saved.cat || ''); setTileSort(saved.sort || 'value')
+        restoreScrollRef.current = saved.scroll || 0
+      }
+      sessionStorage.removeItem('money-tile') // פעם אחת בלבד — כניסה רגילה למסך לא תפתח את החלון
+    } catch {}
+  }, [])
+  function closeTile() {
+    setTile(null)
+    try { sessionStorage.removeItem('money-tile') } catch {}
+  }
+  function rememberTile() {
+    try { sessionStorage.setItem('money-tile', JSON.stringify({ tile, cat: tileCat, sort: tileSort, scroll: tileScrollRef.current?.scrollTop || 0 })) } catch {}
+  }
   const [month, setMonth] = useState(() => new Date().toLocaleDateString('en-CA').slice(0, 7))
   const [repDialog, setRepDialog] = useState<{ id?: string; data: typeof EMPTY_REP } | null>(null)
   const [newExpense, setNewExpense] = useState({ spent_at: new Date().toLocaleDateString('en-CA'), city_id: '', amount: '', note: '' })
@@ -106,7 +128,9 @@ export default function MoneyPage() {
   const totals = useMemo(() => {
     const sum = live.reduce((s, o) => s + orderAmount(o), 0)
     const paid = live.reduce((s, o) => s + Math.min(orderPaid(o), orderAmount(o)), 0)
-    return { sum, paid, left: sum - paid, profit: live.reduce((s, o) => s + profit(o), 0) }
+    // נשאר לגבות — רק על הזמנות שכבר בוצעו
+    const left = live.filter((o) => DONE_STATUSES.has(o.status)).reduce((s, o) => s + orderBalance(o), 0)
+    return { sum, paid, left, profit: live.reduce((s, o) => s + profit(o), 0) }
   }, [orders, categories])
 
   const byCity = cities.map((c) => {
@@ -116,7 +140,7 @@ export default function MoneyPage() {
     return { city: c, count: list.length, sum, paid, profit: list.reduce((s, o) => s + profit(o), 0) }
   }).filter((r) => r.count > 0)
 
-  const toCollect = orders.filter((o) => o.status !== 'cancelled' && orderBalance(o) > 0).sort((a, b) => orderBalance(b) - orderBalance(a))
+  const toCollect = orders.filter((o) => DONE_STATUSES.has(o.status) && orderBalance(o) > 0).sort((a, b) => orderBalance(b) - orderBalance(a))
 
   // עמלות לחודש שנבחר: לפי הזמנות שנפתחו בחודש, בעיר של הנציג; שני נציגים בעיר — חלוקה שווה
   const monthOrders = live.filter((o) => o.created_at.slice(0, 7) === month)
@@ -198,16 +222,30 @@ export default function MoneyPage() {
     load()
   }
 
+  // אחרי חזרה — גוללים את הרשימה לאותו מקום (כשהנתונים נטענו והחלון נפתח)
+  useEffect(() => {
+    if (loading || !tile || restoreScrollRef.current == null) return
+    const top = restoreScrollRef.current
+    restoreScrollRef.current = null
+    const t = setTimeout(() => { if (tileScrollRef.current) tileScrollRef.current.scrollTop = top }, 80)
+    return () => clearTimeout(t)
+  }, [loading, tile])
+
   if (loading) return <div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /></div>
   if (!isAdmin) return <p className="text-gray-500">המסך הזה זמין למנהלים בלבד.</p>
 
-  // ההזמנות שמאחורי המשבצת שנלחצה (ממוינות מהגדולה לקטנה)
+  // ההזמנות שמאחורי המשבצת שנלחצה (סינון לפי מוצר, מיון לפי סכום או לפי מוצר)
+  const tileValue = (o: Order) => tile === 'paid' ? orderPaid(o) : tile === 'left' ? orderBalance(o) : tile === 'profit' ? profit(o) : orderAmount(o)
   const tileOrders = !tile ? [] : (
-    tile === 'sum' ? [...live].sort((a, b) => orderAmount(b) - orderAmount(a))
-    : tile === 'paid' ? live.filter((o) => orderPaid(o) > 0).sort((a, b) => orderPaid(b) - orderPaid(a))
-    : tile === 'left' ? live.filter((o) => orderBalance(o) > 0).sort((a, b) => orderBalance(b) - orderBalance(a))
-    : [...live].sort((a, b) => profit(b) - profit(a))
+    tile === 'sum' || tile === 'profit' ? live
+    : tile === 'paid' ? live.filter((o) => orderPaid(o) > 0)
+    : live.filter((o) => DONE_STATUSES.has(o.status) && orderBalance(o) > 0)
   )
+    .filter((o) => !tileCat || o.category_id === tileCat)
+    .sort((a, b) => tileSort === 'category'
+      ? (catById.get(a.category_id || '')?.name || '').localeCompare(catById.get(b.category_id || '')?.name || '', 'he') || tileValue(b) - tileValue(a)
+      : tileValue(b) - tileValue(a))
+  const tileCategories = categories.filter((c) => live.some((o) => o.category_id === c.id))
   const pct = (a: number, b: number) => (b ? Math.round((a / b) * 100) : 0)
   const sel = 'h-9 rounded-md border border-gray-200 bg-white px-2 text-sm'
 
@@ -381,10 +419,21 @@ export default function MoneyPage() {
         </Card>
       </div>
 
-      <Dialog open={!!tile} onOpenChange={(o) => !o && setTile(null)}>
+      <Dialog open={!!tile} onOpenChange={(o) => !o && closeTile()}>
         <DialogContent dir="rtl" className="max-w-4xl">
           <DialogHeader><DialogTitle>{tile === 'sum' ? 'כל ההזמנות עם מחיר' : tile === 'paid' ? 'הזמנות ששולם עליהן' : tile === 'left' ? 'נשאר לגבות' : 'רווח משוער לפי הזמנה'} ({tileOrders.length})</DialogTitle></DialogHeader>
-          <div className="max-h-[70vh] overflow-y-auto">
+          <div className="flex flex-wrap gap-2 items-center text-sm">
+            <select className={sel} value={tileCat} onChange={(e) => setTileCat(e.target.value)}>
+              <option value="">כל המוצרים</option>
+              {tileCategories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <select className={sel} value={tileSort} onChange={(e) => setTileSort(e.target.value as any)}>
+              <option value="value">מיון: מהסכום הגדול לקטן</option>
+              <option value="category">מיון: לפי מוצר</option>
+            </select>
+            {tile === 'left' && <span className="text-xs text-gray-500">רק הזמנות שבוצעו</span>}
+          </div>
+          <div ref={tileScrollRef} className="max-h-[65vh] overflow-y-auto">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 text-gray-600 sticky top-0"><tr>
                 <th className="text-right p-2">הזמנה</th><th className="text-right p-2">לקוח</th><th className="text-right p-2">מוצר</th><th className="text-right p-2">עיר</th><th className="text-right p-2">סטטוס</th>
@@ -393,8 +442,8 @@ export default function MoneyPage() {
               <tbody>
                 {tileOrders.map((o) => (
                   <tr key={o.id} className="border-b hover:bg-gray-50">
-                    <td className="p-2"><Link href={`/orders/${o.id}`} className="text-blue-600 hover:underline"><OrderNumber orderNumber={o.order_number} /></Link></td>
-                    <td className="p-2"><Link href={`/orders/${o.id}`} className="hover:underline">{o.residents?.name || '—'}</Link></td>
+                    <td className="p-2"><Link href={`/orders/${o.id}`} onClick={rememberTile} className="text-blue-600 hover:underline"><OrderNumber orderNumber={o.order_number} /></Link></td>
+                    <td className="p-2"><Link href={`/orders/${o.id}`} onClick={rememberTile} className="hover:underline">{o.residents?.name || '—'}</Link></td>
                     <td className="p-2">{catById.get(o.category_id || '')?.name || '—'}</td>
                     <td className="p-2">{cityName(o.residents?.projects?.city_id || null)}</td>
                     <td className="p-2">{STATUS_LABELS[o.status] || o.status}</td>
