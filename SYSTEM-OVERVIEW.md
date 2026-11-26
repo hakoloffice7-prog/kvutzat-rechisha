@@ -214,6 +214,6 @@ A separate, standalone Node CLI (`agents/package.json`, Anthropic SDK) that runs
 - Holiday list is intentionally empty (`lib/holidays.ts`). The client had not decided.
 - Open question: installation spanning several days / several orders per customer: one reminder per order, or one message per customer.
 - `/overview` is missing from the middleware `protectedPaths` list; verify intent.
-- Click-to-call rings extension 104 first, then the customer. The user asked whether it can dial the customer directly; suggested asking Technoline about auto-answer on 104 for click2call (pending their reply).
+- Click-to-call rings extension 104 first, then the customer. The user wants it to dial the customer directly. Technoline replied (2026-11-26): 104 is a SIP extension, not managed by their IVR; click2call just rings it as a normal call, and they can't add auto-answer. Fix is outside our code: enable Auto Answer on the device/softphone of 104, or ask the SIP provider holding the extensions to send `Call-Info: answer-after=0`. Pending: which device 104 is.
 - `schema.sql` does not reflect the live DB (see §5).
 - Untracked handoff file `HANDOFF-תזכורות-שיחות.md` describes the reminders task in more detail (written before it was implemented; part of that scope is now built).
