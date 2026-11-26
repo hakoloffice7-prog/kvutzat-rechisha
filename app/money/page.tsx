@@ -11,9 +11,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Loader2, Plus, Trash2, Pencil } from 'lucide-react'
 import { OrderNumber } from '@/components/OrderNumber'
 import { SupplierRemittances } from '@/components/SupplierRemittances'
-import { supplierCompanyShare, type SupplierDealRule } from '@/lib/commissions'
+import { supplierCompanyShare, supplierDebtFromPayments, type SupplierDealRule } from '@/lib/commissions'
 import { formatCurrency, profitRuleFor } from '@/lib/utils'
-import { orderAmount, orderPaid, orderBalance, DONE_STATUSES } from '@/lib/orderMetrics'
+import { orderAmount, orderPaid, orderBalance } from '@/lib/orderMetrics'
 
 // כסף ונציגים (מפרט, סעיף 7) — מנהל בלבד.
 
@@ -59,7 +59,7 @@ export default function MoneyPage() {
 
   async function load() {
     const [o, c, cat, r, e, s, st] = await Promise.all([
-      supabase.from('orders').select('id, order_number, status, created_at, category_id, supplier_id, total_price, is_global_price, residents(name, projects(city_id)), order_payments(amount), order_items(description, customer_price, quantity, order_item_costs(supplier_price)), order_costs(global_supplier_price)'),
+      supabase.from('orders').select('id, order_number, status, created_at, category_id, supplier_id, total_price, is_global_price, residents(name, projects(city_id)), order_payments(amount, paid_to), order_items(description, customer_price, quantity, order_item_costs(supplier_price)), order_costs(global_supplier_price)'),
       supabase.from('cities').select('id, name').order('name'),
       supabase.from('categories').select('id, name, kind, all_profit, profit_type, profit_value').order('name'),
       supabase.from('representatives').select('*').order('name'),
@@ -131,12 +131,22 @@ export default function MoneyPage() {
   function supplierShare(s: Supplier, o: Order) {
     return supplierCompanyShare(o as any, s, dealRules, catById as any)
   }
+  // חוב הספק נוצר לפי תשלומי הלקוחות (גם מקדמה, יחסית); תשלום ישיר לחברה נחשב כחלק שכבר התקבל
   const supplierRows = suppliers.map((s) => {
-    const done = orders.filter((o) => o.supplier_id === s.id && DONE_STATUSES.has(o.status))
-    const owed = done.reduce((sum, o) => sum + supplierShare(s, o), 0)
-    const paid = settlements.filter((x) => x.supplier_id === s.id && x.kind === 'payment').reduce((a, x) => a + x.amount, 0)
+    const list = orders.filter((o) => o.supplier_id === s.id && o.status !== 'cancelled' && orderAmount(o) > 0)
+    let owed = 0
+    let paidDirect = 0
+    let count = 0
+    for (const o of list) {
+      const share = supplierShare(s, o)
+      const debt = supplierDebtFromPayments(o as any, share)
+      if (debt.accrued > 0) count++
+      owed += debt.accrued
+      paidDirect += Math.min(debt.companyPaid, share)
+    }
+    const paid = settlements.filter((x) => x.supplier_id === s.id && x.kind === 'payment').reduce((a, x) => a + x.amount, 0) + paidDirect
     const offset = settlements.filter((x) => x.supplier_id === s.id && x.kind === 'offset').reduce((a, x) => a + x.amount, 0)
-    return { s, count: done.length, owed, paid, offset, balance: owed - paid - offset }
+    return { s, count, owed, paid, offset, balance: owed - paid - offset }
   }).filter((r) => r.count > 0 || r.paid > 0 || r.offset > 0)
 
   async function saveRep() {
@@ -319,7 +329,7 @@ export default function MoneyPage() {
               <tbody>
                 {supplierRows.map((r) => (
                   <tr key={r.s.id} className="border-b">
-                    <td className="p-2"><Link href={`/suppliers/${r.s.id}`} className="hover:text-blue-600">{r.s.name}</Link><span className="text-xs text-gray-400"> ({r.count} בוצעו)</span></td>
+                    <td className="p-2"><Link href={`/suppliers/${r.s.id}`} className="hover:text-blue-600">{r.s.name}</Link><span className="text-xs text-gray-400"> ({r.count} לקוחות ששילמו)</span></td>
                     <td className="p-2">{formatCurrency(r.owed)}</td>
                     <td className="p-2">{formatCurrency(r.paid)}</td>
                     <td className="p-2">{formatCurrency(r.offset)}</td>
@@ -347,7 +357,7 @@ export default function MoneyPage() {
                 </li>
               ))}
             </ul>
-            <p className="text-xs text-gray-500">חוב הספק מחושב על הזמנות שבוצעו, לפי תנאי ההסכם במסך הספקים: אחוז מהמחיר, או סכום ליחידה × הכמות שנרשמה בפריטים (כל מטר = יחידה). הזמנה בלי הסכם או בלי כמות — לפי הרווח המשוער.</p>
+            <p className="text-xs text-gray-500">חוב הספק נוצר לפי מה שהלקוחות שילמו (גם מקדמה — באופן יחסי), לפי תנאי ההסכם במסך הספקים: אחוז מהמחיר, או סכום ליחידה × הכמות שנרשמה בפריטים (כל מטר = יחידה). הזמנה בלי הסכם או בלי כמות — לפי הרווח המשוער.</p>
           </CardContent>
         </Card>
       </div>

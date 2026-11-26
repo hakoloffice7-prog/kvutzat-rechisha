@@ -11,7 +11,7 @@ import { Loader2, Wand2 } from 'lucide-react'
 import { OrderNumber } from '@/components/OrderNumber'
 import { STATUS_LABELS, formatCurrency } from '@/lib/utils'
 import { orderAmount, DONE_STATUSES } from '@/lib/orderMetrics'
-import { COMMISSION_ORDER_SELECT, supplierCompanyShare, type CommissionCategory, type CommissionOrder, type SupplierDealRule } from '@/lib/commissions'
+import { COMMISSION_ORDER_SELECT, supplierCompanyShare, supplierDebtFromPayments, type CommissionCategory, type CommissionOrder, type SupplierDealRule } from '@/lib/commissions'
 
 // מה הספק העביר לחברה — לפי לקוח. לכל הזמנה של הספק: כמה מגיע לחברה, כמה כבר הועבר עליה ומה נשאר.
 // תשלום מהספק משויך להזמנות שהוא מכסה; מה שלא שויך נשאר "זיכוי פתוח" ואפשר לשייך אותו אחר כך.
@@ -116,9 +116,10 @@ export function SupplierRemittances() {
     for (const o of list) {
       if (!o.supplier_id || !DONE_STATUSES.has(o.status) || orderAmount(o) <= 0) continue
       const share = supplierCompanyShare(o, sups.find((x) => x.id === o.supplier_id), rules, cats)
-      const fullyPaid = share > 0 && (received.get(o.id) || 0) >= share - 0.5
+      const got = (received.get(o.id) || 0) + supplierDebtFromPayments(o, share).companyPaid
+      const fullyPaid = share > 0 && got >= share - 0.5
       if (o.status === 'done' && fullyPaid) toReceived.push(o.id)
-      if (o.status === 'profit_received' && !fullyPaid && (received.get(o.id) || 0) > 0) toDone.push(o.id)
+      if (o.status === 'profit_received' && !fullyPaid && got > 0) toDone.push(o.id)
     }
     const now = new Date().toISOString()
     if (toReceived.length) await supabase.from('orders').update({ status: 'profit_received', updated_at: now }).in('id', toReceived).eq('status', 'done')
@@ -138,17 +139,24 @@ export function SupplierRemittances() {
       .filter((o) => o.supplier_id === supplierId && o.status !== 'cancelled' && orderAmount(o) > 0)
       .map((o) => {
         const share = companyShare(o)
-        const received = round2(allocatedByOrder.get(o.id) || 0)
-        const left = round2(Math.max(0, share - received))
-        const state: 'paid' | 'partial' | 'unpaid' = left <= 0.5 ? 'paid' : received > 0 ? 'partial' : 'unpaid'
-        return { o, share, received, left, state }
+        // חוב הספק נוצר לפי מה שהלקוח שילם (גם מקדמה); תשלום ישיר לחברה נחשב כרווח שהתקבל
+        const debt = supplierDebtFromPayments(o, share)
+        const fromSupplier = round2(allocatedByOrder.get(o.id) || 0)
+        const received = round2(fromSupplier + Math.min(debt.companyPaid, share))
+        const accrued = debt.accrued
+        const left = round2(Math.max(0, accrued - received))
+        const state: 'paid' | 'partial' | 'unpaid' | 'none' =
+          debt.customerPaid <= 0 && received <= 0 ? 'none'
+            : left <= 0.5 ? 'paid'
+            : received > 0 ? 'partial' : 'unpaid'
+        return { o, share, accrued, received, fromSupplier, companyPaid: debt.companyPaid, customerPaid: debt.customerPaid, paidRatio: debt.paidRatio, left, state }
       })
       .sort((a, b) => (a.o.order_number || 0) - (b.o.order_number || 0))
   }, [orders, supplierId, allocatedByOrder, supplier, catById, dealRules])
 
   const visible = rows.filter((r) =>
     (!onlyDone || DONE_STATUSES.has(r.o.status)) &&
-    (filter === 'all' || (filter === 'paid' ? r.state === 'paid' : r.state !== 'paid')))
+    (filter === 'all' || (filter === 'paid' ? r.state === 'paid' : r.left > 0.5)))
 
   // זיכוי פתוח: תשלומים של הספק שלא שויכו במלואם
   const supplierPayments = settlements.filter((x) => x.supplier_id === supplierId && x.kind === 'payment')
@@ -156,7 +164,7 @@ export function SupplierRemittances() {
   const openCredit = round2(supplierPayments.reduce((s, p) => s + Number(p.amount) - allocatedBySettlement(p.id), 0))
 
   const totals = {
-    share: rows.reduce((s, r) => s + r.share, 0),
+    share: rows.reduce((s, r) => s + r.accrued, 0),
     received: rows.reduce((s, r) => s + r.received, 0),
     left: rows.reduce((s, r) => s + r.left, 0),
   }
@@ -249,7 +257,7 @@ export function SupplierRemittances() {
   if (loading) return <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
 
   const suppliersWithOrders = suppliers.filter((s) => orders.some((o) => o.supplier_id === s.id))
-  const stateBadge = { paid: ['success', 'הועבר'], partial: ['info', 'חלקי'], unpaid: ['destructive', 'לא הועבר'] } as const
+  const stateBadge = { paid: ['success', 'הועבר'], partial: ['info', 'חלקי'], unpaid: ['destructive', 'לא הועבר'], none: ['outline', 'הלקוח עוד לא שילם'] } as const
   const cityOf = (o: CommissionOrder) => cities.find((c) => c.id === o.residents?.projects?.city_id)?.name || ''
 
   return (
@@ -267,7 +275,7 @@ export function SupplierRemittances() {
           {supplierId && (
             <>
               <select className="h-9 rounded-md border border-gray-200 bg-white px-2 text-sm" value={filter} onChange={(e) => setFilter(e.target.value as any)}>
-                <option value="unpaid">לא הועבר / חלקי</option>
+                <option value="unpaid">הספק חייב (לא הועבר / חלקי)</option>
                 <option value="paid">הועבר</option>
                 <option value="all">הכל</option>
               </select>
@@ -279,7 +287,7 @@ export function SupplierRemittances() {
         {supplierId && (
           <>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
-              <div className="rounded border p-2"><div className="text-gray-500 text-xs">מגיע לחברה (כל ההזמנות)</div><div className="font-semibold">{formatCurrency(totals.share)}</div></div>
+              <div className="rounded border p-2"><div className="text-gray-500 text-xs">חוב הספק לפי תשלומי הלקוחות</div><div className="font-semibold">{formatCurrency(totals.share)}</div></div>
               <div className="rounded border p-2"><div className="text-gray-500 text-xs">הועבר ושויך ללקוחות</div><div className="font-semibold text-green-700">{formatCurrency(totals.received)}</div></div>
               <div className="rounded border p-2"><div className="text-gray-500 text-xs">עוד לא הועבר</div><div className="font-semibold text-red-600">{formatCurrency(totals.left)}</div></div>
               <div className="rounded border p-2"><div className="text-gray-500 text-xs">זיכוי פתוח (שולם ולא שויך)</div><div className={`font-semibold ${openCredit > 0 ? 'text-orange-600' : ''}`}>{formatCurrency(openCredit)}</div></div>
@@ -294,7 +302,9 @@ export function SupplierRemittances() {
                     <th className="p-2 text-right">לקוח</th>
                     <th className="p-2 text-right">סטטוס</th>
                     <th className="p-2 text-right">מחיר ללקוח</th>
-                    <th className="p-2 text-right">מגיע לחברה</th>
+                    <th className="p-2 text-right">הלקוח שילם</th>
+                    <th className="p-2 text-right">חלק החברה (מלא)</th>
+                    <th className="p-2 text-right">הספק חייב עד עכשיו</th>
                     <th className="p-2 text-right">הועבר</th>
                     <th className="p-2 text-right">נשאר</th>
                     <th className="p-2 text-right">מצב</th>
@@ -303,11 +313,11 @@ export function SupplierRemittances() {
                 </thead>
                 <tbody>
                   {visible.length === 0 ? (
-                    <tr><td colSpan={10} className="p-4 text-center text-gray-400">אין הזמנות להצגה</td></tr>
+                    <tr><td colSpan={12} className="p-4 text-center text-gray-400">אין הזמנות להצגה</td></tr>
                   ) : visible.map((r) => (
                     <tr key={r.o.id} className={`border-t ${picked.has(r.o.id) ? 'bg-blue-50' : ''}`}>
                       <td className="p-2">
-                        {r.state !== 'paid' && (
+                        {r.left > 0.5 && (
                           <input type="checkbox" checked={picked.has(r.o.id)} onChange={() => setPicked((p) => { const n = new Set(p); n.has(r.o.id) ? n.delete(r.o.id) : n.add(r.o.id); return n })} />
                         )}
                       </td>
@@ -315,7 +325,13 @@ export function SupplierRemittances() {
                       <td className="p-2">{r.o.residents?.name}<span className="text-xs text-gray-400"> · {cityOf(r.o)}</span></td>
                       <td className="p-2 text-xs text-gray-600">{STATUS_LABELS[r.o.status] || r.o.status}</td>
                       <td className="p-2">{formatCurrency(orderAmount(r.o))}</td>
-                      <td className="p-2">{formatCurrency(r.share)}</td>
+                      <td className="p-2 whitespace-nowrap">
+                        {r.customerPaid ? formatCurrency(r.customerPaid) : '—'}
+                        {r.customerPaid > 0 && <span className="text-xs text-gray-400"> ({Math.round(r.paidRatio * 100)}%)</span>}
+                        {r.companyPaid > 0 && <div className="text-[11px] text-purple-700">מזה לחברה: {formatCurrency(r.companyPaid)}</div>}
+                      </td>
+                      <td className="p-2 text-gray-500">{formatCurrency(r.share)}</td>
+                      <td className="p-2">{r.accrued ? formatCurrency(r.accrued) : '—'}</td>
                       <td className="p-2 text-green-700">{r.received ? formatCurrency(r.received) : '—'}</td>
                       <td className="p-2 font-medium">{r.left ? formatCurrency(r.left) : '—'}</td>
                       <td className="p-2"><Badge variant={stateBadge[r.state][0] as any}>{stateBadge[r.state][1]}</Badge></td>

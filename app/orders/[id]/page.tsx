@@ -49,6 +49,7 @@ type OrderPayment = {
   amount: number
   paid_at: string
   note: string | null
+  paid_to?: 'supplier' | 'company' | null
 }
 
 type Order = {
@@ -156,6 +157,7 @@ export default function OrderPage() {
     amount: '',
     paid_at: new Date().toISOString().slice(0, 10),
     note: '',
+    paid_to: 'supplier' as 'supplier' | 'company', // ברירת מחדל: הלקוח משלם לספק
   })
   const [deletePaymentConfirmId, setDeletePaymentConfirmId] = useState<string | null>(null)
 
@@ -403,11 +405,12 @@ export default function OrderPage() {
       amount,
       paid_at: newPayment.paid_at,
       note: newPayment.note.trim() || null,
+      paid_to: newPayment.paid_to,
     })
 
     if (!error) {
       await syncPaymentStatus(totalPaid + amount)
-      setNewPayment({ amount: '', paid_at: new Date().toISOString().slice(0, 10), note: '' })
+      setNewPayment({ amount: '', paid_at: new Date().toISOString().slice(0, 10), note: '', paid_to: 'supplier' })
       setPaymentDialogOpen(false)
       fetchData()
     }
@@ -1455,6 +1458,24 @@ export default function OrderPage() {
                         />
                       </div>
                       <div className="space-y-2">
+                        <Label>הלקוח שילם ל...</Label>
+                        <div className="flex gap-4 text-sm">
+                          <label className="flex items-center gap-1">
+                            <input type="radio" checked={newPayment.paid_to === 'supplier'} onChange={() => setNewPayment({ ...newPayment, paid_to: 'supplier' })} />
+                            ספק (רגיל)
+                          </label>
+                          <label className="flex items-center gap-1">
+                            <input type="radio" checked={newPayment.paid_to === 'company'} onChange={() => setNewPayment({ ...newPayment, paid_to: 'company' })} />
+                            חברה (ישירות אלינו)
+                          </label>
+                        </div>
+                        <p className="text-xs text-gray-500">
+                          {newPayment.paid_to === 'supplier'
+                            ? 'נרשם אוטומטית חוב של הספק לחברה, יחסית לסכום ששולם.'
+                            : 'נחשב כרווח שכבר התקבל מההזמנה (לא נוצר חוב של הספק על הסכום הזה).'}
+                        </p>
+                      </div>
+                      <div className="space-y-2">
                         <Label>הערה</Label>
                         <Input
                           value={newPayment.note}
@@ -1489,6 +1510,9 @@ export default function OrderPage() {
                           <div className="font-medium">{formatCurrency(payment.amount)}</div>
                           <div className="text-gray-500 text-xs">
                             {formatDate(payment.paid_at)}{payment.note ? ` · ${payment.note}` : ''}
+                            {payment.paid_to === 'company'
+                              ? <span className="mr-1 rounded bg-purple-100 text-purple-700 px-1">שולם לחברה</span>
+                              : <span className="mr-1 text-gray-400">· לספק</span>}
                           </div>
                         </div>
                         <div className="flex items-center gap-3">

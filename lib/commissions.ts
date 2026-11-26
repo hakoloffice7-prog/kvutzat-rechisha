@@ -20,7 +20,7 @@ export type CommissionOrder = {
   total_price: number | null
   is_global_price: boolean | null
   residents: { name: string; projects: { city_id: string } | null } | null
-  order_payments: { amount: number | null }[]
+  order_payments: { amount: number | null; paid_to?: string | null }[]
   order_items: { description?: string | null; customer_price: number | null; quantity?: number | null; order_item_costs: { supplier_price: number | null } | null }[]
   order_costs: { global_supplier_price: number | null } | null
 }
@@ -36,7 +36,7 @@ export type Representative = {
 }
 
 export const COMMISSION_ORDER_SELECT =
-  'id, order_number, status, created_at, category_id, supplier_id, total_price, is_global_price, residents(name, projects(city_id)), order_payments(amount), order_items(description, customer_price, quantity, order_item_costs(supplier_price)), order_costs(global_supplier_price)'
+  'id, order_number, status, created_at, category_id, supplier_id, total_price, is_global_price, residents(name, projects(city_id)), order_payments(amount, paid_to), order_items(description, customer_price, quantity, order_item_costs(supplier_price)), order_costs(global_supplier_price)'
 
 // רווח משוער: לפי מחיר ספק אם הוקלד; אחרת לפי אחוז הרווח של המוצר (בסכום ליחידה — 10% כהערכה)
 export function estimateProfit(o: CommissionOrder, catById: Map<string, CommissionCategory>) {
@@ -112,4 +112,19 @@ export function supplierCompanyShare(
     if (qty > 0) return Math.round(qty * supplier.deal_value * 100) / 100
   }
   return Math.round(estimateProfit(o, catById) * 100) / 100
+}
+
+// חוב הספק לפי תשלומי הלקוח: כל תשלום (גם מקדמה) יוצר חוב יחסי — אם הלקוח שילם חצי מהמחיר,
+// הספק חייב חצי מהחלק של החברה. תשלום שהלקוח שילם ישירות לחברה נחשב רווח שכבר התקבל.
+export function supplierDebtFromPayments(o: CommissionOrder, share: number) {
+  const amount = orderAmount(o)
+  const customerPaid = o.order_payments.reduce((s, p) => s + (p.amount || 0), 0)
+  const companyPaid = o.order_payments.filter((p) => p.paid_to === 'company').reduce((s, p) => s + (p.amount || 0), 0)
+  const ratio = amount > 0 ? Math.min(1, customerPaid / amount) : 0
+  return {
+    customerPaid,
+    companyPaid,
+    paidRatio: ratio,
+    accrued: Math.round(share * ratio * 100) / 100, // כמה הספק חייב עד עכשיו
+  }
 }
