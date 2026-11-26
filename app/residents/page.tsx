@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/dialog'
 import { Plus, Users, Loader2, Pencil, Trash2, ShoppingCart, Phone, CalendarClock, Mail } from 'lucide-react'
 import { ResidentRemindersDialog } from '@/components/ResidentRemindersDialog'
-import { STATUS_LABELS, STATUS_ORDER, STATUS_COLORS, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, digitsOnly, phoneSearchDigits, phoneIlikePatterns } from '@/lib/utils'
+import { STATUS_LABELS, STATUS_ORDER, STATUS_COLORS, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, digitsOnly, phoneSearchDigits, phoneIlikePatterns, itemUnit, quantityLabel } from '@/lib/utils'
 import Link from 'next/link'
 import { AddOrderDialog } from '@/components/AddOrderDialog'
 import { ResidentProjectPicker } from '@/components/ResidentProjectPicker'
@@ -45,14 +45,14 @@ type Resident = {
   orders?: { id: string; status: string; categories: { name: string } | null }[]
   projects?: { name: string; city_id: string } | null
 }
-type OrderItem = { id: string; description: string; model: string; customer_price: number }
+type OrderItem = { id: string; description: string; model: string; customer_price: number; quantity?: number | null }
 
 type SimpleOrder = {
   id: string
   order_number: number | null
   status: string
   payment_status: string
-  categories: { name: string }
+  categories: { name: string; profit_type?: string | null; unit_label?: string | null }
   suppliers: { name: string } | null
   order_items: OrderItem[]
 }
@@ -393,7 +393,7 @@ export default function ResidentsPage() {
 
     const { data } = await supabase
       .from('orders')
-      .select('id, order_number, status, payment_status, categories(name), suppliers(name), order_items(id, description, model, customer_price)')
+      .select('id, order_number, status, payment_status, categories(name, profit_type, unit_label), suppliers(name), order_items(id, description, model, customer_price, quantity)')
       .eq('resident_id', resident.id)
       .order('created_at', { ascending: false })
 
@@ -950,6 +950,7 @@ export default function ResidentsPage() {
                           <span className="text-gray-700">
                             {item.description}
                             {item.model ? <span className="text-gray-400 mr-1"> — {item.model}</span> : null}
+                            {quantityLabel(item.quantity ?? 1, itemUnit(item.description, order.categories)) ? <span className="text-gray-500 mr-1"> ({quantityLabel(item.quantity ?? 1, itemUnit(item.description, order.categories))})</span> : null}
                           </span>
                           <span className="text-gray-500 text-xs mr-4">
                             ₪{(item.customer_price || 0).toLocaleString('he-IL')}

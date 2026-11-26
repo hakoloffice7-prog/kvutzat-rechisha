@@ -208,3 +208,25 @@ export function missingAddressParts(r?: { address?: string | null; floor?: strin
 
 // מי פותח את הדירה לבעל המקצוע
 export const ACCESS_TYPES = ['הדייר בבית', 'שוכר גר בדירה', 'מפתח אצל שכן', 'מפתח אצל קרוב משפחה', 'אחר'] as const
+
+// ---------- כמות של פריט: "8.3 מטר", "5 חלונות", "2 דלתות" ----------
+const UNIT_PLURALS: Record<string, string> = { 'חלון': 'חלונות', 'דלת': 'דלתות' }
+
+// יחידת המידה של פריט: לפי סוג המוצר שהתיאור שלו מכיל (למשל "דלת"), אחרת לפי המוצר (למשל "מטר" בווילונות)
+export function itemUnit(
+  description: string | null | undefined,
+  cat: { profit_type?: string | null; unit_label?: string | null } | null | undefined,
+  rules: { name: string; profit_type: string; unit_label?: string | null }[] = [],
+) {
+  const r = rules.find((x) => x.name.trim() && (description || '').includes(x.name.trim()))
+  if (r) return r.profit_type === 'per_unit' ? (r.unit_label || r.name) : null
+  return cat?.profit_type === 'per_unit' ? (cat.unit_label || null) : null
+}
+
+export function quantityLabel(qty: number | string | null | undefined, unit?: string | null) {
+  const q = Number(qty)
+  if (!(q > 0)) return ''
+  const n = String(Math.round(q * 100) / 100)
+  if (!unit) return q === 1 ? '' : `× ${n}`
+  return `${n} ${q === 1 ? unit : (UNIT_PLURALS[unit] || unit)}`
+}

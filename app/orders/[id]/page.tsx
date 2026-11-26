@@ -34,12 +34,15 @@ import {
   formatCurrency, formatDate, getDebtStatus, fullAddress, calcSupplierPrice, defaultProfitPercent, profitRuleFor, calcSupplierByRule,
   stampNewNoteLines,
   formatStatusDate,
+  itemUnit,
+  quantityLabel,
 } from '@/lib/utils'
 
 type OrderItem = {
   id: string
   description: string
   model: string
+  quantity?: number | null
   customer_price: number
   supplier_price: number
 }
@@ -88,7 +91,7 @@ type Order = {
     access_contact_phone?: string | null
     projects: { id: string; name: string; cities: { name: string } }
   }
-  categories: { id: string; name: string }
+  categories: { id: string; name: string; profit_type?: string | null; profit_value?: number | null; unit_label?: string | null }
   suppliers: { id: string; name: string } | null
   order_items: OrderItem[]
   order_payments: OrderPayment[]
@@ -1109,19 +1112,11 @@ export default function OrderPage() {
                         </div>
                       )}
                       <div className="space-y-2">
-                        <Label>תיאור *</Label>
+                        <Label>תיאור (כולל צורה ודגם) *</Label>
                         <Input
                           value={newItem.description}
                           onChange={(e) => setNewItem({ ...newItem, description: e.target.value })}
-                          placeholder="תיאור הפריט"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>דגם / מק"ט</Label>
-                        <Input
-                          value={newItem.model}
-                          onChange={(e) => setNewItem({ ...newItem, model: e.target.value })}
-                          placeholder="מספר דגם"
+                          placeholder="למשל: סורג דקורטיבי, דגם 12"
                         />
                       </div>
                       {order.is_global_price ? (
@@ -1246,7 +1241,7 @@ export default function OrderPage() {
                     <thead>
                       <tr className="border-b">
                         <th className="text-right pb-3 font-semibold text-gray-600">תיאור</th>
-                        <th className="text-right pb-3 font-semibold text-gray-600">דגם</th>
+                        <th className="text-right pb-3 font-semibold text-gray-600">כמות</th>
                         <th className="text-right pb-3 font-semibold text-gray-600">מחיר לקוח</th>
                         {isAdmin && <th className="text-right pb-3 font-semibold text-gray-600">מחיר ספק</th>}
                         {isAdmin && <th className="text-right pb-3 font-semibold text-gray-600">רווח</th>}
@@ -1268,14 +1263,7 @@ export default function OrderPage() {
                                     className="h-8 text-sm"
                                   />
                                 </td>
-                                <td className="py-2">
-                                  <Input
-                                    value={editingItemData.model}
-                                    onChange={(e) => setEditingItemData({ ...editingItemData, model: e.target.value })}
-                                    className="h-8 text-sm"
-                                    placeholder="-"
-                                  />
-                                </td>
+                                <td className="py-2 text-gray-600">{quantityLabel(item.quantity ?? 1, itemUnit(item.description, order.categories, categoryRules)) || '1'}</td>
                                 {order.is_global_price ? (
                                   <>
                                     <td className="py-2 text-gray-400">-</td>
@@ -1339,8 +1327,8 @@ export default function OrderPage() {
                               </>
                             ) : (
                               <>
-                                <td className="py-3">{item.description}{(item as any).quantity && (item as any).quantity !== 1 ? <span className="text-xs text-gray-500"> × {(item as any).quantity}</span> : null}</td>
-                                <td className="py-3 text-gray-500">{item.model || '-'}</td>
+                                <td className="py-3">{item.description}{item.model ? <span className="text-gray-500"> — {item.model}</span> : null}</td>
+                                <td className="py-3 text-gray-700 whitespace-nowrap">{quantityLabel(item.quantity ?? 1, itemUnit(item.description, order.categories, categoryRules)) || '1'}</td>
                                 {order.is_global_price ? (
                                   <>
                                     <td className="py-3 text-gray-400">-</td>
@@ -1349,7 +1337,12 @@ export default function OrderPage() {
                                   </>
                                 ) : (
                                   <>
-                                    <td className="py-3">{formatCurrency(item.customer_price || 0)}</td>
+                                    <td className="py-3">
+                                      {formatCurrency(item.customer_price || 0)}
+                                      {Number(item.quantity) > 0 && Number(item.quantity) !== 1 && (
+                                        <div className="text-xs text-gray-400">{Math.round(Number(item.quantity) * 100) / 100} × {formatCurrency((item.customer_price || 0) / Number(item.quantity))}</div>
+                                      )}
+                                    </td>
                                     {isAdmin && <td className="py-3">{formatCurrency(item.supplier_price || 0)}</td>}
                                     {isAdmin && (
                                       <td className={`py-3 font-medium ${itemProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>

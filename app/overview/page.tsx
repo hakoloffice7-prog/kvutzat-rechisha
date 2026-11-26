@@ -20,7 +20,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import Link from 'next/link'
 import { MultiSelect } from '@/components/MultiSelect'
 import { NotesSection } from '@/components/NotesSection'
-import { STATUS_LABELS, STATUS_ORDER, STATUS_COLORS, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, getDebtStatus, formatStatusDate, stampNewNoteLines, digitsOnly, phoneSearchDigits, fullAddress, type DebtStatus } from '@/lib/utils'
+import { STATUS_LABELS, STATUS_ORDER, STATUS_COLORS, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, getDebtStatus, formatStatusDate, stampNewNoteLines, digitsOnly, phoneSearchDigits, fullAddress, itemUnit, quantityLabel, type DebtStatus } from '@/lib/utils'
 
 // ערכי "סינטינל" לבחירת "כל הערים" / "כל הפרויקטים" בבוררים, כדי לאפשר
 // תצוגה חוצת ערים/פרויקטים (למשל כל מי שרוצה וילונות, מכל המערכת)
@@ -31,7 +31,7 @@ const LAST_SEARCH_KEY = 'overview-last-search'
 
 type City = { id: string; name: string }
 type Project = { id: string; city_id: string; name: string }
-type Category = { id: string; name: string }
+type Category = { id: string; name: string; profit_type?: string | null; unit_label?: string | null }
 
 type Resident = {
   id: string
@@ -63,7 +63,7 @@ type Order = {
   measurements: string | null
   details: Record<string, string> | null
   order_payments: { amount: number; paid_at: string | null; note: string | null }[]
-  order_items: { description: string; model: string }[]
+  order_items: { description: string; model: string; quantity?: number | null }[]
 }
 
 type ResidentRow = {
@@ -211,7 +211,7 @@ export default function OverviewPage() {
     async function init() {
       const [{ data: citiesData }, { data: catsData }] = await Promise.all([
         supabase.from('cities').select('id, name').order('name'),
-        supabase.from('categories').select('id, name').order('name'),
+        supabase.from('categories').select('id, name, profit_type, unit_label').order('name'),
       ])
       setCities(citiesData || [])
       setCategories(catsData || [])
@@ -325,13 +325,19 @@ export default function OverviewPage() {
     setBulkDate('')
   }
 
+  // פריט עם כמות: "וילון — 8.3 מטר", "רשת — 5 חלונות"
+  function itemText(it: { description: string; model: string; quantity?: number | null }, categoryId: string) {
+    const q = quantityLabel(it.quantity ?? 1, itemUnit(it.description, categoryById.get(categoryId)))
+    return `${it.description}${it.model ? ` — ${it.model}` : ''}${q ? ` (${q})` : ''}`
+  }
+
   // העתקת השורות המסומנות כטקסט לשליחה לספק / בעל מקצוע (וואטסאפ / מייל)
   const [copiedSel, setCopiedSel] = useState(false)
   function selectedRowsText() {
     const lines = filteredRows
       .filter((r) => bulkSelected.has(r.order!.id))
       .map(({ resident, order }, i) => {
-        const items = (order!.order_items || []).map((it) => `${it.description}${it.model ? ` — ${it.model}` : ''}`).join(', ')
+        const items = (order!.order_items || []).map((it) => itemText(it, order!.category_id)).join(', ')
         const phones = [resident.phone, resident.phone2].filter(Boolean).join(' / ')
         const cat = categoryNameById.get(order!.category_id) || ''
         return `${i + 1}. ${resident.name} — ${fullAddress(resident) || 'אין כתובת'}\n   ${cat}${items ? `: ${items}` : ''}\n   טלפון: ${phones || '—'}`
@@ -483,7 +489,7 @@ export default function OverviewPage() {
         const residentIds = residentsList.map((r) => r.id)
         const { data: ordersData } = await supabase
           .from('orders')
-          .select('id, resident_id, category_id, status, status_updated_at, payment_status, measured_at, total_price, notes, measurements, details, order_payments(amount, paid_at, note), order_items(description, model)')
+          .select('id, resident_id, category_id, status, status_updated_at, payment_status, measured_at, total_price, notes, measurements, details, order_payments(amount, paid_at, note), order_items(description, model, quantity)')
           .in('resident_id', residentIds)
           .in('category_id', selectedCategoryIds)
 
@@ -564,6 +570,7 @@ export default function OverviewPage() {
   const showAllScopeColumn = selectedProjectId === ALL_PROJECTS
   const showTable = !!(selectedProjectId && selectedCategoryIds.length > 0)
   const categoryNameById = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories])
+  const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories])
   const multiCategory = selectedCategoryIds.length > 1
 
   return (
@@ -933,7 +940,7 @@ export default function OverviewPage() {
                               {order!.order_items && order!.order_items.length > 0 ? (
                                 <ul className="space-y-0.5 text-xs">
                                   {order!.order_items.map((it, i) => (
-                                    <li key={i}>{it.description}{it.model ? ` — ${it.model}` : ''}</li>
+                                    <li key={i}>{itemText(it, order!.category_id)}</li>
                                   ))}
                                 </ul>
                               ) : '—'}
@@ -1095,7 +1102,7 @@ export default function OverviewPage() {
                                   {order?.order_items && order.order_items.length > 0 && (
                                     <ul className="list-disc pr-5">
                                       {order.order_items.map((it, i) => (
-                                        <li key={i}>{it.description}{it.model ? ` — ${it.model}` : ''}</li>
+                                        <li key={i}>{itemText(it, order.category_id)}</li>
                                       ))}
                                     </ul>
                                   )}
