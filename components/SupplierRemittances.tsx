@@ -53,7 +53,8 @@ function r_isManual(status: string, got: number, share: number) {
   return status === 'profit_received' && got < share - 0.5
 }
 
-export function SupplierRemittances() {
+// fixedSupplierId — בדף של ספק: מוצג רק הספק הזה, בלי בחירת ספק
+export function SupplierRemittances({ fixedSupplierId }: { fixedSupplierId?: string } = {}) {
   const supabase = createClient()
   const [loading, setLoading] = useState(true)
   const [orders, setOrders] = useState<CommissionOrder[]>([])
@@ -63,7 +64,7 @@ export function SupplierRemittances() {
   const [settlements, setSettlements] = useState<Settlement[]>([])
   const [allocations, setAllocations] = useState<Allocation[]>([])
   const [dealRules, setDealRules] = useState<SupplierDealRule[]>([])
-  const [supplierId, setSupplierId] = useState('')
+  const [supplierId, setSupplierId] = useState(fixedSupplierId || '')
   const [filter, setFilter] = useState<'all' | 'unpaid' | 'paid'>('unpaid')
   const [onlyDone, setOnlyDone] = useState(false)
   const [picked, setPicked] = useState<Set<string>>(new Set())
@@ -275,10 +276,12 @@ export function SupplierRemittances() {
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="flex flex-wrap gap-2 items-center">
+          {!fixedSupplierId && (
           <select className="h-9 rounded-md border border-gray-200 bg-white px-2 text-sm" value={supplierId} onChange={(e) => { setSupplierId(e.target.value); setPicked(new Set()); setMsg('') }}>
-            <option value="">בחרו ספק</option>
-            {suppliersWithOrders.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
+              <option value="">בחרו ספק</option>
+              {suppliersWithOrders.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          )}
           {supplierId && (
             <>
               <select className="h-9 rounded-md border border-gray-200 bg-white px-2 text-sm" value={filter} onChange={(e) => setFilter(e.target.value as any)}>

@@ -19,6 +19,7 @@ import {
 } from '@/lib/utils'
 import { useIsAdmin } from '@/components/RoleProvider'
 import { CopyButton } from '@/components/CopyButton'
+import { SupplierRemittances } from '@/components/SupplierRemittances'
 
 type Supplier = {
   id: string
@@ -366,6 +367,9 @@ export default function SupplierPaymentsPage() {
         </CardContent>
       </Card>
       )}
+
+      {/* סיכום לפי לקוח: על מי הספק כבר העביר את הרווח ועל מי לא (מנהל בלבד) */}
+      {isAdmin && <SupplierRemittances fixedSupplierId={supplierId} />}
 
       {/* Items ordered from this supplier, across all categories */}
       {itemSummary.length > 0 && (
