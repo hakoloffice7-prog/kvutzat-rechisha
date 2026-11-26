@@ -289,7 +289,11 @@ export default function OrderPage() {
       if (editedOrder.status === 'measurement_scheduled' || editedOrder.status === 'delivery_scheduled') {
         await requestOrderReminder(orderId)
       }
-      fetchData()
+      // אחרי שמירה — חזרה אוטומטית לחלון הקודם (אם נפתח ישירות, בלי היסטוריה — למסך ההזמנות)
+      setSaving(false)
+      if (window.history.length > 1) router.back()
+      else router.push('/orders')
+      return
     }
     setSaving(false)
   }
