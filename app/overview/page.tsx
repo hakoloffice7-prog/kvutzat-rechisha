@@ -12,6 +12,7 @@ import { ClickToCallButton } from '@/components/ClickToCallButton'
 import { Label } from '@/components/ui/label'
 import { Loader2, BarChart2, Phone, MapPin, Plus, CalendarClock, Mail } from 'lucide-react'
 import { saveNavList } from '@/components/PrevNextNav'
+import { stampsMeasuredDate } from '@/lib/orderMetrics'
 import { maybeCreateAdvanceReminder, createOrderReminder } from '@/lib/reminders'
 import { ResidentRemindersDialog } from '@/components/ResidentRemindersDialog'
 import { Button } from '@/components/ui/button'
@@ -294,7 +295,11 @@ export default function OverviewPage() {
     const { error } = await supabase.from('orders').update({ status: bulkStatus, updated_at: nowIso }).in('id', ids)
     setBulkSaving(false)
     if (error) { alert('השמירה נכשלה, נסה שוב'); return }
-    setOrders((prev) => prev.map((o) => (bulkSelected.has(o.id) ? { ...o, status: bulkStatus, status_updated_at: nowIso } : o)))
+    // סורגים בלי תאריך מדידה: תאריך היום
+    const today = new Date().toLocaleDateString('en-CA')
+    const stampIds = orders.filter((o) => bulkSelected.has(o.id) && !o.measured_at && stampsMeasuredDate(categoryNameById.get(o.category_id), bulkStatus)).map((o) => o.id)
+    if (stampIds.length) await supabase.from('orders').update({ measured_at: today }).in('id', stampIds).is('measured_at', null)
+    setOrders((prev) => prev.map((o) => (bulkSelected.has(o.id) ? { ...o, status: bulkStatus, status_updated_at: nowIso, ...(stampIds.includes(o.id) ? { measured_at: today } : {}) } : o)))
     ids.forEach((id) => touchResidentOfOrder(id))
     setBulkSelected(new Set())
     setBulkStatus('')
@@ -305,12 +310,16 @@ export default function OverviewPage() {
     const previousStatusDate = orders.find((o) => o.id === orderId)?.status_updated_at ?? null
     setSavingOrderIds((prev) => new Set(prev).add(orderId))
     const nowIso = new Date().toISOString()
+    // סורגים: מעבר לנמדד / ממתין להצעת מחיר / מחכים לאישור / אישור בלי תאריך מדידה — תאריך היום
+    const current = orders.find((o) => o.id === orderId)
+    const stamp = field === 'status' && !!current && !current.measured_at && stampsMeasuredDate(categoryNameById.get(current.category_id), value)
+      ? { measured_at: new Date().toLocaleDateString('en-CA') } : {}
     setOrders((prev) => prev.map((o) => (o.id === orderId
-      ? { ...o, [field]: value, ...(field === 'status' ? { status_updated_at: nowIso } : {}) }
+      ? { ...o, [field]: value, ...stamp, ...(field === 'status' ? { status_updated_at: nowIso } : {}) }
       : o)))
     const { error } = await supabase
       .from('orders')
-      .update({ [field]: value, updated_at: new Date().toISOString() })
+      .update({ [field]: value, ...stamp, updated_at: new Date().toISOString() })
       .eq('id', orderId)
     if (error) {
       setOrders((prev) => prev.map((o) => (o.id === orderId

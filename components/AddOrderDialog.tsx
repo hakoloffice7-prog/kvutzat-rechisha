@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Plus, Loader2, X } from 'lucide-react'
 import { STATUS_LABELS, STATUS_ORDER, stampNewNoteLines, profitRuleFor, calcSupplierByRule } from '@/lib/utils'
 import { useIsAdmin } from '@/components/RoleProvider'
+import { stampsMeasuredDate } from '@/lib/orderMetrics'
 
 type Category = { id: string; name: string }
 type Supplier = { id: string; name: string; category_id: string }
@@ -158,7 +159,7 @@ export function AddOrderDialog({
       status: newOrder.status,
       payment_status: newOrder.payment_status,
       notes: stampNewNoteLines('', newOrder.notes),
-      measured_at: newOrder.measured_at || (newOrder.status === 'measured' ? new Date().toISOString().slice(0, 10) : null),
+      measured_at: newOrder.measured_at || ((newOrder.status === 'measured' || stampsMeasuredDate(selectedCategory?.name, newOrder.status)) ? new Date().toLocaleDateString('en-CA') : null),
       total_price: totalPrice,
       // מועד מדידה/התקנה מתוכנן (לתזכורת קולית יום לפני)
       ...(newOrder.status === 'measurement_scheduled'

@@ -18,7 +18,7 @@ import {
 } from '@/lib/utils'
 import {
   CLOSED_STATUSES as CLOSED, AWAITING_STATUSES as AWAITING, STUCK_DAYS, VERY_STUCK_DAYS, PAY_LABELS, PAY_COLORS,
-  type PayState, orderAmount, orderBalance, payState, lastUpdated, daysSince, scheduledDate, isScheduledThisWeek,
+  type PayState, stampsMeasuredDate, orderAmount, orderBalance, payState, lastUpdated, daysSince, scheduledDate, isScheduledThisWeek,
 } from '@/lib/orderMetrics'
 
 // מסך ההזמנות (שלב א' במפרט): טבלה מלאה עם טלפון, כתובת, עיר/פרויקט, ספק, עדכון אחרון,
@@ -217,6 +217,15 @@ export default function OrdersPage() {
       .from('orders')
       .update({ status: bulkStatus, updated_at: new Date().toISOString() })
       .in('id', ids)
+    if (!error) {
+      // סורגים בלי תאריך מדידה: תאריך היום
+      const stampIds = filtered
+        .filter((o) => selected.has(o.id) && !o.measured_at && stampsMeasuredDate(o.categories?.name, bulkStatus))
+        .map((o) => o.id)
+      if (stampIds.length) {
+        await supabase.from('orders').update({ measured_at: new Date().toLocaleDateString('en-CA') }).in('id', stampIds).is('measured_at', null)
+      }
+    }
     setBulkSaving(false)
     if (error) {
       alert('שגיאה בעדכון הסטטוס')

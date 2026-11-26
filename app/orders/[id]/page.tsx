@@ -1,5 +1,6 @@
 'use client'
 
+import { stampsMeasuredDate } from '@/lib/orderMetrics'
 import { EmailLink } from '@/components/EmailLink'
 import { requestOrderReminder } from "@/lib/sendOrderReminder"
 import { useState, useEffect, useRef } from 'react'
@@ -619,7 +620,7 @@ export default function OrderPage() {
                         setEditedOrder(prev => ({
                           ...prev,
                           status: newStatus,
-                          measured_at: ((newStatus === 'measured' || newStatus === 'measurement_scheduled') && !prev.measured_at)
+                          measured_at: ((newStatus === 'measured' || newStatus === 'measurement_scheduled' || stampsMeasuredDate(order?.categories?.name, newStatus)) && !prev.measured_at)
                             ? today
                             : prev.measured_at,
                           installation_planned_date: (newStatus === 'delivery_scheduled' && !prev.installation_planned_date)

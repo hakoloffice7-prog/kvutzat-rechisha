@@ -98,3 +98,10 @@ export function isValidIsraeliPhone(raw: string | null | undefined) {
   if (d.startsWith('972')) d = '0' + d.slice(3)
   return /^0[57]\d{8}$/.test(d) || /^0[2-9]\d{7}$/.test(d)
 }
+
+// סורגים: כשההזמנה עוברת ל"נמדד" / "ממתין להצעת מחיר" / "מחכים לאישור" / "אישור" ואין תאריך מדידה —
+// נכנס אוטומטית תאריך היום (שעון מקומי)
+export const BARS_MEASURED_STATUSES = new Set(['measured', 'awaiting_quote', 'awaiting_approval', 'quoted'])
+export function stampsMeasuredDate(categoryName: string | null | undefined, status: string) {
+  return !!categoryName && categoryName.includes('סורג') && BARS_MEASURED_STATUSES.has(status)
+}
