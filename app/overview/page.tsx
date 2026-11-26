@@ -526,10 +526,11 @@ export default function OverviewPage() {
         return (!measuredFrom || d >= measuredFrom) && (!measuredTo || d <= measuredTo)
       })
     }
-    // סינון לפי תאריך עדכון אחרון של הדייר
+    // סינון לפי תאריך עדכון אחרון — המאוחר מבין עדכון הדייר ועדכון ההזמנה (סטטוס)
     if (updatedFrom || updatedTo) {
       result = result.filter((row) => {
-        const d = toLocalDateKey(row.resident.last_updated_at)
+        const latest = [row.resident.last_updated_at, row.order?.status_updated_at].filter(Boolean).sort().pop()
+        const d = toLocalDateKey(latest)
         if (!d) return false
         return (!updatedFrom || d >= updatedFrom) && (!updatedTo || d <= updatedTo)
       })
